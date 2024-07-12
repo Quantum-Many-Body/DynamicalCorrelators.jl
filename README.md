@@ -11,9 +11,8 @@
 - The bechmark of dynamical correlation functions and related observables is the result from exact diagonalization method based on the packages [`ExactDiagonalization`](https://github.com/Quantum-Many-Body/ExactDiagonalization.jl.git)
 
 
-## Tutorial
 
-### Installation
+## Installation
 
 Please type `]` in the REPL to use the package mode, then type this command:
 
@@ -21,6 +20,8 @@ Please type `]` in the REPL to use the package mode, then type this command:
 pkg> add DCorrelators
 ```
 *Currently unavailable*
+
+## Tutorial
 
 ### Quantum lattice
 *come soon*
