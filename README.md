@@ -1,6 +1,6 @@
 # DCorrelators.jl
 
- A convenient frontend for calculating dynamical correlation functions and related observables based on matrix-product states time evolution methods.
+*A convenient frontend for calculating dynamical correlation functions and related observables based on matrix-product states time evolution methods.*
 
 ## Introduction
 
@@ -10,17 +10,26 @@
 
 - The bechmark of dynamical correlation functions and related observables is the result from exact diagonalization method based on the packages [`ExactDiagonalization`](https://github.com/Quantum-Many-Body/ExactDiagonalization.jl.git)
 
-## Installation
+
+## Tutorial
+
+### Installation
 
 Please type `]` in the REPL to use the package mode, then type this command:
 
 ```julia
 pkg> add DCorrelators
 ```
+*Currently unavailable*
 
-## Getting Started
+### Quantum lattice
+*come soon*
 
-[Examples of calculating dynamical correlation functions and related observables for quantum lattice systems](@ref examples)
+### Hamiltonian
+*come soon*
+
+### Correlations
+*come soon*
 
 ## Note
 
