@@ -21,7 +21,7 @@ pkg> add DCorrelators
 ```
 *Currently unavailable*
 
-## Fourier transforms and Dynamical correlation functions
+## Dynamical correlation functions
 
 If the $x$ variable has only discrete values ($x=na$,for $n=1,2,3,...,N$) and finite length $L$ ($L=Na$), the expansion of the function is
 
