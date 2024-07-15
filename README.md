@@ -55,7 +55,7 @@ Although a Fourier series is designed to represent functions that are periodic, 
 
 By use of double Fourier transforms, one can obtain the $k-\omega$ space correlation function $G(k,\omega)$,
 
-$$G(k,\omega)=\frac{1}{(2\pi)^2}\Delta t\sum^{N_t}_{l=1}a\sum^{N_L}_{n=1}$$
+$$G(k,\omega)=\frac{1}{(2\pi)^2}\Delta t\sum_{l=1}^{N_t}$$
 
 
 
