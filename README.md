@@ -21,7 +21,7 @@ pkg> add DCorrelators
 ```
 *Currently unavailable*
 
-## Discrete space and time Fourier transforms
+## Fourier transforms and Dynamical correlation functions
 
 If the $x$ variable has only discrete values ($x=na$,for $n=1,2,3,...,N$) and finite length $L$ ($L=Na$), the expansion of the function is
 
@@ -49,7 +49,8 @@ $$A(\omega)=\frac{t_{\mathrm{end}}}{2\pi}A_{\omega}=\frac{\Delta t}{2\pi}\sum_{l
 
 Although a Fourier series is designed to represent functions that are periodic, one can assume that the finite data sequence can be periodically repeated, which leads to the time at index $l=N$ is identified with the time at $l=0$. However, the small errors made at the end of a period will be irrelevant as long as the primary correlations decay in less time than $t_{\mathrm{end}}$. 
 
-## Dynamical correlation functions
+### References
+- Wysin G M. Magnetic Excitations and Geometric Confinement[M]. Philadelphia, USA: IOP, 2015.
 
 
 ## Tutorial
