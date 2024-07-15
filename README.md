@@ -55,7 +55,7 @@ Although a Fourier series is designed to represent functions that are periodic, 
 
 By use of double Fourier transforms, one can obtain the $k-\omega$ space correlation function $G(k,\omega)$,
 
-$$G(k,\omega)$$
+$$G(k,\omega)=\frac{1}{(2\pi)^2}$$
 
 
 
