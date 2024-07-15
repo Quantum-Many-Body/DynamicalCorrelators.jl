@@ -21,7 +21,7 @@ pkg> add DCorrelators
 ```
 *Currently unavailable*
 
-## Discrete space an time Fourier transforms
+## Discrete space and time Fourier transforms
 
 If the $x$ variable has only discrete values ($x=na$,for $n=1,2,3,...,N$) and finite length $L$ ($L=Na$), the expansion of the function is
 
