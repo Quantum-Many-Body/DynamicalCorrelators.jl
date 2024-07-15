@@ -76,6 +76,7 @@ Here, the matrix-product states time evolution methods are implemented to solve 
 ### References
 - Wysin G M. Magnetic Excitations and Geometric Confinement[M]. Philadelphia, USA: IOP, 2015.
 
+- Paeckel S, Köhler T, Swoboda A, et al. Time-evolution methods for matrix-product states[J]. Annals of Physics, 2019, 411: 167998.
 
 ## Tutorial
 
