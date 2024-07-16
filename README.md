@@ -17,7 +17,7 @@
 Please type `]` in the REPL to use the package mode, then type this command:
 
 ```
-pkg>add  DCorrelators
+pkg>add DCorrelators
 ```
 
 *Currently unavailable*
