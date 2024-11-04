@@ -8,7 +8,7 @@ using SharedArrays
 
 import MPSKit: propagator
 
-export b_plus, b_min, fZ
+export b_plus, b_min, fZ, S_plus, S_min, S_z
 
 export add_single_util_leg, setprocs
 
