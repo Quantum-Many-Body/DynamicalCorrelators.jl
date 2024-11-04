@@ -68,6 +68,43 @@ function fZ(::Type{Tuple{U1Irrep, U1Irrep}}, elt, pspace, vspace)
     TensorMap(elt[-1 0 0 0; 0 -1 0 0; 0 0 1 0; 0 0 0 1], vspace*pspace, pspace*vspace)
 end
 
+function S_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
+    bp = b_plus(elt, U1Irrep, U1Irrep; side=side, spin=:up)
+    bm = b_min(elt, U1Irrep, U1Irrep; side=side, spin=:down)
+    if side == :L
+        iso = isomorphism(storagetype(bp), fuse(domain(bm)[2],domain(bp)[2]), domain(bm)[2]*domain(bp)[2])
+        @planar S⁺[-1; -2 -3] := bm[1; -2 2] * bp[-1; 1 3] * conj(iso[-3; 2 3])
+    elseif side == :R
+        iso = isomorphism(storagetype(bp), fuse(codomain(bm)[1],codomain(bp)[1]), codomain(bm)[1]*codomain(bp)[1])
+        @planar S⁺[-1 -2; -3] := iso[-1; 2 3] * bp[3 -2; 1] * bm[2 1; -3]
+    end
+    return S⁺
+end
+
+function S_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
+    bp = b_plus(elt, U1Irrep, U1Irrep; side=side, spin=:down)
+    bm = b_min(elt, U1Irrep, U1Irrep; side=side, spin=:up)
+    if side == :L
+        iso = isomorphism(storagetype(bp), fuse(domain(bm)[2],domain(bp)[2]), domain(bm)[2]*domain(bp)[2])
+        @planar S⁻[-1; -2 -3] := bm[1; -2 2] * bp[-1; 1 3] * conj(iso[-3; 2 3])
+    elseif side == :R
+        iso = isomorphism(storagetype(bp), fuse(codomain(bm)[1],codomain(bp)[1]), codomain(bm)[1]*codomain(bp)[1])
+        @planar S⁻[-1 -2; -3] := iso[-1; 2 3] * bp[3 -2; 1] * bm[2 1; -3]
+    end
+    return S⁻
+end
+
+function S_z(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep})
+    bpu = b_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up)
+    bmu = b_min(elt, U1Irrep, U1Irrep; side=:L, spin=:up)
+    bpd = b_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down)
+    bmd = b_min(elt, U1Irrep, U1Irrep; side=:L, spin=:down)
+    isou = isomorphism(storagetype(bpu), domain(bpu)[2], flip(domain(bpu)[2]))
+    isod = isomorphism(storagetype(bpd), domain(bpd)[2], flip(domain(bpd)[2]))
+    @planar Szu[-1; -2] := bpu[-1; 1 2] * isou[2; 3] * bmu[1; -2 3]
+    @planar Szd[-1; -2] := bpd[-1; 1 2] * isod[2; 3] * bmd[1; -2 3]
+    return (Szu - Szd)/2
+end
 
 # #===========================================================================================
 #     spin 1/2 fermions
