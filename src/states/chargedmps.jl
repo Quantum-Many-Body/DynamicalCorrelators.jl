@@ -1,3 +1,6 @@
+"""
+    chargedMPS(operator::TensorMap, state::FiniteMPS, site::Integer)
+"""
 function chargedMPS(operator::TensorMap, state::FiniteMPS, site::Integer)
     pspace = domain(operator)[1]
     if (length(domain(operator)) == 2)&&(length(codomain(operator)) == 1)
