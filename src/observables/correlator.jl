@@ -46,9 +46,9 @@ function dcorrelator(::Type{R}, H::MPOHamiltonian, groundenergy::Number, mps::Ve
     gf = SharedArray{ComplexF64, 3}(length(mps), half, length(0:dt:ft))
     @sync @distributed for i in 1:length(mps)
         if i <= half
-            gf[i,:,:] = Base.propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+            gf[i,:,:] = propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
         else
-            gf[i,:,:] = Base.propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+            gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
         end
     end
     return factor₁*gf[1:half,:,:] + factor₂*gf[(half+1):end,:,:]
