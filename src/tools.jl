@@ -7,7 +7,7 @@ function add_single_util_leg(tensor::AbstractTensorMap{S,N1,N2}) where {S,N1,N2}
         util = isomorphism(storagetype(tensor), domain(tensor), domain(tensor) * ou)
         fourlegtensor = tensor * util
     else 
-        throw(ArgumentError("invalid creation or annihilation operator"))
+        throw(ArgumentError("invalid operator, expected 3-leg tensor"))
     end
     return fourlegtensor
 end
