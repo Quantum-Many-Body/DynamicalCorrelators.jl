@@ -8,16 +8,18 @@ using SharedArrays
 
 import MPSKit: propagator
 
-export b_plus, b_min, fZ, S_plus, S_min, S_z
+export e_plus, e_min, fZ, S_plus, S_min, S_z, S_square, b_plus, b_min
+export chargedMPO
 
 export add_single_util_leg, setprocs
 
-export chargedMPS, nonchargedMPS
+export chargedMPS
 
 export propagator, dcorrelator
-export RetardedGF
+export RetardedGF, GreaterLessGF
 
 include("operators/fermions.jl")
+include("operators/MPO/chargedMPO.jl")
 include("tools.jl")
 include("states/chargedmps.jl")
 include("observables/correlator.jl")

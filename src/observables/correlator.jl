@@ -57,7 +57,7 @@ end
 
 struct GreaterLessGF end
 
-function dcorrelator(::Type{GreaterLessGF}, H::MPOHamiltonian, mps::Vector{<:FiniteMPS}; whichs=:both, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncdim(50))
+function dcorrelator(::Type{GreaterLessGF}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; whichs=:both, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncdim(50))
     t, half = collect(0:dt:ft), length(mps)÷2
     if whichs == :both
         gf = SharedArray{ComplexF64, 3}(length(mps), half, length(0:dt:ft))
@@ -75,8 +75,8 @@ function dcorrelator(::Type{GreaterLessGF}, H::MPOHamiltonian, mps::Vector{<:Fin
         end
         return [gf[1:half,:,:], gf[(half+1):end,:,:]]
     elseif whichs == :greater
-        gf = SharedArray{ComplexF64, 3}(half, half, length(0:dt:ft))
-        @sync @distributed for i in 1:half
+        gf = SharedArray{ComplexF64, 3}(length(mps), length(mps), length(0:dt:ft))
+        @sync @distributed for i in 1:length(mps)
             gf[i,:,:] = propagator(H, mps[1:end], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
         end
         for i in eachindex(t)
@@ -84,8 +84,8 @@ function dcorrelator(::Type{GreaterLessGF}, H::MPOHamiltonian, mps::Vector{<:Fin
         end
         return gf
     elseif whichs == :less
-        gf = SharedArray{ComplexF64, 3}(half, half, length(0:dt:ft))
-        @sync @distributed for i in 1:half
+        gf = SharedArray{ComplexF64, 3}(length(mps), length(mps), length(0:dt:ft))
+        @sync @distributed for i in 1:length(mps)
             gf[i,:,:] =  propagator(H, mps[1:end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
         end
         for i in eachindex(t)
