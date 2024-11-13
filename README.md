@@ -17,7 +17,7 @@
 Please type `]` in the REPL to use the package mode, then type this command:
 
 ```julia
-]dev "path/to/DCorrelators.jl"
+develop "path/to/DCorrelators.jl"
 ```
 
 ## Tutorial
