@@ -46,7 +46,7 @@ title = "Im<C_$i(t)C^†_$j(0)> step=$dt, finialtime=$ft"
 f = plot(collect(0:dt:ft),-imag.(pros), title=title, legend=false)
 savefig(f,"./src/example/$title.png")
 ```
-<img  src="./src/example/Im<C_1(dt)C^†_4(0)> step=0.05, finialtime=10.png"  width="600"  align="center" />
+<img  src="./src/example/Im<C_1(t)C^†_4(0)> step=0.05, finialtime=10.png"  width="600"  align="center" />
 
 ## Dynamical correlation functions
 
