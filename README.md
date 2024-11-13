@@ -1,3 +1,5 @@
+<img src="./docs/src/logo.png" width="150">
+
 # DCorrelators.jl
 
 *A convenient frontend for calculating dynamical correlation functions and related observables based on matrix-product states time evolution methods.*
