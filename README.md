@@ -119,3 +119,7 @@ Due to the fast development of this package, releases with different minor versi
 ## Contact
 
 zongyy_phy@smail.nju.edu.cn
+
+## Acknowledgments
+
+We thank Maartenvd, lkdvos for help discussions in https://github.com/QuantumKitHub/MPSKit.jl/issues/160#issue-2430771115, and thank Zhao-Long Gu for great help.
