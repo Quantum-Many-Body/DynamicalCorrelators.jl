@@ -1,4 +1,4 @@
-<img src="./docs/src/logo.png" width="300">
+<img src="./docs/src/logo.png" width="200">
 
 # DCorrelators.jl
 
