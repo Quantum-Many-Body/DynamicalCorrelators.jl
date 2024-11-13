@@ -25,7 +25,7 @@ pkg>add DCorrelators
 ## Tutorial
 ```julia
 # give filling = (a,b), where a=b indicates half-filling, a<b indicates hole-doping and a>b indicates electron-doping
-filling = (1,2)
+filling = (1,1)
 # give a hamiltonian
 H = hubbard(Float64, SU2Irrep, U1Irrep; filling=filling, t=1, U=8, μ=0)
 # give a N-site random initial state 
