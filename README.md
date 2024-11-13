@@ -17,11 +17,16 @@
 Please type `]` in the REPL to use the package mode, then type this command:
 
 ```julia
-develop "path/to/DCorrelators.jl"
+dev "path/to/DCorrelators.jl"
 ```
 
 ## Tutorial
 ```julia
+using TensorKit
+using MPSKit
+using DCorrelators
+using Plots
+
 # give filling = (a,b), where a=b indicates half-filling, a<b indicates hole-doping and a>b indicates electron-doping
 filling = (1,1)
 # give a hamiltonian
