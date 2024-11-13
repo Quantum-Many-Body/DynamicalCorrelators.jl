@@ -21,6 +21,6 @@ cgs₂ = chargedMPS(ep, gs, j)
 dt = 0.05
 ft = 10
 pros = propagator(H, cgs₁, cgs₂; rev=false, dt=dt, ft=ft)
-title = "Im<C_$i(dt)C^†_$j(0)> step=$dt, finialtime=$ft"
+title = "Im<C_$i(t)C^†_$j(0)> step=$dt, finialtime=$ft"
 f = plot(collect(0:dt:ft),-imag.(pros), title=title, legend=false)
 savefig(f,"./src/example/$title.png")
