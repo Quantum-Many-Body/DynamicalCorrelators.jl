@@ -1,8 +1,8 @@
 """
-    fZ(operator::TensorMap)
+    fZ(operator::AbstractTensorMap)
     braiding operator 
 """
-function fZ(operator::TensorMap)
+function fZ(operator::AbstractTensorMap)
     length(domain(operator))==2 ? vspace=domain(operator)[2] : length(codomain(operator))==2 ? vspace=codomain(operator)[1] : throw(ArgumentError("invalid creation or annihilation operator"))
     pspace = domain(operator)[1]
     iso₁ = isomorphism(storagetype(operator), vspace, vspace)
@@ -13,25 +13,26 @@ end
 
 #===========================================================================================
     spin 1/2 fermions
-    U(1) × U(1) fermions
+    fℤ₂ × U(1) × U(1) fermions
 ===========================================================================================#
 """
-    e_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, spin=:up)
-    U(1) × U(1) electron creation operator
+    e_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, spin=:up, filling=(1,1))
+    fℤ₂ × U(1) × U(1) electron creation operator
 """
-function e_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, spin=:up)
-    I = FermionParity ⊠ Irrep[U₁] ⊠ Irrep[U₁]
-    pspace = Vect[I]((1,-1,0)=>1, (1,1,0)=>1,  (0,0,1)=>1, (0,0,-1)=>1)
-    spin == :up ? vspace = Vect[I]((1,1,1) => 1) : spin == :down ? vspace = Vect[I]((1,-1,1) => 1) : throw(ArgumentError("only support spin 1/2 operators"))
+function e_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, spin=:up, filling=(1,1))
+    I = FermionParity ⊠ U1Irrep ⊠ U1Irrep
+    P, Q = filling
+    pspace = Vect[I]((0,0,-P)=>1, (0,0,2*Q-P)=>1, (1,1,Q-P)=>1, (1,-1,Q-P)=>1)
+    spin == :up ? vspace = Vect[I]((1,1,Q)=>1) : spin == :down ? vspace = Vect[I]((1,-1,Q)=>1) : throw(ArgumentError("only support spin 1/2 operators"))
     e⁺ = TensorMap(zeros, elt, pspace ← pspace ⊗ vspace)
     if (side == :L)&&(spin == :up)
-        blocks(e⁺)[I((1,1,0))] .= 1
-        blocks(e⁺)[I((0,0,1))] .= -1
+        blocks(e⁺)[I((1,1,Q-P))] .= 1
+        blocks(e⁺)[I((0,0,2*Q-P))] .= -1
     elseif (side == :L)&&(spin == :down)
-        blocks(e⁺)[I((1,-1,0))] .= 1
-        blocks(e⁺)[I((0,0,1))] .= 1
+        blocks(e⁺)[I((1,-1,Q-P))] .= 1
+        blocks(e⁺)[I((0,0,2*Q-P))] .= 1
     elseif side == :R
-        E = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=spin)
+        E = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=spin, filling=filling)
         F = isomorphism(storagetype(E), vspace, flip(vspace))
         @planar e⁺[-1 -2; -3] := E[-2; 1 2] * τ[1 2; 3 -3] * F[3; -1]
     end
@@ -40,20 +41,21 @@ end
 
 """
     e_min(particle_symmetry::Type{<:Sector}, spin_symmetry::Type{<:Sector}; kwargs...)
-    e_min(elt::Type{<:Number}, particle_symmetry::Type{U1Irrep}, spin_symmetry::Type{U1Irrep}; side=:L, spin=:up)
-    U(1) × U(1) electron annihilation operator
+    e_min(elt::Type{<:Number}, particle_symmetry::Type{U1Irrep}, spin_symmetry::Type{U1Irrep}; side=:L, spin=:up, filling=(1,1))
+    fℤ₂ × U(1) × U(1) electron annihilation operator
 """
 function e_min end
 function e_min(particle_symmetry::Type{<:Sector}, spin_symmetry::Type{<:Sector}; kwargs...)
     return e_min(ComplexF64, particle_symmetry, spin_symmetry; kwargs...)
 end
-function e_min(elt::Type{<:Number}, particle_symmetry::Type{U1Irrep}, spin_symmetry::Type{U1Irrep}; side=:L, spin=:up)
+function e_min(elt::Type{<:Number}, particle_symmetry::Type{U1Irrep}, spin_symmetry::Type{U1Irrep}; side=:L, spin=:up, filling=(1,1))
     if side === :L
-        E = e_plus(elt, particle_symmetry, spin_symmetry; side=:L, spin=spin)'
+        E = e_plus(elt, particle_symmetry, spin_symmetry; side=:L, spin=spin, filling=filling)'
         F = isomorphism(storagetype(E), flip(space(E, 2)), space(E, 2))
         @planar e⁻[-1; -2 -3] := E[-1 1; -2] * F[-3; 1]
     elseif side === :R
-        e⁻ = permute(e_plus(elt, particle_symmetry, spin_symmetry; side=:L, spin=spin)', ((2, 1), (3,)))
+        e⁻ = permute(e_plus(elt, particle_symmetry, spin_symmetry; side=:L, spin=spin, filling=filling)',
+                    ((2, 1), (3,)))
     else
         throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
     end
@@ -61,12 +63,40 @@ function e_min(elt::Type{<:Number}, particle_symmetry::Type{U1Irrep}, spin_symme
 end
 
 """
-    S_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
-    U(1) × U(1) S⁺ operator
+    number(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling=(1,1))
+    fℤ₂ × U(1) × U(1) particle number operator
 """
-function S_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
-    cp = e_plus(elt, U1Irrep, U1Irrep; side=side, spin=:up)
-    cm = e_min(elt, U1Irrep, U1Irrep; side=side, spin=:down)
+function number(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling=(1,1))
+    I = FermionParity ⊠ U1Irrep ⊠ U1Irrep
+    P, Q = filling
+    pspace = Vect[I]((0,0,-P)=>1, (0,0,2*Q-P)=>1, (1,1,Q-P)=>1, (1,-1,Q-P)=>1)
+    n = TensorMap(zeros, elt, pspace ← pspace)
+    blocks(n)[I((0,0,2*Q-P))] .= 2
+    blocks(n)[I((1,1,Q-P))] .= 1
+    blocks(n)[I((1,-1,Q-P))] .= 1
+    return n
+end
+
+"""
+    onsiteCoulomb(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling=(1,1))
+    fℤ₂ × U(1) × U(1) onsite Coulomb interaction operator
+"""
+function onsiteCoulomb(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling=(1,1))
+    I = FermionParity ⊠ U1Irrep ⊠ U1Irrep
+    P, Q = filling
+    pspace = Vect[I]((0,0,-P)=>1, (0,0,2*Q-P)=>1, (1,1,Q-P)=>1, (1,-1,Q-P)=>1)
+    onsite = TensorMap(zeros, elt, pspace ← pspace)
+    blocks(onsite)[I((0,0,2*Q-P))] .= 1
+    return onsite
+end
+
+"""
+    S_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, filling=(1,1))
+    fℤ₂ × U(1) × U(1) S⁺ operator
+"""
+function S_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, filling=(1,1))
+    cp = e_plus(elt, U1Irrep, U1Irrep; side=side, spin=:up, filling=filling)
+    cm = e_min(elt, U1Irrep, U1Irrep; side=side, spin=:down, filling=filling)
     if side == :L
         iso = isomorphism(storagetype(cp), fuse(domain(cm)[2],domain(cp)[2]), domain(cm)[2]*domain(cp)[2])
         @planar S⁺[-1; -2 -3] := cm[1; -2 2] * cp[-1; 1 3] * conj(iso[-3; 2 3])
@@ -78,12 +108,12 @@ function S_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
 end
 
 """
-    S_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
-    U(1) × U(1) S⁻ operator
+    S_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, filling=(1,1))
+    fℤ₂ × U(1) × U(1) S⁻ operator
 """
-function S_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
-    cp = e_plus(elt, U1Irrep, U1Irrep; side=side, spin=:down)
-    cm = e_min(elt, U1Irrep, U1Irrep; side=side, spin=:up)
+function S_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, filling=(1,1))
+    cp = e_plus(elt, U1Irrep, U1Irrep; side=side, spin=:down, filling=filling)
+    cm = e_min(elt, U1Irrep, U1Irrep; side=side, spin=:up, filling=filling)
     if side == :L
         iso = isomorphism(storagetype(cp), fuse(domain(cm)[2],domain(cp)[2]), domain(cm)[2]*domain(cp)[2])
         @planar S⁻[-1; -2 -3] := cm[1; -2 2] * cp[-1; 1 3] * conj(iso[-3; 2 3])
@@ -95,14 +125,14 @@ function S_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
 end
 
 """
-    S_z(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep})
-    U(1) × U(1) Sᶻ operator
+    S_z(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling=(1,1))
+    fℤ₂ × U(1) × U(1) Sᶻ operator
 """
-function S_z(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep})
-    cpu = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up)
-    cmu = e_min(elt, U1Irrep, U1Irrep; side=:L, spin=:up)
-    cpd = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down)
-    cmd = e_min(elt, U1Irrep, U1Irrep; side=:L, spin=:down)
+function S_z(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling=(1,1))
+    cpu = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
+    cmu = e_min(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
+    cpd = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
+    cmd = e_min(elt, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
     isou = isomorphism(storagetype(cpu), domain(cpu)[2], flip(domain(cpu)[2]))
     isod = isomorphism(storagetype(cpd), domain(cpd)[2], flip(domain(cpd)[2]))
     @planar Szu[-1; -2] := cpu[-1; 1 2] * isou[2; 3] * cmu[1; -2 3]
@@ -113,38 +143,40 @@ end
 
 #===========================================================================================
     spin 1/2 fermions
-    SU(2) × U(1) fermions
+    fℤ₂ × SU(2) × U(1) fermions
 ===========================================================================================#
 """
-    e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L)
-    SU(2) × U(1) electron creation operator
+    e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L, filling=filling)
+    fℤ₂ × SU(2) × U(1) electron creation operator
 """
-function e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L)
+function e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L, filling=filling)
     I = FermionParity ⊠ SU2Irrep ⊠ U1Irrep
-    pspace = Vect[I]((0,0,-1)=>1, (1,1//2,0)=>1, (0,0,1)=>1)
-    vspace = Vect[I]((1,1//2, 1) => 1)
+    P, Q = filling
+    pspace = Vect[I]((0,0,-P)=>1, (1,1//2,Q-P)=>1, (0,0,2*Q-P)=>1)
+    vspace = Vect[I]((1,1//2,Q)=>1)
     if side == :L
         e⁺ = TensorMap(zeros, elt, pspace ← pspace ⊗ vspace)
-        blocks(e⁺)[I(0,0,1)] .= sqrt(2)
-        blocks(e⁺)[I(1,1//2,0)] .= 1
+        blocks(e⁺)[I(0,0,2*Q-P)] .= sqrt(2)
+        blocks(e⁺)[I(1,1//2,Q-P)] .= 1
     elseif side == :R
-        E = e_plus(elt, SU2Irrep, U1Irrep; side=:L)
+        E = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
         F = isomorphism(storagetype(E), vspace, flip(vspace))
         @planar e⁺[-1 -2; -3] := E[-2; 1 2] * τ[1 2; 3 -3] * F[3; -1]
     end
     return e⁺
 end
 """
-    e_min(elt::Type{<:Number}, particle_symmetry::Type{SU2Irrep}, spin_symmetry::Type{U1Irrep}; side=:L)
-    SU(2) × U(1) electron annihilation operator
+    e_min(elt::Type{<:Number}, particle_symmetry::Type{SU2Irrep}, spin_symmetry::Type{U1Irrep}; side=:L, filling=(1,1))
+    fℤ₂ × SU(2) × U(1) electron annihilation operator
 """
-function e_min(elt::Type{<:Number}, particle_symmetry::Type{SU2Irrep}, spin_symmetry::Type{U1Irrep}; side=:L)
+function e_min(elt::Type{<:Number}, particle_symmetry::Type{SU2Irrep}, spin_symmetry::Type{U1Irrep}; side=:L, filling=(1,1))
     if side === :L
-        E = e_plus(elt, particle_symmetry, spin_symmetry; side=:L)'
+        E = e_plus(elt, particle_symmetry, spin_symmetry; side=:L, filling=filling)'
         F = isomorphism(storagetype(E), flip(space(E, 2)), space(E, 2))
         @planar e⁻[-1; -2 -3] := E[-1 1; -2] * F[-3; 1]
     elseif side === :R
-        e⁻ = permute(e_plus(elt, particle_symmetry, spin_symmetry; side=:L)', ((2, 1), (3,)))
+        e⁻ = permute(e_plus(elt, particle_symmetry, spin_symmetry; side=:L, filling=filling)',
+                    ((2, 1), (3,)))
     else
         throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
     end
@@ -152,69 +184,95 @@ function e_min(elt::Type{<:Number}, particle_symmetry::Type{SU2Irrep}, spin_symm
 end
 
 """
+    number(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling=(1,1))
+    fℤ₂ × SU(2) × U(1) particle number operator
+"""
+function number(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling=(1,1))
+    I = FermionParity ⊠ SU2Irrep ⊠ U1Irrep
+    P, Q = filling
+    pspace = Vect[I]((0,0,-P)=>1, (1,1//2,Q-P)=>1, (0,0,2*Q-P)=>1)
+    n = TensorMap(zeros, elt, pspace ← pspace)
+    blocks(n)[I((0,0,2*Q-P))] .= 2
+    blocks(n)[I((1,1//2,Q-P))] .= 1
+    return n
+end
+
+"""
+    onsiteCoulomb(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling=(1,1))
+    fℤ₂ × SU(2) × U(1) onsite Coulomb interaction operator
+"""
+function onsiteCoulomb(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling=(1,1))
+    I = FermionParity ⊠ SU2Irrep ⊠ U1Irrep
+    P, Q = filling
+    pspace = Vect[I]((0,0,-P)=>1, (1,1//2,Q-P)=>1, (0,0,2*Q-P)=>1)
+    onsite = TensorMap(zeros, elt, pspace ← pspace)
+    blocks(onsite)[I((0,0,2*Q-P))] .= 1
+    return onsite
+end
+
+"""
     S_plus(particle_symmetry::Type{<:Sector}, spin_symmetry::Type{<:Sector}; kwargs...)
     S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L)
-    SU(2) × U(1) spin operator (-S⁺/√2, Sᶻ, S⁻/√2)
+    fℤ₂ × SU(2) × U(1) spin operator (-S⁺/√2, Sᶻ, S⁻/√2)
 """
 function S_plus end
 function S_plus(particle_symmetry::Type{<:Sector}, spin_symmetry::Type{<:Sector}; kwargs...)
     return S_plus(ComplexF64, particle_symmetry, spin_symmetry; kwargs...)
 end
-function S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L)
+function S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L, filling=(1,1))
     I = FermionParity ⊠ SU2Irrep ⊠ U1Irrep
-    pspace = Vect[I]((0,0,-1) => 1, (1,1//2,0) => 1, (0,0,1) => 1)
-    vspace = Vect[I]((0,1,0) => 1)
+    P, Q = filling
+    pspace =Vect[I]((0,0,-P)=>1, (1,1//2,Q-P)=>1, (0,0,2*Q-P)=>1)
+    vspace = Vect[I]((0,1,0)=>1)
     if side == :L
-        Sₜ⁺ = TensorMap(zeros, elt, pspace ← pspace ⊗ vspace)
-        blocks(Sₜ⁺)[I(1,1//2,0)] .= sqrt(3)/2
+        Sₑ⁺ = TensorMap(zeros, elt, pspace ← pspace ⊗ vspace)
+        blocks(Sₑ⁺)[I(1,1//2,1)] .= sqrt(3)/2
     elseif side == :R
-        S = S_plus(elt, SU2Irrep, U1Irrep; side=:L)
+        S = S_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
         F = isomorphism(storagetype(S), vspace, flip(vspace))
-        @planar Sₜ⁺[-1 -2; -3] := S[-2; 1 2] * τ[1 2; 3 -3] * F[3; -1]
+        @planar Sₑ⁺[-1 -2; -3] := S[-2; 1 2] * τ[1 2; 3 -3] * F[3; -1]
     else
         throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
     end
-    return Sₜ⁺
+    return Sₑ⁺
 end
-
 
 """
     S_min(particle_symmetry::Type{<:Sector}, spin_symmetry::Type{<:Sector}; kwargs...)
     S_min(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L)
-    SU(2) × U(1) spin operator (-S⁻/√2, Sᶻ, S⁺/√2)
+    fℤ₂ × SU(2) × U(1) spin operator (-S⁻/√2, Sᶻ, S⁺/√2)
 """
 function S_min end
 function S_min(particle_symmetry::Type{<:Sector}, spin_symmetry::Type{<:Sector}; kwargs...)
     return S_min(ComplexF64, particle_symmetry, spin_symmetry; kwargs...)
 end
-function S_min(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L)
+function S_min(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L, filling=(1,1))
     if side === :L
-        S = S_plus(elt, SU2Irrep, U1Irrep; side=:L)'
+        S = S_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)'
         F = isomorphism(storagetype(S), flip(space(S, 2)), space(S, 2))
-        @planar Sₜ⁻[-1; -2 -3] := S[-1 1; -2] * F[-3; 1]
+        @planar Sₑ⁻[-1; -2 -3] := S[-1 1; -2] * F[-3; 1]
     elseif side === :R
-        Sₜ⁻ = permute(S_plus(elt, SU2Irrep, U1Irrep; side=:L)', ((2, 1), (3,)))
+        Sₑ⁻ = permute(S_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)', ((2, 1), (3,)))
     else
         throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
     end
-    return Sₜ⁻
+    return Sₑ⁻
 end
-
 
 """
     S_square(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep})
 """
-function S_square(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep})
-    pspace = Vect[fℤ₂ ⊠ SU2Irrep ⊠ U1Irrep]((0,0,-1) => 1, (1,1//2,0) => 1, (0,0,1) => 1)
+function S_square(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling=filling)
+    I = FermionParity ⊠ SU2Irrep ⊠ U1Irrep
+    P, Q = filling
+    pspace =Vect[I]((0,0,-P)=>1, (1,1//2,Q-P)=>1, (0,0,2*Q-P)=>1)
     S2 = TensorMap(zeros, elt, pspace ← pspace)
-    blocks(S2)[fℤ₂(1) ⊠ SU2Irrep(1//2) ⊠ U1Irrep(0)] .= 3/4
+    blocks(S2)[I((1,1//2,Q-P))] .= 3/4
     return S2
 end
 
 
-
-"""
-===========================================================================================
+#==========================================================================================
     spin 1/2 fermions (realized by hard-core bosons and Jordan-Wigner transformation)
     include U(1) × U(1) fermions, 
     especially, for U(1)×U(1) fermions, there are
@@ -222,10 +280,10 @@ end
             c_↑    L: a_↑ ⊗ Z_↓           R: a_↑
             c^†_↓  L: a^†_↓               R: Z_↑ ⊗ a^†_↓ == a^†_↓
             c_↓    L: a_↓                 R: Z_↑ ⊗ a_↓
-===========================================================================================
-"""
+==========================================================================================#
+
 function b_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, spin=:up)
-    I = Irrep[U₁] ⊠ Irrep[U₁]
+    I = U1Irrep ⊠ U1Irrep
     pspace, vuspace, vdspace = Vect[(I)]((-1,0)=>1, (1,0)=>1,  (0,1)=>1, (0,-1)=>1), Vect[I]((1,1)=>1), Vect[I]((-1,1)=>1)
     if spin == :up
         if side == :L
@@ -249,8 +307,8 @@ end
 b_plus(reps, side, spin) = b_plus(reps[1], reps[2], reps[3]; side=side, spin=spin)
 
 function b_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, spin=:up)
-    I = Irrep[U₁] ⊠ Irrep[U₁]
-    pspace, vuspace, vdspace = Vect[(I)]((-1,0)=>1, (1,0)=>1,  (0,1)=>1, (0,-1)=>1), Vect[I]((1,1)=>1), Vect[I]((-1,1)=>1)
+    I = U1Irrep ⊠ U1Irrep
+    pspace, vuspace, vdspace = Vect[(I)]((-1,0)=>1, (1,0)=>1, (0,1)=>1, (0,-1)=>1), Vect[I]((1,1)=>1), Vect[I]((-1,1)=>1)
     if spin == :up
         if side == :L
             b⁻ = TensorMap(zeros, elt, pspace ← pspace ⊗ flip(vuspace)')
@@ -274,41 +332,41 @@ b_min(reps, side, spin) = b_min(reps[1], reps[2], reps[3]; side=side, spin=spin)
 
 
 
-# function S_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
-#     bp = b_plus(elt, U1Irrep, U1Irrep; side=side, spin=:up)
-#     bm = b_min(elt, U1Irrep, U1Irrep; side=side, spin=:down)
-#     if side == :L
-#         iso = isomorphism(storagetype(bp), fuse(domain(bm)[2],domain(bp)[2]), domain(bm)[2]*domain(bp)[2])
-#         @planar S⁺[-1; -2 -3] := bm[1; -2 2] * bp[-1; 1 3] * conj(iso[-3; 2 3])
-#     elseif side == :R
-#         iso = isomorphism(storagetype(bp), fuse(codomain(bm)[1],codomain(bp)[1]), codomain(bm)[1]*codomain(bp)[1])
-#         @planar S⁺[-1 -2; -3] := iso[-1; 2 3] * bp[3 -2; 1] * bm[2 1; -3]
-#     end
-#     return S⁺
-# end
+function Sb_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
+    bp = b_plus(elt, U1Irrep, U1Irrep; side=side, spin=:up)
+    bm = b_min(elt, U1Irrep, U1Irrep; side=side, spin=:down)
+    if side == :L
+        iso = isomorphism(storagetype(bp), fuse(domain(bm)[2],domain(bp)[2]), domain(bm)[2]*domain(bp)[2])
+        @planar S⁺[-1; -2 -3] := bm[1; -2 2] * bp[-1; 1 3] * conj(iso[-3; 2 3])
+    elseif side == :R
+        iso = isomorphism(storagetype(bp), fuse(codomain(bm)[1],codomain(bp)[1]), codomain(bm)[1]*codomain(bp)[1])
+        @planar S⁺[-1 -2; -3] := iso[-1; 2 3] * bp[3 -2; 1] * bm[2 1; -3]
+    end
+    return S⁺
+end
 
-# function S_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
-#     bp = b_plus(elt, U1Irrep, U1Irrep; side=side, spin=:down)
-#     bm = b_min(elt, U1Irrep, U1Irrep; side=side, spin=:up)
-#     if side == :L
-#         iso = isomorphism(storagetype(bp), fuse(domain(bm)[2],domain(bp)[2]), domain(bm)[2]*domain(bp)[2])
-#         @planar S⁻[-1; -2 -3] := bm[1; -2 2] * bp[-1; 1 3] * conj(iso[-3; 2 3])
-#     elseif side == :R
-#         iso = isomorphism(storagetype(bp), fuse(codomain(bm)[1],codomain(bp)[1]), codomain(bm)[1]*codomain(bp)[1])
-#         @planar S⁻[-1 -2; -3] := iso[-1; 2 3] * bp[3 -2; 1] * bm[2 1; -3]
-#     end
-#     return S⁻
-# end
+function Sb_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
+    bp = b_plus(elt, U1Irrep, U1Irrep; side=side, spin=:down)
+    bm = b_min(elt, U1Irrep, U1Irrep; side=side, spin=:up)
+    if side == :L
+        iso = isomorphism(storagetype(bp), fuse(domain(bm)[2],domain(bp)[2]), domain(bm)[2]*domain(bp)[2])
+        @planar S⁻[-1; -2 -3] := bm[1; -2 2] * bp[-1; 1 3] * conj(iso[-3; 2 3])
+    elseif side == :R
+        iso = isomorphism(storagetype(bp), fuse(codomain(bm)[1],codomain(bp)[1]), codomain(bm)[1]*codomain(bp)[1])
+        @planar S⁻[-1 -2; -3] := iso[-1; 2 3] * bp[3 -2; 1] * bm[2 1; -3]
+    end
+    return S⁻
+end
 
-# function S_z(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep})
-#     bpu = b_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up)
-#     bmu = b_min(elt, U1Irrep, U1Irrep; side=:L, spin=:up)
-#     bpd = b_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down)
-#     bmd = b_min(elt, U1Irrep, U1Irrep; side=:L, spin=:down)
-#     isou = isomorphism(storagetype(bpu), domain(bpu)[2], flip(domain(bpu)[2]))
-#     isod = isomorphism(storagetype(bpd), domain(bpd)[2], flip(domain(bpd)[2]))
-#     @planar Szu[-1; -2] := bpu[-1; 1 2] * isou[2; 3] * bmu[1; -2 3]
-#     @planar Szd[-1; -2] := bpd[-1; 1 2] * isod[2; 3] * bmd[1; -2 3]
-#     return (Szu - Szd)/2
-# end
+function Sb_z(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep})
+    bpu = b_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up)
+    bmu = b_min(elt, U1Irrep, U1Irrep; side=:L, spin=:up)
+    bpd = b_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down)
+    bmd = b_min(elt, U1Irrep, U1Irrep; side=:L, spin=:down)
+    isou = isomorphism(storagetype(bpu), domain(bpu)[2], flip(domain(bpu)[2]))
+    isod = isomorphism(storagetype(bpd), domain(bpd)[2], flip(domain(bpd)[2]))
+    @planar Szu[-1; -2] := bpu[-1; 1 2] * isou[2; 3] * bmu[1; -2 3]
+    @planar Szd[-1; -2] := bpd[-1; 1 2] * isod[2; 3] * bmd[1; -2 3]
+    return (Szu - Szd)/2
+end
 

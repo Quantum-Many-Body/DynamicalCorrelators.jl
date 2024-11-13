@@ -1,7 +1,7 @@
 """
-    chargedMPO(operator::TensorMap, site::Integer, nsites::Integer)
+    chargedMPO(operator::AbstractTensorMap, site::Integer, nsites::Integer)
 """
-function chargedMPO(operator::TensorMap, site::Integer, nsites::Integer)
+function chargedMPO(operator::AbstractTensorMap, site::Integer, nsites::Integer)
     Z, pspace = fZ(operator), domain(operator)[1]
     if (length(domain(operator)) == 2)&&(length(codomain(operator)) == 1)
         vspace = domain(operator)[2]
