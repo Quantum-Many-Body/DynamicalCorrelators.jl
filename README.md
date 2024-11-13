@@ -16,7 +16,7 @@
 
 Please type `]` in the REPL to use the package mode, then type this command:
 
-```
+```julia
 pkg>add DCorrelators
 ```
 
@@ -84,15 +84,30 @@ Here, the matrix-product states time evolution methods are implemented to solve 
 - Paeckel S, Köhler T, Swoboda A, et al. Time-evolution methods for matrix-product states[J]. Annals of Physics, 2019, 411: 167998.
 
 ## Tutorial
-
-### Quantum lattice
-*come soon*
-
-### Hamiltonian
-*come soon*
-
-### Correlations
-*come soon*
+```julia
+# give filling = (a,b), where a=b indicates half-filling, a<b indicates hole-doping and a>b indicates electron-doping
+filling = (1,2)
+# give a hamiltonian
+H = hubbard(Float64, SU2Irrep, U1Irrep; filling=filling, t=1, U=8, μ=0)
+# give a N-site random initial state 
+N=4
+st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling=filling)
+# find the ground state
+gs,envs,delta = find_groundstate(st, H, DMRG2(trscheme= truncbelow(1e-6)));
+# obtain c^†_1|GS> and c^†_4|GS> 
+ep =  e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
+i, j = 1, 4
+cgs₁ = chargedMPS(ep, gs, i)
+cgs₂ = chargedMPS(ep, gs, j)
+#calculate the propagator: <GS|c_1(t)c^†_4|GS>
+dt = 0.05
+ft = 10
+pros = propagator(H, cgs₁, cgs₂; rev=false, dt=dt, ft=ft)
+title = "Im<C_$i(dt)C^†_$j(0)> step=$dt, finialtime=$ft"
+f = plot(collect(0:dt:ft),-imag.(pros), title=title, legend=false)
+savefig(f,"./src/example/$title.png")
+```
+<img  src="./src/example/Im<C_1(dt)C^†_4(0)> step=0.05, finialtime=10.png"  width="600"  align="center" />
 
 ## Note
 
