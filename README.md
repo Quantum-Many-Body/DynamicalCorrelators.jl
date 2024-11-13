@@ -118,7 +118,8 @@ Due to the fast development of this package, releases with different minor versi
 
 ## Contact
 
-ZongYongyue: zongyy_phy@smail.nju.edu.cn
+Y.-Y.Zong: zongyy_phy@smail.nju.edu.cn
+
 Jason: wavefuncion@gmail.com
 
 ## Acknowledgments
