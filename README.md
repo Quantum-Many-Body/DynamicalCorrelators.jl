@@ -17,10 +17,8 @@
 Please type `]` in the REPL to use the package mode, then type this command:
 
 ```julia
-pkg>add DCorrelators
+]dev "path/to/DCorrelators.jl"
 ```
-
-*Currently unavailable*
 
 ## Tutorial
 ```julia
