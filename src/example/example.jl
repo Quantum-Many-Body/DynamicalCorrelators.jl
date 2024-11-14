@@ -3,21 +3,26 @@ using MPSKit
 using DCorrelators
 using Plots
 
-# give filling = (a,b), where a=b indicates half-filling, a<b indicates hole-doping and a>b indicates electron-doping
+# give filling = (a,b), where a=b is half-filling, a<b is h-doping and a>b is e-doping
 filling = (1,1)
+
 # give a hamiltonian
 H = hubbard(Float64, SU2Irrep, U1Irrep; filling=filling, t=1, U=8, μ=0)
+
 # give a N-site random initial state 
 N=4
 st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling=filling)
+
 #find the ground state |gs> 
-gs,envs,delta = find_groundstate(st, H, DMRG2(trscheme= truncbelow(1e-6)));
+gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme= truncbelow(1e-6)));
+
 #obtain c^†_1|gs> and c^†_4|gs> 
 ep =  e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
 i, j = 1, 4
 cgs₁ = chargedMPS(ep, gs, i)
 cgs₂ = chargedMPS(ep, gs, j)
-#calculate the propagator: <gs|c_1(t)c^†_4|gs>
+
+#calculate the propagator: <gs|c_1(t)c^†_4|gs> (i.e. <gs|c_1(0)e^{-iHt}c^†_4|gs>)
 dt = 0.05
 ft = 10
 pros = propagator(H, cgs₁, cgs₂; rev=false, dt=dt, ft=ft)
