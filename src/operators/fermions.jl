@@ -226,7 +226,7 @@ function S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L,
     vspace = Vect[I]((0,1,0)=>1)
     if side == :L
         Sₑ⁺ = TensorMap(zeros, elt, pspace ← pspace ⊗ vspace)
-        blocks(Sₑ⁺)[I(1,1//2,1)] .= sqrt(3)/2
+        blocks(Sₑ⁺)[I(1,1//2,Q-P)] .= sqrt(3)/2
     elseif side == :R
         S = S_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
         F = isomorphism(storagetype(S), vspace, flip(vspace))
