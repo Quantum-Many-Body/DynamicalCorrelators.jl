@@ -27,7 +27,6 @@ dev "path/to/DCorrelators.jl"
 using TensorKit
 using MPSKit
 using DCorrelators
-using Plots
 
 # give filling = (a,b), where a=b is half-filling, a<b is h-doping and a>b is e-doping
 filling = (1,1)
@@ -52,11 +51,29 @@ cgs₂ = chargedMPS(ep, gs, j)
 dt = 0.05
 ft = 10
 pros = propagator(H, cgs₁, cgs₂; rev=false, dt=dt, ft=ft)
-title = "Im<C_$i(t)C^†_$j(0)> step=$dt, finialtime=$ft"
-f = plot(collect(0:dt:ft),-imag.(pros), title=title, legend=false)
-savefig(f,"./src/example/$title.png")
 ```
 <img  src="./src/example/Im<C_1(t)C^†_4(0)> step=0.05, finialtime=10.png"  width="600"  align="center" />
+
+```julia
+#calculate ground state energy
+E0 = expectation_value(gs, H)
+
+#give the creation and annihilation operators
+cp =  e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
+cm =  e_min(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
+sp =  S_plus(Float64, SU2Irrep, U1Irrep; filling=filling)
+
+#calculate the dynamical single-particle correlation function 
+edc = dcorrelator(RetardedGF{:f}, H, E0, [[chargedMPS(cp, gs, i) for i in 1:48]; [chargedMPS(cm, gs, i) for i in 1:48]]; trscheme=truncdim(200), n=n, dt=dt, ft=ft)
+
+#calculate the dynamical two-particle spin-spin correlation function 
+sdc = dcorrelator(GreaterLessGF, H, E0, [chargedMPS(sp, gs, i) for i in 1:48]; whichs=:greater, trscheme=truncdim(200), n=n, dt=dt, ft=ft)
+```
+After Fourier transforms, we can obtain their spectral functions:
+<img  src="./src/example/electron_spectrum_t=1_U=8_dt=0.05_ft=20_D=200_Gaussian_0.01.png"  width="600"  align="center" />
+for the electron spectrum, and
+<img  src="./src/example/spin_spectrum_t=1_U=8_dt=0.1_ft=50_D=200_Gaussian_0.0025.png"  width="600"  align="center" />
+for the spin-spin spectrum.
 
 ## Dynamical correlation functions
 
@@ -125,8 +142,7 @@ Due to the fast development of this package, releases with different minor versi
 
 ## Contact
 
-Y.-Y.Zong: zongyy_phy@smail.nju.edu.cn
-
+Y.-Y.Zong: zongyy_phy@smail.nju.edu.cn;
 Jason: wavefuncion@gmail.com
 
 ## Acknowledgments
