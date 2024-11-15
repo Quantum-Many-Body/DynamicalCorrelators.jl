@@ -1,7 +1,6 @@
 using TensorKit
 using MPSKit
 using DCorrelators
-using Plots
 
 # give filling = (a,b), where a=b is half-filling, a<b is h-doping and a>b is e-doping
 filling = (1,1)
@@ -26,6 +25,17 @@ cgs₂ = chargedMPS(ep, gs, j)
 dt = 0.05
 ft = 10
 pros = propagator(H, cgs₁, cgs₂; rev=false, dt=dt, ft=ft)
-title = "Im<C_$i(t)C^†_$j(0)> step=$dt, finialtime=$ft"
-f = plot(collect(0:dt:ft),-imag.(pros), title=title, legend=false)
-savefig(f,"./src/example/$title.png")
+
+#calculate ground state energy
+E0 = expectation_value(gs, H)
+
+#give the creation and annihilation operators
+cp =  e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
+cm =  e_min(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
+sp =  S_plus(Float64, SU2Irrep, U1Irrep; filling=filling)
+
+#calculate the dynamical single-particle correlation function 
+edc = dcorrelator(RetardedGF{:f}, H, E0, [[chargedMPS(cp, gs, i) for i in 1:48]; [chargedMPS(cm, gs, i) for i in 1:48]]; trscheme=truncdim(200), n=n, dt=dt, ft=ft)
+
+#calculate the dynamical two-particle spin-spin correlation function 
+sdc = dcorrelator(GreaterLessGF, H, E0, [chargedMPS(sp, gs, i) for i in 1:48]; whichs=:greater, trscheme=truncdim(200), n=n, dt=dt, ft=ft)
