@@ -70,9 +70,13 @@ edc = dcorrelator(RetardedGF{:f}, H, E0, [[chargedMPS(cp, gs, i) for i in 1:48];
 sdc = dcorrelator(GreaterLessGF, H, E0, [chargedMPS(sp, gs, i) for i in 1:48]; whichs=:greater, trscheme=truncdim(200), n=n, dt=dt, ft=ft)
 ```
 After Fourier transforms, we can obtain their spectral functions:
+
 <img  src="./src/example/electron_spectrum_t=1_U=8_dt=0.05_ft=20_D=200_Gaussian_0.01.png"  width="600"  align="center" />
+
 for the electron spectrum, and
+
 <img  src="./src/example/spin_spectrum_t=1_U=8_dt=0.1_ft=50_D=200_Gaussian_0.0025.png"  width="600"  align="center" />
+
 for the spin-spin spectrum.
 
 ## Dynamical correlation functions
