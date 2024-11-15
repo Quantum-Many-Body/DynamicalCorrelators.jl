@@ -146,7 +146,7 @@ Due to the fast development of this package, releases with different minor versi
 
 ## Contact
 
-Y.-Y.Zong: zongyy_phy@smail.nju.edu.cn;
+Y.-Y.Zong: zongyongyue@gmail.com;
 Jason: wavefuncion@gmail.com
 
 ## Acknowledgments
