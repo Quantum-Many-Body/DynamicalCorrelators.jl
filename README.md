@@ -23,6 +23,52 @@ dev "path/to/DCorrelators.jl"
 ```
 
 ## Tutorial
+
+Constuct a lattice by [`QuantumLattices`](https://github.com/Quantum-Many-Body/QuantumLattices.jl.git):
+```julia
+using QuantumLattices
+#define the unitcell
+unitcell = Lattice([0.0, 0.0]; vectors=[[1/2, √3/2], [1, 0]])
+#give the length and width of the lattice and give the boundary condition where 'o' is open and 'p' is periodic
+lattice = Lattice(unitcell, (2, 2), ('o', 'o'))
+f = plot(lattice,1; siteon=true)
+
+```
+
+<img  src="./src/example/triangularlattice.png"  width="400"  align="center" />
+
+With the help of [`QuantumLattices`](https://github.com/Quantum-Many-Body/QuantumLattices.jl.git), constructing the lattice of a realistic system allows for the convenient inclusion of terms in the Hamiltonian for arbitrary neighbors, without the need to construct different types of lattices and define their neighbor relations case by case:
+
+```julia
+using TensorKit
+using MPSKit
+using DCorrelators
+using Plots
+#define the hilbert space
+hilbert = Hilbert(site=>Fock{:f}(1, 2) for site=1:length(lattice))
+
+#give the terms in the Hamiltonian
+t = Hopping(:t, -1.0, 1)
+U = Hubbard(:U, 8.0)
+
+#construct the Hamiltonian
+H = hamiltonian((t, U), lattice, hilbert; neighbors=1)
+```
+
+Here, ``hamiltonian`` returns a ``MPOHamiltonian`` type data that can be directly used in the algorithms like DMRG in [`MPSKit`](https://github.com/QuantumKitHub/MPSKit.jl.git):
+
+```julia
+#give the filling = (a, b) -> filling = a/b
+filling = (1, 1)
+
+#find the ground state and ground energy
+st = randFiniteMPS(Float64, U1Irrep, U1Irrep, length(lattice); filling=filling)
+gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme= truncbelow(1e-9)));
+E0 = expectation_value(gs, H)
+```
+
+It should be noted that currently, this construction method is only supported for Hamiltonians with Abelian symmetries. For Hamiltonians with non-Abelian symmetries, the construction still needs to follow the method used in [`MPSKitModels`](https://github.com/QuantumKitHub/MPSKitModels.jl):
+
 ```julia
 using TensorKit
 using MPSKit
