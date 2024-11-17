@@ -67,7 +67,9 @@ gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme= truncbelow(1e-9)));
 E0 = expectation_value(gs, H)
 ```
 
-It should be noted that currently, this construction method is only supported for Hamiltonians with Abelian symmetries. For Hamiltonians with non-Abelian symmetries, the construction still needs to follow the method used in [`MPSKitModels`](https://github.com/QuantumKitHub/MPSKitModels.jl):
+It should be noted that currently, this construction method is only supported for Hamiltonians with Abelian symmetries. For Hamiltonians with non-Abelian symmetries, the construction still needs to follow the method used in [`MPSKitModels`](https://github.com/QuantumKitHub/MPSKitModels.jl).
+
+Next, let’s look at how to calculate correlation functions. Here, I consider SU(2) symmetry, so I use the pre-defined `MPOHamiltonian` in the `models` file. If only U(1) symmetry is considered, using the method described above to obtain the `MPOHamiltonian` provides greater flexibility.
 
 ```julia
 using TensorKit
