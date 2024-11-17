@@ -1,6 +1,8 @@
 module DCorrelators
 
+using QuantumLattices
 using TensorKit
+using TensorKit: ⊠, ⊗, permute
 using MPSKit
 using MPSKitModels: Sector, contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, InfiniteChain, _firstspace, _lastspace
 using Distributed
@@ -11,7 +13,7 @@ import MPSKit: propagator
 export hubbard
 
 export fZ, e_plus, e_min, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, b_plus, b_min
-export chargedMPO
+export chargedMPO, hamiltonian
 
 export add_single_util_leg, setprocs
 
@@ -24,6 +26,7 @@ include("models/hubbard.jl")
 include("operators/fermions.jl")
 include("operators/bosons.jl")
 include("operators/chargedmpo.jl")
+include("operators/operator2mpo.jl")
 include("tools.jl")
 include("states/chargedmps.jl")
 include("states/randmps.jl")
