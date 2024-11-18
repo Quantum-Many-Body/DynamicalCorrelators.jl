@@ -1,4 +1,4 @@
-name = "DCorrelators"
+name = "DynamicalCorrelators"
 uuid = "7abe38c7-550a-49b0-ba99-33d1b5164ede"
 authors = ["Y.-Y.Zong"]
 version = "0.1.0"
@@ -16,4 +16,5 @@ TensorKit = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
 MPSKit = "0.11.4"
 MPSKitModels = "0.3"
 QuantumLattices = "0.10.0"
+TensorKit = "0.12"
 julia = "1.9 - 1.11"
