@@ -1,6 +1,6 @@
 using TensorKit
 using MPSKit
-using DCorrelators
+using DynamicalCorrelators
 
 # give filling = (a,b), where a=b is half-filling, a<b is h-doping and a>b is e-doping
 filling = (1,1)

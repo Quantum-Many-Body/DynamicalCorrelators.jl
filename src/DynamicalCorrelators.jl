@@ -1,4 +1,4 @@
-module DCorrelators
+module DynamicalCorrelators
 
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, OperatorGenerator, Operator, CoordinatedIndex, FockIndex, Index, OperatorSet, bonds
 using TensorKit: FermionParity, U1Irrep, SU2Irrep, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap
