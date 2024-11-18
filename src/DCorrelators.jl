@@ -22,9 +22,9 @@ export chargedMPS, randFiniteMPS
 export propagator, dcorrelator
 export RetardedGF, GreaterLessGF
 
-include("models/hubbard.jl")
+include("models/hamiltonians.jl")
+include("models/lattices.jl")
 include("operators/fermions.jl")
-include("operators/bosons.jl")
 include("operators/chargedmpo.jl")
 include("operators/operator2mpo.jl")
 include("tools.jl")
