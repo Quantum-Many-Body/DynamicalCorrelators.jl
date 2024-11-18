@@ -1,6 +1,6 @@
 using Test
 using SafeTestsets
 
-@safetestset "DCorrelators" begin
-    include("DCorrelators.jl")
+@safetestset "DynamicalCorrelators" begin
+    include("DynamicalCorrelators.jl")
 end

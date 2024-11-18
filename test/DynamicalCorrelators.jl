@@ -1,7 +1,7 @@
 using QuantumLattices
 using TensorKit
 using MPSKit
-using DCorrelators
+using DynamicalCorrelators
 using MPSKitModels: contract_onesite, contract_twosite, FiniteChain
 
 @testset "operators" begin
