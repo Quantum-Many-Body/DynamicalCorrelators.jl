@@ -1,5 +1,6 @@
 name = "DCorrelators"
-uuid = "8d062851-a315-456d-bbd5-954b318f2714"
+uuid = "7abe38c7-550a-49b0-ba99-33d1b5164ede"
+authors = ["Y.-Y.Zong"]
 version = "0.1.0"
 
 [deps]
@@ -13,5 +14,12 @@ TensorKit = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
 
 [compat]
 MPSKit = "0.11.4"
-MPSKitModels = "0.3.3"
+MPSKitModels = "0.3"
 QuantumLattices = "0.10.0"
+julia = "1.9 - 1.11"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

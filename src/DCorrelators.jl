@@ -4,7 +4,7 @@ using QuantumLattices
 using TensorKit
 using TensorKit: ⊠, ⊗, permute
 using MPSKit
-using MPSKitModels: Sector, contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, InfiniteChain, _firstspace, _lastspace
+using MPSKitModels: Sector, contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, InfiniteChain, FiniteChain, _firstspace, _lastspace
 using Distributed
 using SharedArrays
 

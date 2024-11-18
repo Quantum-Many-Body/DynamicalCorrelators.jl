@@ -2,7 +2,7 @@
 
 julia_version = "1.11.1"
 manifest_format = "2.0"
-project_hash = "fbe92c104138eca519094f8aa5c7c2da28112454"
+project_hash = "17224aa0266df42a00659430d36b32cadeb206f5"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "InverseFunctions", "LinearAlgebra", "MacroTools", "Markdown"]
@@ -323,9 +323,7 @@ version = "0.11.4"
 
 [[deps.MPSKitModels]]
 deps = ["LinearAlgebra", "MPSKit", "MacroTools", "PrecompileTools", "TensorKit", "TensorOperations", "TupleTools"]
-git-tree-sha1 = "988cc2977e677f8d860338bb99e7295752f76682"
-repo-rev = "master"
-repo-url = "https://github.com/QuantumKitHub/MPSKitModels.jl.git"
+git-tree-sha1 = "920ce143bc3e25746b0714f0734a43f3b9802c65"
 uuid = "ca635005-6f8c-4cd1-b51d-8491250ef2ab"
 version = "0.3.3"
 
