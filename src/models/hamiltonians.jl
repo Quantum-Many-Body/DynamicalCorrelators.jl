@@ -1,3 +1,4 @@
+#pre-defined Hamiltonians
 """
     hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, lattice=InfiniteChain(1); t=1.0, U=1.0, μ=0.0, filling=(1,1))
     fℤ₂ × U(1) × U(1) single-band Hubbard model
