@@ -100,7 +100,7 @@ dt = 0.05
 ft = 10
 pros = propagator(H, cgs₁, cgs₂; rev=false, dt=dt, ft=ft)
 ```
-<img  src="./src/example/Im<C_1(t)C^†_4(0)> step=0.05, finialtime=10.png"  width="600"  align="center" />
+<img  src="./src/example/ImC1Cdagger4_step=0.05_finialtime=10.png"  width="600"  align="center" />
 
 ```julia
 #calculate ground state energy
