@@ -1,6 +1,6 @@
 <img src="./docs/src/logo.png" width="200">
 
-# DCorrelators.jl
+# DynamicalCorrelators.jl
 
 *A convenient frontend for calculating dynamical correlation functions and related observables based on matrix-product states time evolution methods.*
 
@@ -19,7 +19,7 @@
 Please type `]` in the REPL to use the package mode, then type this command:
 
 ```julia
-dev "path/to/DCorrelators.jl"
+dev "path/to/DynamicalCorrelators.jl"
 ```
 
 ## Tutorial
@@ -42,7 +42,7 @@ With the help of [`QuantumLattices`](https://github.com/Quantum-Many-Body/Quantu
 ```julia
 using TensorKit
 using MPSKit
-using DCorrelators
+using DynamicalCorrelators
 using Plots
 #define the hilbert space
 hilbert = Hilbert(site=>Fock{:f}(1, 2) for site=1:length(lattice))
@@ -74,7 +74,7 @@ Next, let’s look at how to calculate correlation functions. Here, I consider S
 ```julia
 using TensorKit
 using MPSKit
-using DCorrelators
+using DynamicalCorrelators
 
 # give filling = (a,b), where a=b is half-filling, a<b is h-doping and a>b is e-doping
 filling = (1,1)
