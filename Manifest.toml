@@ -2,7 +2,7 @@
 
 julia_version = "1.11.1"
 manifest_format = "2.0"
-project_hash = "17224aa0266df42a00659430d36b32cadeb206f5"
+project_hash = "c60ea7aa0cb9efeb974b45c051418a1150e2a7d0"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "InverseFunctions", "LinearAlgebra", "MacroTools", "Markdown"]
@@ -323,9 +323,9 @@ version = "0.11.4"
 
 [[deps.MPSKitModels]]
 deps = ["LinearAlgebra", "MPSKit", "MacroTools", "PrecompileTools", "TensorKit", "TensorOperations", "TupleTools"]
-git-tree-sha1 = "920ce143bc3e25746b0714f0734a43f3b9802c65"
+git-tree-sha1 = "03531e28fb547d90e856dfe662f28eed1ae36a1f"
 uuid = "ca635005-6f8c-4cd1-b51d-8491250ef2ab"
-version = "0.3.3"
+version = "0.3.4"
 
 [[deps.MacroTools]]
 deps = ["Markdown", "Random"]

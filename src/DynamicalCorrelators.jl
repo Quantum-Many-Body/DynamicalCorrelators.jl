@@ -6,8 +6,9 @@ using TensorKit: truncdim, truncerr, truncspace, truncbelow, ←, space, numout,
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, storagetype, @planar, @tensor, blocks, flip
 using MPSKit: FiniteMPS, FiniteMPO, MPOHamiltonian, TDVP, TDVP2
 using MPSKit: add_util_leg, timestep, environments
-using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, InfiniteChain, FiniteChain, _firstspace, _lastspace
-using Distributed: @sync, @distributed 
+using MPSKitModels: contract_onesite, contract_twosite, @mpoham, _firstspace, _lastspace, vertices, nearest_neighbours, next_nearest_neighbours
+using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadder, FiniteChain, FiniteCylinder, FiniteStrip, FiniteHelix, FiniteLadder
+using Distributed: @sync, @distributed, workers, addprocs
 using SharedArrays: SharedArray
 
 import QuantumLattices: expand
