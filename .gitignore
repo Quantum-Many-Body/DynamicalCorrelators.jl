@@ -12,6 +12,3 @@ test/*.png
 desktop.ini
 .DS_Store
 task/
-result/
-data/
-exper/
