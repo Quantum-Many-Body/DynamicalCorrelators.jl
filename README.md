@@ -19,7 +19,7 @@
 Please type `]` in the REPL to use the package mode, then type this command:
 
 ```julia
-dev "path/to/DynamicalCorrelators.jl"
+add DynamicalCorrelators
 ```
 
 ## Tutorial
