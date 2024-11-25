@@ -5,7 +5,7 @@ function hamiltonian(terms::Tuple{Vararg{Term}}, lattice::Lattice, hilbert::Hilb
     return hamiltonian(operators, length(lattice), filling)
 end
 
-function hamiltonian(operators::OperatorSet{<:Operator}, len::Integer, filling::NTuple{2, Integer})
+function hamiltonian(operators, len::Integer, filling::NTuple{2, Integer})#::OperatorSet{<:Operator}
     mpos = Vector(undef, length(operators))
     for (i, op) in enumerate(operators)
         mpos[i] = _convert_operator(op, filling)
@@ -16,7 +16,7 @@ function hamiltonian(operators::OperatorSet{<:Operator}, len::Integer, filling::
     return MPOHamiltonian(fill(pspace, len), mpos...)
 end
 
-function _convert_operator(op::Operator{<:Number, <:NTuple{2, CoordinatedIndex}}, filling::NTuple{2, Integer})
+function _convert_operator(op::Operator{<:Number, <:NTuple{2, CompositeIndex}}, filling::NTuple{2, Integer})#::Operator{<:Number, <:NTuple{2, CoordinatedIndex}}
     value = op.value
     sites = unique([op.id[i].index.site for i in 1:2])
     if length(sites) == 1
@@ -33,7 +33,7 @@ function _convert_operator(op::Operator{<:Number, <:NTuple{2, CoordinatedIndex}}
     end
 end
 
-function _convert_operator(op::Operator{<:Number, <:NTuple{4, CoordinatedIndex}}, filling::NTuple{2, Integer})
+function _convert_operator(op::Operator{<:Number, <:NTuple{4, CompositeIndex}}, filling::NTuple{2, Integer})#::Operator{<:Number, <:NTuple{4, CoordinatedIndex}}
     value = op.value
     sites = unique([op.id[i].index.site for i in 1:4])
     if length(sites) == 1
@@ -50,8 +50,8 @@ function _convert_operator(op::Operator{<:Number, <:NTuple{4, CoordinatedIndex}}
     end
 end
 
-function _index2tensor(elt::Type{<:Number}, ids::Index{FockIndex{:f, Int64, Rational{Int64}, Int64}, Int64}, side::Symbol, filling::NTuple{2, Integer})
-    ids.internal.nambu == 2 ? ten = e_plus : ten = e_min
-    ids.internal.spin == 1//2 ? spin = :up : spin = :down
+function _index2tensor(elt::Type{<:Number}, ids, side::Symbol, filling::NTuple{2, Integer})#::Index{FockIndex{:f, Int64, Rational{Int64}, Int64}, Int64}
+    ids.iid.nambu == 2 ? ten = e_plus : ten = e_min#internal
+    ids.iid.spin == 1//2 ? spin = :up : spin = :down#internal
     return ten(elt, U1Irrep, U1Irrep; side=side, spin=spin, filling=filling)
 end
