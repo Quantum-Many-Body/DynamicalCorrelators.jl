@@ -2,7 +2,7 @@ using QuantumLattices
 using TensorKit
 using MPSKit
 using DynamicalCorrelators
-using MPSKitModels: contract_onesite, contract_twosite, FiniteChain, FiniteCylinder
+using MPSKitModels: contract_onesite, contract_twosite, FiniteStrip, FiniteCylinder
 
 @testset "operators" begin
     elt = Float64
@@ -48,15 +48,15 @@ using MPSKitModels: contract_onesite, contract_twosite, FiniteChain, FiniteCylin
 end
 
 @testset "Hamiltonian" begin
-    unitcell = Lattice([0.0, 0.0]; vectors=[[1, 0]])
-    lattice₁ = Lattice(unitcell, (4, ), ('o', ))
+    unitcell = Lattice([0.0, 0.0]; vectors=[[1, 0], [0, 1]])
+    lattice₁ = Lattice(unitcell, (2, 2), ('o', 'o'))
     hilbert = Hilbert(site=>Fock{:f}(1, 2) for site=1:length(lattice₁))
     t = Hopping(:t, -1.0, 1)
     U = Hubbard(:U, 8.0)
     H₁ = hamiltonian((t, U), lattice₁, hilbert; neighbors=1)
-    H₂ = hubbard(Float64, U1Irrep, U1Irrep, FiniteChain(4); t=1.0, U=8.0, μ=0.0, filling=(1,1))
+    H₂ = hubbard(Float64, U1Irrep, U1Irrep, FiniteStrip(2, 4); t=1.0, U=8.0, μ=0.0, filling=(1,1))
     @test H₁ ≈ H₂
-    lattice₂ = Lattice(unitcell, (4, ), ('p', ))
+    lattice₂ = Lattice(unitcell, (2, 2), ('p', 'o'))
     H₃ = hamiltonian((t, U), lattice₂, hilbert; neighbors=1)
     H₄ = hubbard(Float64, U1Irrep, U1Irrep, FiniteCylinder(2, 4); t=1.0, U=8.0, μ=0.0, filling=(1,1))
     @test H₃ ≈ H₄
