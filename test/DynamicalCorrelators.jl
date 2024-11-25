@@ -2,7 +2,7 @@ using QuantumLattices
 using TensorKit
 using MPSKit
 using DynamicalCorrelators
-using MPSKitModels: contract_onesite, contract_twosite, FiniteChain
+using MPSKitModels: contract_onesite, contract_twosite, FiniteChain, FiniteCylinder
 
 @testset "operators" begin
     elt = Float64
@@ -56,10 +56,10 @@ end
     H₁ = hamiltonian((t, U), lattice₁, hilbert; neighbors=1)
     H₂ = hubbard(Float64, U1Irrep, U1Irrep, FiniteChain(4); t=1.0, U=8.0, μ=0.0, filling=(1,1))
     @test H₁ ≈ H₂
-    # lattice₂ = Lattice(unitcell, (4, ), ('p', ))
-    # H₃ = hamiltonian((t, U), lattice₂, hilbert; neighbors=1)
-    # H₄ = hubbard(Float64, U1Irrep, U1Irrep, FiniteCylinder(2, 4); t=1.0, U=8.0, μ=0.0, filling=(1,1))
-    # @test H₃ ≈ H₄
+    lattice₂ = Lattice(unitcell, (4, ), ('p', ))
+    H₃ = hamiltonian((t, U), lattice₂, hilbert; neighbors=1)
+    H₄ = hubbard(Float64, U1Irrep, U1Irrep, FiniteCylinder(2, 4); t=1.0, U=8.0, μ=0.0, filling=(1,1))
+    @test H₃ ≈ H₄
 end
 
 @testset "charged state" begin
