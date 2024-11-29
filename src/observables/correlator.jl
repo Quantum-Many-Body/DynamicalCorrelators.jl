@@ -1,31 +1,49 @@
 """
-    propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
+    propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool=false, imag::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
     propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
 """
-function propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
+function propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool=false, imag::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
     times = collect(0:dt:ft)
     propagators = zeros(ComplexF64, length(times))
     propagators[1] = dot(bra, ket)
     envs = environments(ket, H)
-    for (i, t) in enumerate(times[2:end])
-        alg = t > n * dt ? TDVP() : TDVP2(; trscheme=trscheme)
-        ket, envs = timestep(ket, H, 0, dt, alg, envs)
-        propagators[i+1] = dot(bra, ket)
+    if imag
+        for (i, t) in enumerate(times[2:end])
+            alg = t > n * dt ? TDVP() : TDVP2(; trscheme=trscheme)
+            ket, envs = timestep(ket, H, 0, -1im*dt, alg, envs)
+            propagators[i+1] = dot(bra, ket)
+        end
+    else
+        for (i, t) in enumerate(times[2:end])
+            alg = t > n * dt ? TDVP() : TDVP2(; trscheme=trscheme)
+            ket, envs = timestep(ket, H, 0, dt, alg, envs)
+            propagators[i+1] = dot(bra, ket)
+        end
     end
     rev ? propagators = conj.(propagators) : propagators = propagators
     return propagators
 end
 
-function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
+function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; rev::Bool=false, imag::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
     times = collect(0:dt:ft)
     propagators = zeros(ComplexF64, length(bras), length(times))
     propagators[:,1] = [dot(bras[i], ket) for i in 1:length(bras)]
     envs = environments(ket, H)
-    for (i, t) in enumerate(times[2:end])
-        alg = t > n * dt ? TDVP() : TDVP2(; trscheme=trscheme)
-        ket, envs = timestep(ket, H, 0, dt, alg, envs)
-        for j in eachindex(bras)
-            propagators[j,i+1] = dot(bras[j], ket)
+    if imag
+        for (i, t) in enumerate(times[2:end])
+            alg = t > n * dt ? TDVP() : TDVP2(; trscheme=trscheme)
+            ket, envs = timestep(ket, H, 0, -1im*dt, alg, envs)
+            for j in eachindex(bras)
+                propagators[j,i+1] = dot(bras[j], ket)
+            end
+        end
+    else
+        for (i, t) in enumerate(times[2:end])
+            alg = t > n * dt ? TDVP() : TDVP2(; trscheme=trscheme)
+            ket, envs = timestep(ket, H, 0, dt, alg, envs)
+            for j in eachindex(bras)
+                propagators[j,i+1] = dot(bras[j], ket)
+            end
         end
     end
     rev ? propagators = conj.(propagators) : propagators = propagators
@@ -98,4 +116,17 @@ end
 
 
 struct GorkovGF end
+
 struct MatsubaraGF end
+
+function dcorrelator(::Type{MatsubaraGF}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
+    t = collect(0:dt:ft)
+    gf = SharedArray{ComplexF64, 3}(length(mps), length(mps), length(0:dt:ft))
+    @sync @distributed for i in 1:length(mps)
+        gf[i,:,:] = propagator(H, mps[1:end], mps[i]; rev=false, imag=true, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+    end
+    for i in eachindex(t)
+        gf[:,:,i] = exp(gsenergy*t[i])*gf[:,:,i]
+    end
+    return gf
+end
