@@ -1,7 +1,7 @@
-function randFiniteMPS(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, N::Integer; filling=(1,1), md=10)
+function randFiniteMPS(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, N::Integer; filling=(1,1), md=10, mz=nothing)
     P,Q = filling
     isodd(P)&&(mod(N, 2Q)==0) ? (k = 0:2Q) : iseven(P)&&(mod(N, 2Q)==0) ? (k = 0:Q) : throw(ArgumentError("invalid length for the filling"))
-    ℤ = -max(P,Q):max(P,Q)
+    mz == nothing ? (ℤ = -max(P,Q):max(P,Q)) : (ℤ = -mz:mz)
     I = FermionParity ⊠ U1Irrep ⊠ U1Irrep
     Vs = [_vspaces(U1Irrep, U1Irrep, P, Q, k[i], ℤ, I, md) for i in 2:length(k)]
     Ps = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1,Q-P) => 1, (1,-1,Q-P) => 1)
@@ -25,11 +25,16 @@ function _vspaces(::Type{U1Irrep}, ::Type{U1Irrep}, P, Q, k, Z, I, md)
 end
 
 
-function randFiniteMPS(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, N::Integer; filling=(1,1), md=10)
+function randFiniteMPS(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, N::Integer; filling=(1,1), md=10, mz=nothing)
     P,Q = filling
     isodd(P)&&(mod(N, 2Q)==0) ? (k = 0:2Q) : iseven(P)&&(mod(N, 2Q)==0) ? (k = 0:Q) : throw(ArgumentError("invalid length for the filling"))
-    ℤ = -max(P,Q):max(P,Q)
-    ℕ = 0:max(P,Q)
+    if mz == nothing
+        ℤ = -max(P,Q):max(P,Q)
+        ℕ = 0:max(P,Q)
+    else
+        ℤ = -mz:mz
+        ℕ = 0:mz
+    end
     I = FermionParity ⊠ SU2Irrep ⊠ U1Irrep
     Vs = [_vspaces(SU2Irrep, U1Irrep, P, Q, k[i], ℤ, ℕ, I, md) for i in 2:length(k)]
     Ps = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1//2,Q-P) => 1)
