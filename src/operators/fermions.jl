@@ -26,11 +26,11 @@ function e_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, 
     vspace = spin == :up ? Vect[I]((1,1,Q)=>1) : spin == :down ? Vect[I]((1,-1,Q)=>1) : throw(ArgumentError("only support spin 1/2 operators"))
     e⁺ = TensorMap(zeros, elt, pspace ← pspace ⊗ vspace)
     if (side == :L)&&(spin == :up)
-        blocks(e⁺)[I((1,1,Q-P))] .= 1
-        blocks(e⁺)[I((0,0,2*Q-P))] .= -1
+        block(e⁺, I((1,1,Q-P))) .= 1
+        block(e⁺, I((0,0,2*Q-P))) .= -1
     elseif (side == :L)&&(spin == :down)
-        blocks(e⁺)[I((1,-1,Q-P))] .= 1
-        blocks(e⁺)[I((0,0,2*Q-P))] .= 1
+        block(e⁺, I((1,-1,Q-P))) .= 1
+        block(e⁺, I((0,0,2*Q-P))) .= 1
     elseif side == :R
         E = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=spin, filling=filling)
         F = isomorphism(storagetype(E), vspace, flip(vspace))
@@ -71,9 +71,9 @@ function number(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::
     P, Q = filling
     pspace = Vect[I]((0,0,-P)=>1, (0,0,2*Q-P)=>1, (1,1,Q-P)=>1, (1,-1,Q-P)=>1)
     n = TensorMap(zeros, elt, pspace ← pspace)
-    blocks(n)[I((0,0,2*Q-P))] .= 2
-    blocks(n)[I((1,1,Q-P))] .= 1
-    blocks(n)[I((1,-1,Q-P))] .= 1
+    block(n, I((0,0,2*Q-P))) .= 2
+    block(n, I((1,1,Q-P))) .= 1
+    block(n, I((1,-1,Q-P))) .= 1
     return n
 end
 
@@ -86,7 +86,7 @@ function onsiteCoulomb(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; fi
     P, Q = filling
     pspace = Vect[I]((0,0,-P)=>1, (0,0,2*Q-P)=>1, (1,1,Q-P)=>1, (1,-1,Q-P)=>1)
     onsite = TensorMap(zeros, elt, pspace ← pspace)
-    blocks(onsite)[I((0,0,2*Q-P))] .= 1
+    block(onsite, I((0,0,2*Q-P))) .= 1
     return onsite
 end
 
@@ -156,8 +156,8 @@ function e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L,
     vspace = Vect[I]((1,1//2,Q)=>1)
     if side == :L
         e⁺ = TensorMap(zeros, elt, pspace ← pspace ⊗ vspace)
-        blocks(e⁺)[I(0,0,2*Q-P)] .= sqrt(2)
-        blocks(e⁺)[I(1,1//2,Q-P)] .= 1
+        block(e⁺, I(0,0,2*Q-P)) .= sqrt(2)
+        block(e⁺, I(1,1//2,Q-P)) .= 1
     elseif side == :R
         E = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
         F = isomorphism(storagetype(E), vspace, flip(vspace))
@@ -192,8 +192,8 @@ function number(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling:
     P, Q = filling
     pspace = Vect[I]((0,0,-P)=>1, (1,1//2,Q-P)=>1, (0,0,2*Q-P)=>1)
     n = TensorMap(zeros, elt, pspace ← pspace)
-    blocks(n)[I((0,0,2*Q-P))] .= 2
-    blocks(n)[I((1,1//2,Q-P))] .= 1
+    block(n, I((0,0,2*Q-P))) .= 2
+    block(n, I((1,1//2,Q-P))) .= 1
     return n
 end
 
@@ -206,7 +206,7 @@ function onsiteCoulomb(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; f
     P, Q = filling
     pspace = Vect[I]((0,0,-P)=>1, (1,1//2,Q-P)=>1, (0,0,2*Q-P)=>1)
     onsite = TensorMap(zeros, elt, pspace ← pspace)
-    blocks(onsite)[I((0,0,2*Q-P))] .= 1
+    block(onsite, I((0,0,2*Q-P))) .= 1
     return onsite
 end
 
@@ -226,7 +226,7 @@ function S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L,
     vspace = Vect[I]((0,1,0)=>1)
     if side == :L
         Sₑ⁺ = TensorMap(zeros, elt, pspace ← pspace ⊗ vspace)
-        blocks(Sₑ⁺)[I(1,1//2,Q-P)] .= sqrt(3)/2
+        block(Sₑ⁺, I(1,1//2,Q-P)) .= sqrt(3)/2
     elseif side == :R
         S = S_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
         F = isomorphism(storagetype(S), vspace, flip(vspace))
@@ -267,7 +267,7 @@ function S_square(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; fillin
     P, Q = filling
     pspace =Vect[I]((0,0,-P)=>1, (1,1//2,Q-P)=>1, (0,0,2*Q-P)=>1)
     S2 = TensorMap(zeros, elt, pspace ← pspace)
-    blocks(S2)[I((1,1//2,Q-P))] .= 3/4
+    block(S2, I((1,1//2,Q-P))) .= 3/4
     return S2
 end
 
@@ -288,8 +288,8 @@ end
 #     if spin == :up
 #         if side == :L
 #             b⁺ = TensorMap(zeros, elt, pspace ← pspace ⊗ vuspace)
-#             blocks(b⁺)[I(1,0)] .= 1
-#             blocks(b⁺)[I(0,1)] .= -1
+#             block(b⁺, I(1,0)) .= 1
+#             block(b⁺, I(0,1)) .= -1
 #         elseif side == :R
 #             b⁺ = TensorMap(ones, elt, flip(vuspace)' ⊗ pspace ← pspace)
 #         end
@@ -298,8 +298,8 @@ end
 #             b⁺ = TensorMap(ones, elt, pspace ← pspace ⊗ vdspace)
 #         elseif side == :R
 #             b⁺ = TensorMap(zeros, elt, flip(vdspace)' ⊗ pspace ← pspace)
-#             blocks(b⁺)[I(1,0)] .= -1
-#             blocks(b⁺)[I(0,-1)] .= 1
+#             block(b⁺, I(1,0)) .= -1
+#             block(b⁺, I(0,-1)) .= 1
 #         end
 #     end
 #     return b⁺
@@ -312,8 +312,8 @@ end
 #     if spin == :up
 #         if side == :L
 #             b⁻ = TensorMap(zeros, elt, pspace ← pspace ⊗ flip(vuspace)')
-#             blocks(b⁻)[I(-1,0)] .= -1
-#             blocks(b⁻)[I(0,-1)] .= 1
+#             block(b⁻, I(-1,0)) .= -1
+#             block(b⁻, I(0,-1)) .= 1
 #         elseif side == :R
 #             b⁻ = TensorMap(ones, elt, vuspace ⊗ pspace ← pspace)
 #         end
@@ -322,8 +322,8 @@ end
 #             b⁻ = TensorMap(ones, elt, pspace ← pspace ⊗ flip(vdspace)')
 #         elseif side == :R
 #             b⁻ = TensorMap(zeros, elt, vdspace ⊗ pspace ← pspace)
-#             blocks(b⁻)[I(-1,0)] .= 1
-#             blocks(b⁻)[I(0,1)] .= -1
+#             block(b⁻, I(-1,0)) .= 1
+#             block(b⁻, I(0,1)) .= -1
 #         end
 #     end
 #     return b⁻

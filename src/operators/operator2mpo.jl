@@ -1,11 +1,11 @@
 function hamiltonian(terms::Tuple{Vararg{Term}}, lattice::Lattice, hilbert::Hilbert; neighbors::Union{Nothing, Int, Neighbors}=nothing, filling::NTuple{2, Integer}=(1,1))
     isnothing(neighbors) && (neighbors = maximum(term->term.bondkind, terms))
     bond = bonds(lattice, neighbors)
-    operators = expand(OperatorGenerator(terms, bond, hilbert))
+    operators = expand(OperatorGenerator(bond, hilbert, terms))
     return hamiltonian(operators, length(lattice), filling)
 end
 
-function hamiltonian(operators, len::Integer, filling::NTuple{2, Integer})#::OperatorSet{<:Operator}
+function hamiltonian(operators::OperatorSet{<:Operator}, len::Integer, filling::NTuple{2, Integer})
     mpos = Vector(undef, length(operators))
     for (i, op) in enumerate(operators)
         mpos[i] = _convert_operator(op, filling)
@@ -13,10 +13,10 @@ function hamiltonian(operators, len::Integer, filling::NTuple{2, Integer})#::Ope
     I = ProductSector{Tuple{FermionParity, U1Irrep, U1Irrep}}
     P, Q = filling
     pspace = Vect[I]((0,0,-P)=>1, (0,0,2*Q-P)=>1, (1,1,Q-P)=>1, (1,-1,Q-P)=>1)
-    return MPOHamiltonian(fill(pspace, len), mpos...)
+    return FiniteMPOHamiltonian(fill(pspace, len), mpos...)
 end
 
-function _convert_operator(op::Operator{<:Number, <:NTuple{2, CompositeIndex}}, filling::NTuple{2, Integer})#::Operator{<:Number, <:NTuple{2, CoordinatedIndex}}
+function _convert_operator(op::Operator{<:Number, <:NTuple{2, CoordinatedIndex}}, filling::NTuple{2, Integer})
     value = op.value
     sites = unique([op.id[i].index.site for i in 1:2])
     if length(sites) == 1
@@ -33,7 +33,7 @@ function _convert_operator(op::Operator{<:Number, <:NTuple{2, CompositeIndex}}, 
     end
 end
 
-function _convert_operator(op::Operator{<:Number, <:NTuple{4, CompositeIndex}}, filling::NTuple{2, Integer})#::Operator{<:Number, <:NTuple{4, CoordinatedIndex}}
+function _convert_operator(op::Operator{<:Number, <:NTuple{4, CoordinatedIndex}}, filling::NTuple{2, Integer})
     value = op.value
     sites = unique([op.id[i].index.site for i in 1:4])
     if length(sites) == 1
@@ -50,8 +50,8 @@ function _convert_operator(op::Operator{<:Number, <:NTuple{4, CompositeIndex}}, 
     end
 end
 
-function _index2tensor(elt::Type{<:Number}, ids, side::Symbol, filling::NTuple{2, Integer})#::Index{FockIndex{:f, Int64, Rational{Int64}, Int64}, Int64}
-    ids.iid.nambu == 2 ? ten = e_plus : ten = e_min#internal
-    ids.iid.spin == 1//2 ? spin = :up : spin = :down#internal
+function _index2tensor(elt::Type{<:Number}, ids::Index{FockIndex{:f, Int64, Rational{Int64}, Int64}, Int64}, side::Symbol, filling::NTuple{2, Integer})
+    ids.internal.nambu == 2 ? ten = e_plus : ten = e_min
+    ids.internal.spin == 1//2 ? spin = :up : spin = :down
     return ten(elt, U1Irrep, U1Irrep; side=side, spin=spin, filling=filling)
 end
