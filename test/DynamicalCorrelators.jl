@@ -1,8 +1,8 @@
-using QuantumLattices
+using QuantumLattices: Hilbert,Fock, Term, Hopping, Hubbard, Lattice, Neighbors, bonds, OperatorGenerator, Operator, CompositeIndex
 using TensorKit
 using MPSKit
 using DynamicalCorrelators
-using MPSKitModels: contract_onesite, contract_twosite, FiniteStrip, FiniteCylinder
+using MPSKitModels: contract_onesite, contract_twosite, FiniteStrip, FiniteCylinder, FiniteChain
 
 @testset "operators" begin
     elt = Float64
@@ -65,10 +65,11 @@ end
 @testset "charged state" begin
     elt = Float64
     filling = (1, 1)
+    L=4
     @testset "U1" begin
-        H = hubbard(elt, U1Irrep, U1Irrep; filling=filling, t=1, U=8, μ=0)
-        st = randFiniteMPS(elt, U1Irrep, U1Irrep, 4; filling=filling)
-        gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerr(1e-6)));
+        H = hubbard(elt, U1Irrep, U1Irrep, FiniteChain(L); filling=filling, t=1, U=8, μ=0)
+        st = randFiniteMPS(elt, U1Irrep, U1Irrep, L; filling=filling)
+        gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerr(1e-12)));
         ep =  e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
         sp = S_plus(elt, U1Irrep, U1Irrep; side=:L, filling=filling)
         sz = S_z(elt, U1Irrep, U1Irrep; filling=filling)
@@ -84,7 +85,7 @@ end
         @test isapprox(dot(sgs₃, sgs₄), -0.07784688507190048; atol=1e-5)
     end
     @testset "SU2" begin
-        H = hubbard(elt, SU2Irrep, U1Irrep; filling=filling, t=1, U=8, μ=0)
+        H = hubbard(elt, SU2Irrep, U1Irrep, FiniteChain(4); filling=filling, t=1, U=8, μ=0)
         st = randFiniteMPS(elt, SU2Irrep, U1Irrep, 4; filling=filling)
         gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerr(1e-6)));
         ep = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
@@ -102,8 +103,9 @@ end
 @testset "dynamical correlation" begin
     elt = Float64
     filling = (1, 1)
-    H = hubbard(elt, SU2Irrep, U1Irrep; filling=filling, t=1, U=8, μ=0)
-    st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, 4; filling=filling)
+    L = 4
+    H = hubbard(elt, SU2Irrep, U1Irrep, FiniteChain(L); filling=filling, t=1, U=8, μ=0)
+    st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, L; filling=filling)
     gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerr(1e-6)));
     E0 = expectation_value(gs, H)
     ep = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
