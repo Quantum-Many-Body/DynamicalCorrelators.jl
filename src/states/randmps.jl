@@ -7,7 +7,7 @@ function randFiniteMPS(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, N:
     Ps = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1,Q-P) => 1, (1,-1,Q-P) => 1)
     pspaces = repeat([Ps,], N)
     M = div(N, 2Q)
-    M == 1 ? maxvspaces = Vs[1:end-1] : maxvspaces = [repeat(Vs, N÷k[end]-1)...,Vs[1]]
+    M == 1 ? maxvspaces = Vs[1:end-1] : maxvspaces = repeat(Vs, M)[1:end-1]
     randmps = FiniteMPS(rand, elt, pspaces, maxvspaces)
     return randmps
 end
@@ -40,7 +40,7 @@ function randFiniteMPS(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, N
     Ps = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1//2,Q-P) => 1)
     pspaces = repeat([Ps,], N)
     M = div(N, 2Q)
-    M == 1 ? maxvspaces = Vs[1:end-1] : maxvspaces = [repeat(Vs, N÷k[end]-1)...,Vs[1]]
+    M == 1 ? maxvspaces = Vs[1:end-1] : maxvspaces = repeat(Vs, M)[1:end-1]
     randmps = FiniteMPS(rand, elt, pspaces, maxvspaces)
     return randmps
 end
