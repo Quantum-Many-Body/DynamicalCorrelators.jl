@@ -22,7 +22,7 @@ import MPSKit: propagator, dot
 
 export hubbard
 
-export fZ, e_plus, e_min, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, b_plus, b_min#, j_l
+export fZ, e_plus, e_min, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, neiborCoulomb, heisenberg, spinflip, pairhopping #b_plus, b_min
 export chargedMPO, hamiltonian
 
 export add_single_util_leg, execute, execute!
