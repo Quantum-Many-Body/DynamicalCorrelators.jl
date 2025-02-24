@@ -161,15 +161,15 @@ function neiborCoulomb(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, in
     epd = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
     emu = e_min(elt, U1Irrep, U1Irrep; side=:R, spin=:up, filling=filling)
     emd = e_min(elt, U1Irrep, U1Irrep; side=:R, spin=:down, filling=filling)
-    @plansor nu[-1; -2] := epu[-1; 1 2] * τ[1 2; 3 4] * emu[3 4; -2]
-    @plansor nd[-1; -2] := epd[-1; 1 2] * τ[1 2; 3 4] * emd[3 4; -2]
+    @planar nu[-1; -2] := epu[-1; 1 2] * τ[1 2; 3 4] * emu[3 4; -2]
+    @planar nd[-1; -2] := epd[-1; 1 2] * τ[1 2; 3 4] * emd[3 4; -2]
     if interspin
-        @plansor Up₁[-1 -2; -3 -4] := nu[-1; -3] * nd[-2; -4]
-        @plansor Up₂[-1 -2; -3 -4] := nd[-1; -3] * nu[-2; -4]
+        @planar Up₁[-1 -2; -3 -4] := nu[-1; -3] * nd[-2; -4]
+        @planar Up₂[-1 -2; -3 -4] := nd[-1; -3] * nu[-2; -4]
         return Up₁ + Up₂
     else
-        @plansor UpmJ₁[-1 -2; -3 -4] := nu[-1; -3] * nu[-2; -4]
-        @plansor UpmJ₂[-1 -2; -3 -4] := nd[-1; -3] * nd[-2; -4]
+        @planar UpmJ₁[-1 -2; -3 -4] := nu[-1; -3] * nu[-2; -4]
+        @planar UpmJ₂[-1 -2; -3 -4] := nd[-1; -3] * nd[-2; -4]
         return UpmJ₁ + UpmJ₂
     end
 end
@@ -179,8 +179,8 @@ end
     fℤ₂ × U(1) × U(1) spinflip terms
 """
 function spinflip(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
-    @plansor J₁[-1 -2; -3 -4] := S_plus(elt, U1Irrep, U1Irrep; side=:L, filling=filling)[-1; -3 1] * S_min(elt, U1Irrep, U1Irrep; side=:R, filling=filling)[1 -2; -4]
-    @plansor J₂[-1 -2; -3 -4] := S_min(elt, U1Irrep, U1Irrep; side=:L, filling=filling)[-1; -3 1] * S_plus(elt, U1Irrep, U1Irrep; side=:R, filling=filling)[1 -2; -4]
+    @planar J₁[-1 -2; -3 -4] := S_plus(elt, U1Irrep, U1Irrep; side=:L, filling=filling)[-1; -3 1] * S_min(elt, U1Irrep, U1Irrep; side=:R, filling=filling)[1 -2; -4]
+    @planar J₂[-1 -2; -3 -4] := S_min(elt, U1Irrep, U1Irrep; side=:L, filling=filling)[-1; -3 1] * S_plus(elt, U1Irrep, U1Irrep; side=:R, filling=filling)[1 -2; -4]
     return J₁ + J₂
 end
 
@@ -340,7 +340,7 @@ end
 """
 function neiborCoulomb(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
     n = number(elt, SU2Irrep, U1Irrep; filling=filling)
-    @plansor nn[-1 -2; -3 -4] := n[-1; -3] * n[-2; -4]
+    @planar nn[-1 -2; -3 -4] := n[-1; -3] * n[-2; -4]
     return nn
 end
 

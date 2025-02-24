@@ -4,7 +4,7 @@ using LinearAlgebra: norm
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, bonds, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using TensorKit: FermionParity, U1Irrep, SU2Irrep, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap
 using TensorKit: truncdim, truncerr, truncspace, truncbelow, ←, space, numout, numin, dual, fuse
-using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, storagetype, @planar, @plansor, @tensor, blocks, block, flip
+using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, storagetype, @planar, @tensor, blocks, block, flip
 using MPSKit: FiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2
 using MPSKit: add_util_leg, _firstspace, _lastspace, timestep, environments
 using KrylovKit: exponentiate
