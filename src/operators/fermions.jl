@@ -140,6 +140,69 @@ function S_z(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTu
     return (Szu - Szd)/2
 end
 
+"""
+    heisenberg(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × U(1) × U(1) Heisenberg terms 
+"""
+function heisenberg(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    S⁺S⁻ = contract_twosite(S_plus(elt, U1Irrep, U1Irrep; side=:L, filling), S_min(elt, U1Irrep, U1Irrep; side=:R, filling))
+    S⁻S⁺ = contract_twosite(S_min(elt, U1Irrep, U1Irrep; side=:L, filling), S_plus(elt, U1Irrep, U1Irrep; side=:R, filling))
+    SzSz = contract_twosite(S_z(elt, U1Irrep, U1Irrep; filling), S_z(elt, U1Irrep, U1Irrep; filling))
+    SS = (S⁺S⁻ + S⁻S⁺)/2 + SzSz
+    return SS
+end
+
+"""
+    neiborCoulomb(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, interspin::Bool; filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × U(1) × U(1) n↑n↓ terms between i and j sites
+"""
+function neiborCoulomb(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, interspin::Bool; filling::NTuple{2, Integer}=(1,1))
+    epu = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
+    epd = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
+    emu = e_min(elt, U1Irrep, U1Irrep; side=:R, spin=:up, filling=filling)
+    emd = e_min(elt, U1Irrep, U1Irrep; side=:R, spin=:down, filling=filling)
+    @plansor nu[-1; -2] := epu[-1; 1 2] * τ[1 2; 3 4] * emu[3 4; -2]
+    @plansor nd[-1; -2] := epd[-1; 1 2] * τ[1 2; 3 4] * emd[3 4; -2]
+    if interspin
+        @plansor Up₁[-1 -2; -3 -4] := nu[-1; -3] * nd[-2; -4]
+        @plansor Up₂[-1 -2; -3 -4] := nd[-1; -3] * nu[-2; -4]
+        return Up₁ + Up₂
+    else
+        @plansor UpmJ₁[-1 -2; -3 -4] := nu[-1; -3] * nu[-2; -4]
+        @plansor UpmJ₂[-1 -2; -3 -4] := nd[-1; -3] * nd[-2; -4]
+        return UpmJ₁ + UpmJ₂
+    end
+end
+
+"""
+    spinflip(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × U(1) × U(1) spinflip terms
+"""
+function spinflip(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    @plansor J₁[-1 -2; -3 -4] := S_plus(elt, U1Irrep, U1Irrep; side=:L, filling=filling)[-1; -3 1] * S_min(elt, U1Irrep, U1Irrep; side=:R, filling=filling)[1 -2; -4]
+    @plansor J₂[-1 -2; -3 -4] := S_min(elt, U1Irrep, U1Irrep; side=:L, filling=filling)[-1; -3 1] * S_plus(elt, U1Irrep, U1Irrep; side=:R, filling=filling)[1 -2; -4]
+    return J₁ + J₂
+end
+
+"""
+    pairhopping(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × U(1) × U(1) pairhopping terms
+"""
+function pairhopping(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    epu = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
+    epd = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
+    emu = e_min(elt, U1Irrep, U1Irrep; side=:R, spin=:up, filling=filling)
+    emd = e_min(elt, U1Irrep, U1Irrep; side=:R, spin=:down, filling=filling)
+    @planar Puudd1[-1 -2; -3 -4] := contract_twosite(epu, emu)[-1 -2; 1 2] * contract_twosite(epd,emd)[1 2; -3 -4]
+    @planar Pdduu1[-1 -2; -3 -4] := contract_twosite(epd, emd)[-1 -2; 1 2] * contract_twosite(epu,emu)[1 2; -3 -4]
+    epu = e_plus(elt, U1Irrep, U1Irrep; side=:R, spin=:up, filling=filling)
+    epd = e_plus(elt, U1Irrep, U1Irrep; side=:R, spin=:down, filling=filling)
+    emu = e_min(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
+    emd = e_min(elt, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
+    @planar Puudd2[-1 -2; -3 -4] := contract_twosite(emu, epu)[-1 -2; 1 2] * contract_twosite(emd,epd)[1 2; -3 -4]
+    @planar Pdduu2[-1 -2; -3 -4] := contract_twosite(emd, epd)[-1 -2; 1 2] * contract_twosite(emu,epu)[1 2; -3 -4]
+    return (Puudd1 + Pdduu1 + Puudd2 + Pdduu2)/2
+end
 
 #===========================================================================================
     spin 1/2 fermions
@@ -271,6 +334,37 @@ function S_square(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; fillin
     return S2
 end
 
+"""
+    neiborCoulomb(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × SU(2) × U(1) n↑n↓ terms between i and j sites
+"""
+function neiborCoulomb(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    n = number(elt, SU2Irrep, U1Irrep; filling=filling)
+    @plansor nn[-1 -2; -3 -4] := n[-1; -3] * n[-2; -4]
+    return nn
+end
+
+"""
+    neiborCoulomb(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × SU(2) × U(1) heisenberg term
+"""
+function heisenberg(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    return contract_twosite(S_plus(elt, SU2Irrep, U1Irrep; side=:L, filling), S_min(elt, SU2Irrep, U1Irrep; side=:R, filling))
+end
+
+"""
+    pairhopping(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × SU(2) × U(1) pairhopping terms
+"""
+function pairhopping(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    ep = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+    em = e_min(elt, SU2Irrep, U1Irrep; side=:R, filling=filling)
+    @planar Pij[-1 -2; -3 -4] := contract_twosite(ep, em)[-1 -2; 1 2] * contract_twosite(ep,em)[1 2; -3 -4]
+    ep = e_plus(elt, SU2Irrep, U1Irrep; side=:R, filling=filling)
+    em = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+    @planar Pji[-1 -2; -3 -4] := contract_twosite(em, ep)[-1 -2; 1 2] * contract_twosite(em,ep)[1 2; -3 -4]
+    return (Pij + Pji)/2
+end
 
 #==========================================================================================
     spin 1/2 fermions (realized by hard-core bosons and Jordan-Wigner transformation)
