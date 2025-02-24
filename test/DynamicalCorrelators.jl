@@ -27,7 +27,13 @@ using MPSKitModels: contract_onesite, contract_twosite, FiniteStrip, FiniteCylin
             sl = S_min(elt, U1Irrep, U1Irrep; side=:L, filling=filling)
             s⁺r = S_plus(elt, U1Irrep, U1Irrep; side=:R, filling=filling)
             sz = S_z(elt, U1Irrep, U1Irrep; filling=filling)
+            nbc1 = neiborCoulomb(elt, U1Irrep, U1Irrep, true; filling=filling)
+            nbc2 = neiborCoulomb(elt, U1Irrep, U1Irrep, false; filling=filling)
+            sf = spinflip(elt, U1Irrep, U1Irrep; filling=filling)
+            SS1 = -nbc1/4 + nbc2/4 + sf/2
+            SS2 = heisenberg(elt, U1Irrep, U1Irrep; filling=filling)
             @test (contract_onesite(s⁺l, sr) - contract_onesite(sl, s⁺r)) ≈ 2*sz
+            @test SS1==SS2
         end
         @testset "SU2×U1 fermions" begin
             c⁺l = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
