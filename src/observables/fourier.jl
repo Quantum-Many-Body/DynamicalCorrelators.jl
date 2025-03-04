@@ -1,0 +1,56 @@
+function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts::AbstractRange, k::AbstractArray{<:Number}, w::Number; eta::Real=0.05, regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),])
+    @assert size(gf_rt, 1) == length(rs) "Dimension mismatch: the length of site positions 'rs' must equal to the size of green function matrix 'gf_rt'!"
+    dest = zeros(ComplexF64, length(regroup), length(regroup))
+    for x in eachindex(regroup), y in eachindex(regroup), l in eachindex(ts)
+        for j in eachindex(regroup[x]), i in eachindex(regroup[y])
+            dest[x, y] += gf_rt[regroup[x][j], regroup[y][i], l]*exp(im*(-dot(k, rs[rsregroup[y][i]]-rs[rsregroup[x][j]])+w*ts[l])-(eta*ts[l])^2)
+        end
+    end
+    return dest*(ts.step.hi)/length(regroup[1])/4π^2
+end
+
+function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts::AbstractRange, ks::AbstractArray{<:AbstractArray}, ws::AbstractArray{<:Number}; mthreads::Integer=Threads.nthreads(), kwargs...)
+    gf_kw = Matrix(undef, length(ws), length(ks))
+    if mthreads == 1
+        for k in eachindex(ks), w in eachindex(ws)
+            gf_kw[k, w] = fourier_kw(gf_rt, rs, ts, ks[k], ws[w]; kwags...)
+        end
+    else
+        idx = Threads.Atomic{Int}(1)
+        indices = CartesianIndices((length(ks), length(ws)))
+        n = length(indices)
+        Threads.@sync for _ in 1:mthreads
+            Threads.@spawn while true
+                i = Threads.atomic_add!(idx, 1)  
+                i > n && break  
+                k, w = indices[i].I
+                gf_kw[k, w] = fourier_kw(gf_rt, rs, ts, ks[k], ws[w]; kwags...)
+            end
+        end
+    end
+    return gf_kw
+end
+
+function fourier_rw(gf_rt::AbstractArray, ts::AbstractRange, ws::AbstractArray{<:Number}; eta::Real=0.05, mthreads::Integer=Threads.nthreads())
+    gf_rw = zeros(ComplexF64, size(gf_rt, 1), size(gf_rt, 1), length(ws))
+    if mthreads == 1
+        for i in eachindex(ws)
+            for j in eachindex(ts)
+                gf_rw[:,:,i] .+= gf_rt[:,:,j]*exp(im*ws[i]*ts[j]-(eta*ts[j])^2)
+            end
+        end
+    else
+        idx = Threads.Atomic{Int}(1)
+        n = length(ws)
+        Threads.@sync for _ in 1:mthreads
+            Threads.@spawn while true
+                i = Threads.atomic_add!(idx, 1)  
+                i > n && break  
+                for j in eachindex(ts)
+                    gf_rw[:,:,i] .+= gf_rt[:,:,j]*exp(im*ws[i]*ts[j]-(eta*ts[j])^2)
+                end
+            end
+        end
+    end
+    return permutedims(gf_rw, (2,1,3))*(ts.step.hi)/2π
+end

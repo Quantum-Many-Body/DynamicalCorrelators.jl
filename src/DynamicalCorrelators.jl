@@ -32,6 +32,8 @@ export chargedMPS, randFiniteMPS
 export propagator, dcorrelator
 export RetardedGF, GreaterLessGF, MatsubaraGF
 
+export fourier_kw, fourier_rw
+
 include("benchmark/matsubara.jl")
 include("models/hamiltonians.jl")
 include("models/lattices.jl")
@@ -43,5 +45,6 @@ include("tools.jl")
 include("states/chargedmps.jl")
 include("states/randmps.jl")
 include("observables/correlator.jl")
+include("observables/fourier.jl")
 
 end #module

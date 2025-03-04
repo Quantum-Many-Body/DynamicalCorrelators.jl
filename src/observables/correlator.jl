@@ -55,14 +55,25 @@ RetardedGF(::Type{RetardedGF{:f}}) = 1
 RetardedGF(::Type{RetardedGF{:b}}) = -1
 
 
-function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3)) where R<:RetardedGF
+function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; parallel::String="nt", dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3)) where R<:RetardedGF
     t, half = collect(0:dt:ft), length(mps)÷2
-    gf = SharedArray{ComplexF64, 3}(length(mps), half, length(0:dt:ft))
-    @sync @distributed for i in 1:length(mps)
-        if i <= half
-            gf[i,:,:] = propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
-        else
-            gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+    if parallel == "np"
+        gf = SharedArray{ComplexF64, 3}(length(mps), half, length(0:dt:ft))
+        @sync @distributed for i in 1:length(mps)
+            if i <= half
+                gf[i,:,:] = propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+            else
+                gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+            end
+        end
+    elseif parallel == "nt"
+        gf = zeros(ComplexF64, length(mps), half, length(0:dt:ft))
+        for i in 1:length(mps)
+            if i <= half
+                gf[i,:,:] = propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+            else
+                gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+            end
         end
     end
     for i in eachindex(t)
