@@ -63,6 +63,22 @@ function e_min(elt::Type{<:Number}, particle_symmetry::Type{U1Irrep}, spin_symme
 end
 
 """
+    hopping(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × U(1) × U(1) hopping term
+"""
+function hopping(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    c⁺ul = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
+    cur = e_min(elt, U1Irrep, U1Irrep; side=:R, spin=:up, filling=filling)
+    c⁺dl = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
+    cdr = e_min(elt, U1Irrep, U1Irrep; side=:R, spin=:down, filling=filling)
+    cul = e_min(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
+    c⁺ur = e_plus(elt, U1Irrep, U1Irrep; side=:R, spin=:up, filling=filling)
+    cdl = e_min(elt, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
+    c⁺dr = e_plus(elt, U1Irrep, U1Irrep; side=:R, spin=:down,filling=filling)
+    return contract_twosite(c⁺ul,cur) + contract_twosite(c⁺dl,cdr) + contract_twosite(cul, c⁺ur) + contract_twosite(cdl, c⁺dr)
+end
+
+"""
     number(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
     fℤ₂ × U(1) × U(1) particle number operator
 """
@@ -244,6 +260,18 @@ function e_min(elt::Type{<:Number}, particle_symmetry::Type{SU2Irrep}, spin_symm
         throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
     end
     return e⁻
+end
+
+"""
+    hopping(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × SU(2) × U(1) hopping term
+"""
+function hopping(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    c⁺l = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+    cr = e_min(elt, SU2Irrep, U1Irrep; side=:R, filling=filling)
+    cl = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+    c⁺r = e_plus(elt, SU2Irrep, U1Irrep; side=:R, filling=filling)
+    return contract_twosite(c⁺l,cr) + contract_twosite(cl, c⁺r)
 end
 
 """
