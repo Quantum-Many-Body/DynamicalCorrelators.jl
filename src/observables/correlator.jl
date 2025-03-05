@@ -84,6 +84,19 @@ function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector
     return gf[1:half,:,:] + RetardedGF(R)*gf[(half+1):end,:,:]
 end
 
+function dcorrelator(::Type{R}, gf_slices::AbstractArray{<:AbstractMatrix}, gsenergy::Number, t::AbstractRange) where R<:RetardedGF
+    gf = zeros(ComplexF64, length(gf_slices), length(gf_slices)÷2, length(t))
+    for i in eachindex(gf_slices)
+        gf[i,:,:] .= gf_slices[i]
+    end
+    for i in eachindex(t)
+        factor₁, factor₂ = -im*exp(im*gsenergy*t[i]), -im*exp(-im*gsenergy*t[i])
+        gf[1:half,:,i] = factor₁*gf[1:half,:,i]
+        gf[(half+1):end,:,i] = factor₂*gf[(half+1):end,:,i]
+    end
+    return gf[1:half,:,:] + RetardedGF(R)*gf[(half+1):end,:,:]
+end
+
 struct GreaterLessGF end
 
 function dcorrelator(::Type{GreaterLessGF}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; whichs=:both, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
