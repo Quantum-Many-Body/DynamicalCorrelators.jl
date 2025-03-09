@@ -55,7 +55,7 @@ RetardedGF(::Type{RetardedGF{:f}}) = 1
 RetardedGF(::Type{RetardedGF{:b}}) = -1
 
 
-function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; parallel::String="nt", dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3)) where R<:RetardedGF
+function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; parallel::Union{String, Integer}=Threads.nthreads(), dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3)) where R<:RetardedGF
     t, half = collect(0:dt:ft), length(mps)÷2
     if parallel == "np"
         gf = SharedArray{ComplexF64, 3}(length(mps), half, length(0:dt:ft))
@@ -66,13 +66,28 @@ function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector
                 gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
             end
         end
-    elseif parallel == "nt"
+    elseif parallel == 1
         gf = zeros(ComplexF64, length(mps), half, length(0:dt:ft))
         for i in 1:length(mps)
             if i <= half
                 gf[i,:,:] = propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
             else
                 gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+            end
+        end
+    else
+        gf = zeros(ComplexF64, length(mps), half, length(0:dt:ft))
+        idx = Threads.Atomic{Int}(1)
+        n = length(mps)
+        Threads.@sync for _ in 1:parallel
+            Threads.@spawn while true
+                i = Threads.atomic_add!(idx, 1) 
+                i > n && break  
+                if i <= half
+                    gf[i,:,:] = propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+                else
+                    gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+                end
             end
         end
     end
@@ -85,7 +100,8 @@ function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector
 end
 
 function dcorrelator(::Type{R}, gf_slices::AbstractArray{<:AbstractMatrix}, gsenergy::Number, t::AbstractRange) where R<:RetardedGF
-    gf = zeros(ComplexF64, length(gf_slices), length(gf_slices)÷2, length(t))
+    half = length(gf_slices)÷2
+    gf = zeros(ComplexF64, length(gf_slices), half, length(t))
     for i in eachindex(gf_slices)
         gf[i,:,:] .= gf_slices[i]
     end
