@@ -74,5 +74,5 @@ function fourier_rw(gf_rt::AbstractArray, ts::AbstractRange, ws::AbstractArray{<
             end
         end
     end
-    return permutedims(gf_rw, (2,1,3))*(ts.step.hi)/2π
+    return permutedims(gf_rw, (2,1,3))*(ts.step.hi)
 end
