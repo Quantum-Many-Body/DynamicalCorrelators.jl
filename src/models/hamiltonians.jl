@@ -65,56 +65,56 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
     ph = pairhopping(elt, SU2Irrep, U1Irrep; filling=filling)
     terms = []
     if tzz10 !== 0
-        zz10 = twosite_bonds(lattice.lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>1))
+        zz10 = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>1))
         for i in eachindex(zz10)
             push!(terms, zz10[i]=>tzz10*hop)
         end
     end
     if tzz20 !== 0
-        zz20 = twosite_bonds(lattice.lattice, 1, 1; intralayer=true, neighbors=Neighbors(2=>sqrt(2)))
+        zz20 = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(2=>sqrt(2)))
         for i in eachindex(zz20)
             push!(terms, zz20[i]=>tzz20*hop)
         end
         
     end
     if txx10 !== 0
-        xx10 = twosite_bonds(lattice.lattice, 2, 2; intralayer=true, neighbors=Neighbors(1=>1))
+        xx10 = twosite_bonds(lattice, 2, 2; intralayer=true, neighbors=Neighbors(1=>1))
         for i in eachindex(xx10)
             push!(terms, xx10[i]=>txx10*hop)
         end
     end
     if txx20 !== 0
-        xx20 = twosite_bonds(lattice.lattice, 2, 2; intralayer=true, neighbors=Neighbors(2=>sqrt(2)))
+        xx20 = twosite_bonds(lattice, 2, 2; intralayer=true, neighbors=Neighbors(2=>sqrt(2)))
         for i in eachindex(xx20)
             push!(terms, xx20[i]=>txx20*hop) 
         end
     end
     if tzz1z !== 0
-        zz1z = twosite_bonds(lattice.lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>1))
+        zz1z = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>1))
         for i in eachindex(zz1z)
             push!(terms, zz1z[i]=>tzz1z*hop)
         end
     end
     if tzz2z !== 0
-        zz2z = twosite_bonds(lattice.lattice, 1, 1; intralayer=false, neighbors=Neighbors(2=>sqrt(2)))
+        zz2z = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(2=>sqrt(2)))
         for i in eachindex(zz2z)
             push!(terms, zz2z[i]=>tzz2z*hop)
         end
     end
     if txx1z !== 0
-        xx1z = twosite_bonds(lattice.lattice, 2, 2; intralayer=false, neighbors=Neighbors(1=>1))
+        xx1z = twosite_bonds(lattice, 2, 2; intralayer=false, neighbors=Neighbors(1=>1))
         for i in eachindex(xx1z)
             push!(terms, xx1z[i]=>txx1z*hop)
         end
     end
     if txx2z !== 0
-        xx2z = twosite_bonds(lattice.lattice, 2, 2; intralayer=false, neighbors=Neighbors(2=>sqrt(2)))
+        xx2z = twosite_bonds(lattice, 2, 2; intralayer=false, neighbors=Neighbors(2=>sqrt(2)))
         for i in eachindex(xx2z)
             push!(terms, xx2z[i]=>txx2z*hop)
         end
     end
     if txz10 !== 0
-        xz10 = [twosite_bonds(lattice.lattice, 1, 2; intralayer=true, neighbors=Neighbors(1=>1)); twosite_bonds(lattice.lattice, 2, 1; intralayer=true, neighbors=Neighbors(1=>1))]
+        xz10 = [twosite_bonds(lattice, 1, 2; intralayer=true, neighbors=Neighbors(1=>1)); twosite_bonds(lattice, 2, 1; intralayer=true, neighbors=Neighbors(1=>1))]
         for i in eachindex(xz10)
             a, b = find_position(lattice.indices, xz10[i][1]), find_position(lattice.indices, xz10[i][2])
             if (lattice.lattice[a] - lattice.lattice[b])[2] ≈ 0
@@ -127,7 +127,7 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
         end
     end
     if txz2z !== 0
-        xz2z = [twosite_bonds(lattice.lattice, 1, 2; intralayer=false, neighbors=Neighbors(2=>sqrt(2))); twosite_bonds(lattice.lattice, 2, 1; intralayer=false, neighbors=Neighbors(2=>sqrt(2)))]
+        xz2z = [twosite_bonds(lattice, 1, 2; intralayer=false, neighbors=Neighbors(2=>sqrt(2))); twosite_bonds(lattice, 2, 1; intralayer=false, neighbors=Neighbors(2=>sqrt(2)))]
         for i in eachindex(xz2z)
             a, b = find_position(lattice.indices, xz2z[i][1]), find_position(lattice.indices, xz2z[i][2])
             if (lattice.lattice[a] - lattice.lattice[b])[2] ≈ 0
@@ -158,5 +158,5 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
     I = ProductSector{Tuple{FermionParity, SU2Irrep, U1Irrep}}
     P, Q = filling
     pspace = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1//2,Q-P) => 1)
-    return FiniteMPOHamiltonian(fill(pspace, len), terms...)
+    return FiniteMPOHamiltonian(fill(pspace, sum(length,lattice.indices)), terms...)
 end
