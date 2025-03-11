@@ -1,7 +1,7 @@
 module DynamicalCorrelators
 
 using LinearAlgebra: norm
-using QuantumLattices: Hilbert, Term, Lattice, Neighbors, bonds, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
+using QuantumLattices: Hilbert, Term, AbstractLattice, Lattice, Neighbors, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using TensorKit: FermionParity, U1Irrep, SU2Irrep, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap
 using TensorKit: truncdim, truncerr, truncspace, truncbelow, ←, space, numout, numin, dual, fuse
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, storagetype, @planar, @tensor, blocks, block, flip
