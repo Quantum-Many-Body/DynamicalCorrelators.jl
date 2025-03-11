@@ -20,7 +20,9 @@ import MPSKit: propagator, dot
 
 #export matsubara
 
-export hubbard
+export hubbard, hubbard_bilayer_2band
+
+export CustomLattice, BilayerSquare, twosite_bonds, onesite_bonds, find_position
 
 export fZ, e_plus, e_min, hopping, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, neiborCoulomb, heisenberg, spinflip, pairhopping #b_plus, b_min
 export chargedMPO, hamiltonian
