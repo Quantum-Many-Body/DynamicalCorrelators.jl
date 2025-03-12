@@ -18,35 +18,41 @@ using Printf: @printf, @sprintf
 import QuantumLattices: expand
 import MPSKit: propagator, dot
 
-#export matsubara
-
+include("models/hamiltonians.jl")
 export hubbard, hubbard_bilayer_2band
 
+include("models/lattices.jl")
 export CustomLattice, BilayerSquare, twosite_bonds, onesite_bonds, find_position
 
-export fZ, e_plus, e_min, hopping, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, neiborCoulomb, heisenberg, spinflip, pairhopping #b_plus, b_min
+include("operators/fermions.jl")
+export fZ, e_plus, e_min, hopping, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, neiborCoulomb, heisenberg, spinflip, pairhopping
+
+include("operators/chargedmpo.jl")
+include("operators/operator2mpo.jl")
 export chargedMPO, hamiltonian
 
-export add_single_util_leg, execute, execute!
-
+include("states/chargedmps.jl")
+include("states/randmps.jl")
 export chargedMPS, randFiniteMPS
 
+include("tools.jl")
+export add_single_util_leg, execute, execute!
+
+include("observables/correlator.jl")
 export propagator, dcorrelator
 export RetardedGF, GreaterLessGF, MatsubaraGF
 
+include("observables/fourier.jl")
 export fourier_kw, fourier_rw
 
-include("benchmark/matsubara.jl")
-include("models/hamiltonians.jl")
-include("models/lattices.jl")
-include("operators/fermions.jl")
-include("operators/chargedmpo.jl")
-include("operators/operator2mpo.jl")
-include("operators/currentoperator.jl")
-include("tools.jl")
-include("states/chargedmps.jl")
-include("states/randmps.jl")
-include("observables/correlator.jl")
-include("observables/fourier.jl")
+
+
+
+
+
+
+
+
+
 
 end #module
