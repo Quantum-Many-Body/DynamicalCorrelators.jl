@@ -14,6 +14,7 @@ using Distributed: @sync, @distributed, workers, addprocs
 using SharedArrays: SharedArray
 using JLD2: save, load
 using Printf: @printf, @sprintf
+using Dates
 
 import QuantumLattices: expand
 import MPSKit: propagator, dot
