@@ -28,7 +28,7 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
     times = collect(0:dt:ft)
     propagators = zeros(ComplexF64, length(bras), length(times))
     propagators[:,1] = [dot(bras[i], ket) for i in 1:length(bras)]
-    start_time = now()
+    start_time, record_start = now(), now()
     verbose && println("[1/$(length(times))] Started: time evolves 0", Dates.format(start_time, "d.u yyyy HH:MM"))
     flush(stdout)
     envs = environments(ket, H)
@@ -48,12 +48,12 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
                 propagators[j,i+1] = dot(bras[j], ket)
             end
             current_time = now()
-            elapsed = current_time - start_time 
-            verbose && println("[$(i+1)/$(length(times))] time evolves $(t)", "|", Dates.canonicalize(elapsed))
+            verbose && println("[$(i+1)/$(length(times))] time evolves $(t)", " | duration:", Dates.canonicalize(current_time-start_time))
             flush(stdout)
             start_time = current_time
         end
-        verbose && println("Finished:", Dates.format(now(), "d.u yyyy HH:MM"))
+        record_end = now()
+        verbose && println("Ended:", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration:", Dates.canonicalize(record_end-record_start))
     end
     rev ? propagators = conj.(propagators) : propagators = propagators
     return propagators
