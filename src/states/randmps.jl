@@ -56,3 +56,13 @@ function _vspaces(::Type{SU2Irrep}, ::Type{U1Irrep}, P, Q, k, Z, N, I, md)
     vsp = Vect[I]([v => md for v in vs]...)
     return vsp
 end
+
+function randFiniteMPS(elt::Type{<:Number}, H::MPOHamiltonian; right=oneunit(MPSKit.physicalspace(H)[1]))
+    FiniteMPS(rand, elt, MPSKit.physicalspace(H), MPSKit.max_virtualspaces(MPSKit.physicalspace(H); right=right)[2:(end - 1)];right=right)
+end
+
+function randFiniteMPS(elt::Type{<:Number}, pspace, N::Integer; right=oneunit(pspace))
+    pspaces = repeat([pspace], N)
+    vspaces = MPSKit.max_virtualspaces(pspaces; right=right)[2:(end - 1)]
+    FiniteMPS(rand, elt, pspaces, vspaces; right=right)
+end
