@@ -1,7 +1,7 @@
 name = "DynamicalCorrelators"
 uuid = "7abe38c7-550a-49b0-ba99-33d1b5164ede"
 authors = ["Y.-Y.Zong"]
-version = "0.1.6"
+version = "0.1.7"
 
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
