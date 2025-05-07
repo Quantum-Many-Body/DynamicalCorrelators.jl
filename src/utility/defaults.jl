@@ -1,3 +1,4 @@
+#Set default parameters with reference to FiniteMPS.jl
 DefaultDMRG = DMRG2(; tol=1e-8, maxiter=5, verbosity=0,
             alg_eigsolve= Lanczos(;
                 krylovdim = 8,
