@@ -225,10 +225,10 @@ end
     fℤ₂ × SU(2) × U(1) fermions
 ===========================================================================================#
 """
-    e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L, filling=filling)
+    e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
     fℤ₂ × SU(2) × U(1) electron creation operator
 """
-function e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L, filling=filling)
+function e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
     I = FermionParity ⊠ SU2Irrep ⊠ U1Irrep
     P, Q = filling
     pspace = Vect[I]((0,0,-P)=>1, (1,1//2,Q-P)=>1, (0,0,2*Q-P)=>1)
