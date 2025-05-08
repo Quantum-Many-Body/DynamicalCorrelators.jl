@@ -3,10 +3,10 @@ module DynamicalCorrelators
 using LinearAlgebra: norm
 using QuantumLattices: Hilbert, Term, AbstractLattice, Lattice, Neighbors, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using TensorKit: FermionParity, U1Irrep, SU2Irrep, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, sectortype, Bosonic
-using TensorKit: truncdim, truncerr, truncspace, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD
+using TensorKit: truncdim, truncerr, truncspace, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim
 using MPSKit: FiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2
-using MPSKit: add_util_leg, _firstspace, _lastspace, timestep, environments, expectation_value
+using MPSKit: add_util_leg, _firstspace, _lastspace, timestep, environments, expectation_value, max_virtualspaces, physicalspace
 using MPSKit.Defaults: _finalize
 using MPSKit: AbstractFiniteMPS, calc_galerkin, updatetol, zerovector!, AC2_hamiltonian, _transpose_front
 using KrylovKit: exponentiate, eigsolve, Lanczos, ModifiedGramSchmidt

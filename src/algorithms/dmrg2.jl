@@ -3,13 +3,13 @@
     Add some auxiliary content to `find_groundstate` in MPSKit.jl and rename the function as `dmrg2`.
 """
 function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose=true, envs=environments(ψ, H))
-    start_time, record_start = now(), now()
-    verbose && println("Sweep Started: ", Dates.format(start_time, "d.u yyyy HH:MM"))
-    verbose && flush(stdout)
+    jld = jldopen(filename, "w")
     ϵs = map(pos -> calc_galerkin(pos, ψ, H, ψ, envs), 1:length(ψ))
     ϵ = maximum(ϵs)
     trschemes =  map(d -> truncdim(d), truncdims)
-    jld = jldopen(filename, "w")
+    start_time, record_start = now(), now()
+    verbose && println("Sweep Started: ", Dates.format(start_time, "d.u yyyy HH:MM"))
+    verbose && flush(stdout)
     for iter in 1:length(truncdims)
         alg_eigsolve = updatetol(alg.alg_eigsolve, iter, ϵ)
         zerovector!(ϵs)
