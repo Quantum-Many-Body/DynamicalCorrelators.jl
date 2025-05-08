@@ -24,7 +24,7 @@ function propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool
     return propagators
 end
 
-function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; filename::String="default_timestep.jld2", verbose::Bool=false, rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
+function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; savekets::Bool=false, filename::String="default_gf_slice.jld2", verbose::Bool=false, rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
     times = collect(0:dt:ft)
     propagators = zeros(ComplexF64, length(bras), length(times))
     propagators[:,1] = [dot(bras[i], ket) for i in 1:length(bras)]
@@ -32,7 +32,8 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
     verbose && println("[1/$(length(times))] Started: time evolves 0 ", Dates.format(start_time, "d.u yyyy HH:MM"))
     flush(stdout)
     envs = environments(ket, H)
-    jld = isfile(filename) ? jldopen(filename, "w") : jldopen(filename, "a")
+    jld = jldopen(filename, "w")
+    write(jld, "pro_1", propagators[:,1])
     for (i, t) in enumerate(times[2:end])
         alg = t > n * dt ? DefaultTDVP : DefaultTDVP2(trscheme)
         ket, envs = timestep(ket, H, 0, dt, alg, envs)
@@ -42,11 +43,10 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
         current_time = now()
         verbose && println("[$(i+1)/$(length(times))] time evolves $(t)", " | duration:", Dates.canonicalize(current_time-start_time))
         flush(stdout)
-        write(jld, "ket_t=$(times[2:end][i])", ket)
-        write(jld, "pro_t=$(times[2:end][i])", propagators[:,i+1])
+        savekets ? write(jld, "ket_t=$t", ket) : (t == times[end]) ? write(jld, "ket_t=$(times[end])", ket) : nothing
+        write(jld, "pro_$(i+1)", propagators[:,i+1])
         start_time = current_time
     end
-    write(jld, "pro_t=$(times[1])", propagators[:,1])
     close(jld)
     record_end = now()
     verbose && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(record_end-record_start))

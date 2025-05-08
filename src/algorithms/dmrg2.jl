@@ -9,7 +9,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
     ϵs = map(pos -> calc_galerkin(pos, ψ, H, ψ, envs), 1:length(ψ))
     ϵ = maximum(ϵs)
     trschemes =  map(d -> truncdim(d), truncdims)
-    jld = isfile(filename) ? jldopen(filename, "w") : jldopen(filename, "a")
+    jld = jldopen(filename, "w")
     for iter in 1:length(truncdims)
         alg_eigsolve = updatetol(alg.alg_eigsolve, iter, ϵ)
         zerovector!(ϵs)
