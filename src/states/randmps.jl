@@ -58,11 +58,36 @@ function _vspaces(::Type{SU2Irrep}, ::Type{U1Irrep}, P, Q, k, Z, N, I, md)
 end
 
 function randFiniteMPS(elt::Type{<:Number}, H::MPOHamiltonian; right=oneunit(physicalspace(H)[1]))
-    FiniteMPS(rand, elt, physicalspace(H), max_virtualspaces(physicalspace(H); right=right)[2:(end - 1)];right=right)
+    Ps = physicalspace(H)
+    Vs = restrict_virtualspaces(Ps; right=right)
+    FiniteMPS(rand, elt, Ps, Vs[2:(end - 1)]; right=right)
 end
 
 function randFiniteMPS(elt::Type{<:Number}, pspace, N::Integer; right=oneunit(pspace))
     pspaces = repeat([pspace], N)
-    vspaces = max_virtualspaces(pspaces; right=right)[2:(end - 1)]
-    FiniteMPS(rand, elt, pspaces, vspaces; right=right)
+    vspaces = restrict_virtualspaces(pspaces; right=right)
+    FiniteMPS(rand, elt, pspaces, vspaces[2:(end - 1)]; right=right)
+end
+
+function restrict_virtualspaces(Ps; left=oneunit(Ps[1]), right=oneunit(Ps[1]), L=10)
+    if length(Ps) <= L
+        Vs = max_virtualspaces(Ps; right=right)
+    else
+        Vs = similar(Ps, length(Ps) + 1)
+        Vs[1] = left
+        Vs[end] = right
+        for k in 2:(L÷2)
+            Vs[k] = fuse(Vs[k - 1], fuse(Ps[k - 1]))
+        end
+        for k in (L÷2+1):2:length(Ps)
+            Vs[k] = Vs[4]
+        end
+        for k in (L÷2+2):2:(length(Ps)-1)
+            Vs[k] = Vs[5]
+        end 
+        for k in reverse(2:length(Ps))
+            Vs[k] = infimum(Vs[k], fuse(Vs[k + 1], dual(fuse(Ps[k]))))
+        end
+    end
+    return Vs
 end
