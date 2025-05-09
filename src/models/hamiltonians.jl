@@ -35,7 +35,11 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, lattice
     end
 end
 
-
+"""
+    hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
+                    lattice=BilayerSquare(2, 2; norbit=2); kwargs...)
+    fℤ₂ × SU(2) × U(1) two-band bilayer square lattice Hubbard model
+"""
 function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
                         lattice=BilayerSquare(2, 2; norbit=2); 
                         tzz10 = -0.1123,
@@ -159,4 +163,25 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
     P, Q = filling
     pspace = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1//2,Q-P) => 1)
     return FiniteMPOHamiltonian(fill(pspace, sum(length,lattice.indices)), terms...)
+end
+
+
+"""
+    Kitaev_hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, lattice=FiniteChain(1); t=1.0, tz=0.0, U=1.0, μ=0.0, filling=(1,1))
+    fℤ₂ × U(1) × U(1) 1d-Chain Kitaev-Hubbard model without pairing terms
+"""
+
+function kitaev_hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, lattice=FiniteChain(1); t=1.0, tz=0.0, U=1.0, μ=0.0, filling=(1,1))
+    hoppings = hopping(elt, U1Irrep, U1Irrep;filling=filling)
+    σz_hoppings = σz_hopping(elt, U1Irrep, U1Irrep;filling=filling)
+    interaction = onsiteCoulomb(elt, U1Irrep, U1Irrep; filling=filling)
+    numbers = number(elt, U1Irrep, U1Irrep; filling=filling)
+    return @mpoham begin
+        sum(nearest_neighbours(lattice)) do (i, j)
+            return (-t*hoppings{i,j} - tz*σz_hoppings{i,j})/2
+        end +
+        sum(vertices(lattice)) do i
+            return U*interaction{i} - μ*numbers{i}
+        end
+    end
 end

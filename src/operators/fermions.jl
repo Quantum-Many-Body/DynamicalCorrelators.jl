@@ -79,6 +79,22 @@ function hopping(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling:
 end
 
 """
+    σz_hopping(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × U(1) × U(1) σz hopping term
+"""
+function σz_hopping(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    c⁺ul = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
+    cur = e_min(elt, U1Irrep, U1Irrep; side=:R, spin=:up, filling=filling)
+    c⁺dl = e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
+    cdr = e_min(elt, U1Irrep, U1Irrep; side=:R, spin=:down, filling=filling)
+    cul = e_min(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
+    c⁺ur = e_plus(elt, U1Irrep, U1Irrep; side=:R, spin=:up, filling=filling)
+    cdl = e_min(elt, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
+    c⁺dr = e_plus(elt, U1Irrep, U1Irrep; side=:R, spin=:down,filling=filling)
+    return contract_twosite(c⁺ul,cur) - contract_twosite(c⁺dl,cdr) + contract_twosite(cul, c⁺ur) - contract_twosite(cdl, c⁺dr)
+end
+
+"""
     number(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
     fℤ₂ × U(1) × U(1) particle number operator
 """

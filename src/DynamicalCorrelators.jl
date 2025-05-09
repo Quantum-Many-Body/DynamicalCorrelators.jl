@@ -22,13 +22,13 @@ import QuantumLattices: expand
 import MPSKit: propagator, dot
 
 include("models/hamiltonians.jl")
-export hubbard, hubbard_bilayer_2band
+export hubbard, hubbard_bilayer_2band, kitaev_hubbard
 
 include("models/lattices.jl")
 export CustomLattice, BilayerSquare, twosite_bonds, onesite_bonds, find_position
 
 include("operators/fermions.jl")
-export fZ, e_plus, e_min, hopping, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, neiborCoulomb, heisenberg, spinflip, pairhopping
+export fZ, e_plus, e_min, hopping, σz_hopping, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, neiborCoulomb, heisenberg, spinflip, pairhopping
 
 include("operators/chargedmpo.jl")
 include("operators/operator2mpo.jl")
