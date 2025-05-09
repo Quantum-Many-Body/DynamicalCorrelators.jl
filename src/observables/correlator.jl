@@ -32,8 +32,9 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
     verbose && println("[1/$(length(times))] Started: time evolves 0 ", Dates.format(start_time, "d.u yyyy HH:MM"))
     flush(stdout)
     envs = environments(ket, H)
-    jld = jldopen(filename, "w")
-    write(jld, "pro_1", propagators[:,1])
+    jldopen(filename, "w") do f
+        f["pro_1"] = propagators[:, 1]
+    end
     for (i, t) in enumerate(times[2:end])
         alg = t > n * dt ? DefaultTDVP : DefaultTDVP2(trscheme)
         ket, envs = timestep(ket, H, 0, dt, alg, envs)
@@ -43,11 +44,14 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
         current_time = now()
         verbose && println("[$(i+1)/$(length(times))] time evolves $(t)", " | duration:", Dates.canonicalize(current_time-start_time))
         flush(stdout)
-        savekets ? write(jld, "ket_t=$t", ket) : (t == times[end]) ? write(jld, "ket_t=$(times[end])", ket) : nothing
-        write(jld, "pro_$(i+1)", propagators[:,i+1])
+        jldopen(filename, "a") do f
+            f["pro_$(i+1)"] = propagators[:, i+1]
+            if savekets || t == times[end]
+                f["ket_t=$t"] = ket
+            end
+        end
         start_time = current_time
     end
-    close(jld)
     record_end = now()
     verbose && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(record_end-record_start))
 

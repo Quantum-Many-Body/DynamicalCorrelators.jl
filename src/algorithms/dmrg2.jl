@@ -3,7 +3,6 @@
     Add some auxiliary content to `find_groundstate` in MPSKit.jl and rename the function as `dmrg2`.
 """
 function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose=true, envs=environments(ψ, H))
-    jld = jldopen(filename, "w")
     ϵs = map(pos -> calc_galerkin(pos, ψ, H, ψ, envs), 1:length(ψ))
     ϵ = maximum(ϵs)
     trschemes =  map(d -> truncdim(d), truncdims)
@@ -51,13 +50,15 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
         verbose && println("[$(iter)/$(length(truncdims))] sweep", " | duration:", Dates.canonicalize(current_time-start_time))
         println("  E₀ = $(E₀), D = $(D), err² = $(err), ϵ = $(ϵ)")
         flush(stdout)
-        write(jld, "sweep=$(iter)_gs", ψ)
-        write(jld, "sweep=$(iter)_ϵ", ϵ)
-        write(jld, "sweep=$(iter)_err", err)
-        write(jld, "sweep=$(iter)_D", D)
+        mode = (iter == 1 ? "w" : "a")
+        jldopen(filename, mode) do f
+            f["sweep_$(iter)_ψ"] = ψ
+            f["sweep_$(iter)_ϵ"]  = ϵ
+            f["sweep_$(iter)_err"] = err
+            f["sweep_$(iter)_D"]  = D
+        end
         start_time = current_time
     end
-    close(jld)
     record_end = now()
     verbose && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(record_end-record_start))
     return ψ, envs, ϵ
