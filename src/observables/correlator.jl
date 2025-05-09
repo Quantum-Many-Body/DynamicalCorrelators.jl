@@ -24,12 +24,12 @@ function propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool
     return propagators
 end
 
-function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; savekets::Bool=false, filename::String="default_gf_slice.jld2", verbose::Bool=false, rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
+function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; id::Union{String, Integer}="*", savekets::Bool=false, filename::String="default_gf_slice.jld2", verbose::Bool=false, rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
     times = collect(0:dt:ft)
     propagators = zeros(ComplexF64, length(bras), length(times))
     propagators[:,1] = [dot(bras[i], ket) for i in 1:length(bras)]
     start_time, record_start = now(), now()
-    verbose && println("[1/$(length(times))] Started: time evolves 0 ", Dates.format(start_time, "d.u yyyy HH:MM"))
+    verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
     flush(stdout)
     envs = environments(ket, H)
     jldopen(filename, "w") do f
@@ -42,7 +42,7 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
             propagators[j,i+1] = dot(bras[j], ket)
         end
         current_time = now()
-        verbose && println("[$(i+1)/$(length(times))] time evolves $(t)", " | duration:", Dates.canonicalize(current_time-start_time))
+        verbose && println("[$(i+1)/$(length(times))] time evolves $(t) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
         flush(stdout)
         jldopen(filename, "a") do f
             f["pro_$(i+1)"] = propagators[:, i+1]
@@ -64,24 +64,24 @@ RetardedGF(::Type{RetardedGF{:f}}) = 1
 RetardedGF(::Type{RetardedGF{:b}}) = -1
 
 
-function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; parallel::Union{String, Integer}=Threads.nthreads(), dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3)) where R<:RetardedGF
+function dcorrelator(::Type{R}, H::MPOHamiltonian, 
+                    gsenergy::Number, mps::Vector{<:FiniteMPS};
+                    verbose=true, 
+                    path::String="./", 
+                    savekets=false,  
+                    parallel::Union{String, Integer}=Threads.nthreads(), 
+                    dt::Number=0.05, 
+                    ft::Number=5.0, 
+                    n::Integer=3, 
+                    trscheme=truncerr(1e-3)) where R<:RetardedGF
     t, half = collect(0:dt:ft), length(mps)÷2
-    if parallel == "np"
-        gf = SharedArray{ComplexF64, 3}(length(mps), half, length(0:dt:ft))
-        @sync @distributed for i in 1:length(mps)
-            if i <= half
-                gf[i,:,:] = propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
-            else
-                gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
-            end
-        end
-    elseif parallel == 1
+    if parallel == 1
         gf = zeros(ComplexF64, length(mps), half, length(0:dt:ft))
         for i in 1:length(mps)
             if i <= half
-                gf[i,:,:] = propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+                gf[i,:,:] = propagator(H, mps[1:half], mps[i]; id=i, filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
             else
-                gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+                gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; id=i, filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
             end
         end
     else
@@ -93,9 +93,9 @@ function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector
                 i = Threads.atomic_add!(idx, 1) 
                 i > n && break  
                 if i <= half
-                    gf[i,:,:] = propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+                    gf[i,:,:] = propagator(H, mps[1:half], mps[i]; id=i, filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
                 else
-                    gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+                    gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; id=i, filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
                 end
             end
         end
