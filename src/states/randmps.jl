@@ -57,9 +57,9 @@ function _vspaces(::Type{SU2Irrep}, ::Type{U1Irrep}, P, Q, k, Z, N, I, md)
     return vsp
 end
 
-function randFiniteMPS(elt::Type{<:Number}, H::MPOHamiltonian; right=oneunit(physicalspace(H)[1]))
+function randFiniteMPS(elt::Type{<:Number}, H::MPOHamiltonian; L=10, right=oneunit(physicalspace(H)[1]))
     Ps = physicalspace(H)
-    Vs = restrict_virtualspaces(Ps; right=right)
+    Vs = restrict_virtualspaces(Ps; right=right, L=L)
     FiniteMPS(rand, elt, Ps, Vs[2:(end - 1)]; right=right)
 end
 
