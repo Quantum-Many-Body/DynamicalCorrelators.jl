@@ -82,8 +82,8 @@ function dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::T
     t, half = collect(0:dt:ft), length(H)
     gsenergy = expectation_value(gs, H)
     if parallel == "np"
-        gf = SharedArray{ComplexF64, 3}(length(mps), half, length(0:dt:ft))
-        @sync @distributed for i in 1:length(mps)
+        gf = SharedArray{ComplexF64, 3}(2*half, half, length(0:dt:ft))
+        @sync @distributed for i in 1:(2*half)
             if i <= half
                 gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
             else
@@ -91,8 +91,8 @@ function dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::T
             end
         end
     elseif parallel == 1
-        gf = zeros(ComplexF64, length(mps), half, length(0:dt:ft))
-        for i in 1:length(mps)
+        gf = zeros(ComplexF64, (2*half), half, length(0:dt:ft))
+        for i in 1:(2*half)
             if i <= half
                 gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
             else
@@ -100,9 +100,9 @@ function dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::T
             end
         end
     else
-        gf = zeros(ComplexF64, length(mps), half, length(0:dt:ft))
+        gf = zeros(ComplexF64, (2*half), half, length(0:dt:ft))
         idx = Threads.Atomic{Int}(1)
-        n = length(mps)
+        n = (2*half)
         Threads.@sync for _ in 1:parallel
             Threads.@spawn while true
                 i = Threads.atomic_add!(idx, 1) 
