@@ -28,7 +28,8 @@ function propagator(gs::AbstractFiniteMPS, H::MPOHamiltonian, op::AbstractTensor
     times = collect(0:dt:ft)
     propagators = zeros(ComplexF64, length(H), length(times))
     idx = id <= length(H) ? id : id - length(H)
-    propagators[:,1] = [dot(chargedMPS(op, gs, i), chargedMPS(op, gs, idx)) for i in 1:length(H)]
+    ket = chargedMPS(op, gs, idx)
+    propagators[:,1] = [dot(chargedMPS(op, gs, i), ket) for i in 1:length(H)]
     start_time, record_start = now(), now()
     verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
     flush(stdout)
@@ -40,7 +41,7 @@ function propagator(gs::AbstractFiniteMPS, H::MPOHamiltonian, op::AbstractTensor
         alg = t > n * dt ? DefaultTDVP : DefaultTDVP2(trscheme)
         ket, envs = timestep(ket, H, 0, dt, alg, envs)
         for j in 1:length(H)
-            propagators[j,i+1] = dot(chargedMPS(op, gs, j), chargedMPS(op, gs, idx))
+            propagators[j,i+1] = dot(chargedMPS(op, gs, j), ket)
         end
         current_time = now()
         verbose && println("[$(i+1)/$(length(times))] time evolves $(t) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
