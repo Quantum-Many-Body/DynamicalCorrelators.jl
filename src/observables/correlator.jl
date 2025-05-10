@@ -135,15 +135,21 @@ end
 
 struct GreaterLessGF end
 
-function dcorrelator(::Type{GreaterLessGF}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; whichs=:both, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
-    t, half = collect(0:dt:ft), length(mps)÷2
+function dcorrelator(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}; 
+    whichs=:both, 
+    verbose=true, 
+    path::String="./", 
+    savekets=false,  
+    dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
+    t, half = collect(0:dt:ft), length(H)
+    gsenergy = expectation_value(gs, H)
     if whichs == :both
-        gf = SharedArray{ComplexF64, 3}(length(mps), half, length(0:dt:ft))
-        @sync @distributed for i in 1:length(mps)
+        gf = SharedArray{ComplexF64, 3}(2*half, half, length(0:dt:ft))
+        @sync @distributed for i in 1:(2*half)
             if i <= half
-                gf[i,:,:] = propagator(H, mps[1:half], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+                gf[i,:,:] = propagator(gs, H, ops[1], i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
             else
-                gf[i,:,:] =  propagator(H, mps[(half+1):end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+                gf[i,:,:] = propagator(gs, H, ops[2], i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
             end
         end
         for i in eachindex(t)
@@ -153,40 +159,22 @@ function dcorrelator(::Type{GreaterLessGF}, H::MPOHamiltonian, gsenergy::Number,
         end
         return [gf[1:half,:,:], gf[(half+1):end,:,:]]
     elseif whichs == :greater
-        gf = SharedArray{ComplexF64, 3}(length(mps), length(mps), length(0:dt:ft))
-        @sync @distributed for i in 1:length(mps)
-            gf[i,:,:] = propagator(H, mps[1:end], mps[i]; rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+        gf = SharedArray{ComplexF64, 3}(half, half, length(0:dt:ft))
+        @sync @distributed for i in 1:half
+            gf[i,:,:] = propagator(gs, H, ops[1], i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
         end
         for i in eachindex(t)
             gf[:,:,i] = -im*exp(im*gsenergy*t[i])*gf[:,:,i]
         end
         return gf
     elseif whichs == :less
-        gf = SharedArray{ComplexF64, 3}(length(mps), length(mps), length(0:dt:ft))
-        @sync @distributed for i in 1:length(mps)
-            gf[i,:,:] =  propagator(H, mps[1:end], mps[i]; rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+        gf = SharedArray{ComplexF64, 3}(half, half, length(0:dt:ft))
+        @sync @distributed for i in 1:half
+            gf[i,:,:] = propagator(gs, H, ops[2], i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme) 
         end
         for i in eachindex(t)
             gf[:,:,i] = -im*exp(-im*gsenergy*t[i])*gf[:,:,i]
         end
         return gf
     end
-end
-
-
-
-struct GorkovGF end
-
-struct MatsubaraGF end
-
-function dcorrelator(::Type{MatsubaraGF}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
-    t = collect(0:dt:ft)
-    gf = SharedArray{ComplexF64, 3}(length(mps), length(mps), length(0:dt:ft))
-    @sync @distributed for i in 1:length(mps)
-        gf[i,:,:] = propagator(H, mps[1:end], mps[i]; rev=false, imag=true, dt=dt, ft=ft, n=n, trscheme=trscheme) 
-    end
-    for i in eachindex(t)
-        gf[:,:,i] = exp(gsenergy*t[i])*gf[:,:,i]
-    end
-    return gf
 end

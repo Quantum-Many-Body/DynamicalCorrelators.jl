@@ -49,7 +49,7 @@ export dmrg2!, dmrg2
 
 include("observables/correlator.jl")
 export propagator, dcorrelator
-export RetardedGF, GreaterLessGF, MatsubaraGF
+export RetardedGF, GreaterLessGF
 
 include("observables/fourier.jl")
 export fourier_kw, fourier_rw
