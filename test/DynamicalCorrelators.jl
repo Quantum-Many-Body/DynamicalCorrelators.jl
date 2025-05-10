@@ -117,7 +117,7 @@ end
     ep = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
     em = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
     rgf = dcorrelator(RetardedGF{:f}, gs, H, (ep, em); dt=0.05, ft=0.1)
-    ggf = dcorrelator(GreaterLessGF, H, E0, [chargedMPS(ep, gs, 1), ]; whichs=:greater, dt=0.05, ft=0.1)
-    lgf = dcorrelator(GreaterLessGF, H, E0, [chargedMPS(em, gs, 1), ]; whichs=:less, dt=0.05, ft=0.1)
+    ggf = dcorrelator(GreaterLessGF, gs, H, (ep, em); whichs=:greater, dt=0.05, ft=0.1)
+    lgf = dcorrelator(GreaterLessGF, gs, H, (ep, em); whichs=:less, dt=0.05, ft=0.1)
     @test rgf ≈ ggf + lgf
 end
