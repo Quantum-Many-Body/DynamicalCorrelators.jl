@@ -24,10 +24,12 @@ function propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool
     return propagators
 end
 
-function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; id::Union{String, Integer}="*", savekets::Bool=false, filename::String="default_gf_slice.jld2", verbose::Bool=false, rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
+function propagator(gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, id::Integer; savekets::Bool=false, filename::String="default_gf_slice.jld2", verbose::Bool=false, rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
     times = collect(0:dt:ft)
-    propagators = zeros(ComplexF64, length(bras), length(times))
-    propagators[:,1] = [dot(bras[i], ket) for i in 1:length(bras)]
+    propagators = zeros(ComplexF64, 2*length(H), length(times))
+    op = id <= length(H) ? ops[1] : ops[2]
+    idx = id <= length(H) ? id : id - length(H)
+    propagators[:,1] = [[dot(chargedMPS(ops[1], gs, i), chargedMPS(op, gs, idx)) for i in 1:length(H)]; [dot(chargedMPS(ops[2], gs, i), chargedMPS(op, gs, idx)) for i in 1:length(H)]]
     start_time, record_start = now(), now()
     verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
     flush(stdout)
@@ -38,8 +40,12 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
     for (i, t) in enumerate(times[2:end])
         alg = t > n * dt ? DefaultTDVP : DefaultTDVP2(trscheme)
         ket, envs = timestep(ket, H, 0, dt, alg, envs)
-        for j in eachindex(bras)
-            propagators[j,i+1] = dot(bras[j], ket)
+        for j in 1:2*length(H)
+            if j <= length(H)
+                propagators[j,i+1] = dot(chargedMPS(ops[1], gs, j), chargedMPS(op, gs, idx))
+            else
+                propagators[j,i+1] = dot(chargedMPS(ops[2], gs, j), chargedMPS(op, gs, idx))
+            end
         end
         current_time = now()
         verbose && println("[$(i+1)/$(length(times))] time evolves $(t) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
@@ -64,8 +70,7 @@ RetardedGF(::Type{RetardedGF{:f}}) = 1
 RetardedGF(::Type{RetardedGF{:b}}) = -1
 
 
-function dcorrelator(::Type{R}, H::MPOHamiltonian, 
-                    gsenergy::Number, mps::Vector{<:FiniteMPS};
+function dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap};
                     verbose=true, 
                     path::String="./", 
                     savekets=false,  
@@ -74,14 +79,24 @@ function dcorrelator(::Type{R}, H::MPOHamiltonian,
                     ft::Number=5.0, 
                     n::Integer=3, 
                     trscheme=truncerr(1e-3)) where R<:RetardedGF
-    t, half = collect(0:dt:ft), length(mps)÷2
-    if parallel == 1
+    t, half = collect(0:dt:ft), length(H)
+    gsenergy = expectation_value(gs, H)
+    if parallel == "np"
+        gf = SharedArray{ComplexF64, 3}(length(mps), half, length(0:dt:ft))
+        @sync @distributed for i in 1:length(mps)
+            if i <= half
+                gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+            else
+                gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme)
+            end
+        end
+    elseif parallel == 1
         gf = zeros(ComplexF64, length(mps), half, length(0:dt:ft))
         for i in 1:length(mps)
             if i <= half
-                gf[i,:,:] = propagator(H, mps[1:half], mps[i]; id=i, filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+                gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
             else
-                gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; id=i, filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+                gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme)
             end
         end
     else
@@ -93,9 +108,9 @@ function dcorrelator(::Type{R}, H::MPOHamiltonian,
                 i = Threads.atomic_add!(idx, 1) 
                 i > n && break  
                 if i <= half
-                    gf[i,:,:] = propagator(H, mps[1:half], mps[i]; id=i, filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+                    gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
                 else
-                    gf[i,:,:] = propagator(H, mps[(half+1):end], mps[i]; id=i, filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=true, dt=dt, ft=ft, n=n, trscheme=trscheme)
+                    gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme)
                 end
             end
         end
