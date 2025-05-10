@@ -85,18 +85,18 @@ function dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::T
         gf = SharedArray{ComplexF64, 3}(2*half, half, length(0:dt:ft))
         @sync @distributed for i in 1:(2*half)
             if i <= half
-                gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+                gf[i,:,:] = propagator(gs, H, ops, i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
             else
-                gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme)
+                gf[i,:,:] = propagator(gs, H, ops, i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme)
             end
         end
     elseif parallel == 1
         gf = zeros(ComplexF64, (2*half), half, length(0:dt:ft))
         for i in 1:(2*half)
             if i <= half
-                gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+                gf[i,:,:] = propagator(gs, H, ops, i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
             else
-                gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme)
+                gf[i,:,:] = propagator(gs, H, ops, i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme)
             end
         end
     else
@@ -108,9 +108,9 @@ function dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::T
                 i = Threads.atomic_add!(idx, 1) 
                 i > n && break  
                 if i <= half
-                    gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+                    gf[i,:,:] = propagator(gs, H, ops, i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme) 
                 else
-                    gf[i,:,:] = propagator(gs, H, ops, id=i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme)
+                    gf[i,:,:] = propagator(gs, H, ops, i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=false, dt=dt, ft=ft, n=n, trscheme=trscheme)
                 end
             end
         end
