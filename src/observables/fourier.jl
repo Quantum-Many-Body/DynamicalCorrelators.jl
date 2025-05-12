@@ -18,7 +18,7 @@ function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts
     dest = zeros(ComplexF64, length(regroup), length(regroup))
     for x in eachindex(regroup), y in eachindex(regroup), l in eachindex(ts)
         for j in eachindex(regroup[x]), i in eachindex(regroup[y])
-            dest[x, y] += gf_rt[regroup[x][j], regroup[y][i], l]*exp(im*(-dot(k, rs[rsregroup[y][i]]-rs[rsregroup[x][j]])+w*ts[l]))*broaden(eta, ts[l])
+            dest[x, y] += gf_rt[regroup[x][j], regroup[y][i], l]*exp(im*(-dot(k, rs[regroup[y][i]]-rs[regroup[x][j]])+w*ts[l]))*broaden(eta, ts[l])
         end
     end
     return dest*(ts.step.hi)/length(regroup[1])/4π^2
@@ -28,7 +28,7 @@ function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts
     gf_kw = Matrix(undef, length(ws), length(ks))
     if mthreads == 1
         for k in eachindex(ks), w in eachindex(ws)
-            gf_kw[k, w] = fourier_kw(gf_rt, rs, ts, ks[k], ws[w]; kwags...)
+            gf_kw[w, k] = fourier_kw(gf_rt, rs, ts, ks[k], ws[w]; kwargs...)
         end
     else
         idx = Threads.Atomic{Int}(1)
@@ -39,7 +39,7 @@ function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts
                 i = Threads.atomic_add!(idx, 1)  
                 i > n && break  
                 k, w = indices[i].I
-                gf_kw[k, w] = fourier_kw(gf_rt, rs, ts, ks[k], ws[w]; kwags...)
+                gf_kw[w, k] = fourier_kw(gf_rt, rs, ts, ks[k], ws[w]; kwargs...)
             end
         end
     end
