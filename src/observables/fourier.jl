@@ -18,7 +18,7 @@ function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts
     dest = zeros(ComplexF64, length(regroup), length(regroup))
     for x in eachindex(regroup), y in eachindex(regroup), l in eachindex(ts)
         for j in eachindex(regroup[x]), i in eachindex(regroup[y])
-            dest[x, y] += gf_rt[regroup[x][j], regroup[y][i], l]*exp(im*(-dot(k, rs[regroup[y][i]]-rs[regroup[x][j]])+w*ts[l]))*broaden(eta, ts[l])
+            dest[x, y] += gf_rt[regroup[x][j], regroup[y][i], l]*cis(-dot(k, rs[regroup[y][i]]-rs[regroup[x][j]])+w*ts[l])*broaden(eta, ts[l])
         end
     end
     return dest*(ts.step.hi)/length(regroup[1])/4π^2
