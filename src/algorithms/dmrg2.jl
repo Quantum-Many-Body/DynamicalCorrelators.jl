@@ -44,7 +44,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
         err = maximum(errs)
         ϵ = maximum(ϵs)
         ψ, envs = alg.finalize(iter, ψ, H, envs)::Tuple{typeof(ψ),typeof(envs)}
-        D = maximum([dim(domain(ψ[length(ψ)÷2])), dim(domain(ψ[length(ψ)÷2+1])), dim(domain(ψ[length(ψ)÷2-1]))])
+        D = length(ψ) <= 4 ? dim(domain(ψ[length(ψ)÷2])) : maximum([dim(domain(ψ[length(ψ)÷2])), dim(domain(ψ[length(ψ)÷2+1])), dim(domain(ψ[length(ψ)÷2-1]))])
         E₀ = expectation_value(ψ, H, envs)
         current_time = now()
         verbose && println("[$(iter)/$(length(truncdims))] sweep", " | duration:", Dates.canonicalize(current_time-start_time))
