@@ -1,14 +1,14 @@
 """
-    dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose=true, envs=environments(ψ, H))
+    dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true, envs=environments(ψ, H))
     Add some auxiliary content to `find_groundstate` in MPSKit.jl and rename the function as `dmrg2`.
 """
-function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose=true, envs=environments(ψ, H))
+function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true, envs=environments(ψ, H))
     ϵs = map(pos -> calc_galerkin(pos, ψ, H, ψ, envs), 1:length(ψ))
     ϵ = maximum(ϵs)
     trschemes =  map(d -> truncdim(d), truncdims)
     start_time, record_start = now(), now()
-    verbose && println("Sweep Started: ", Dates.format(start_time, "d.u yyyy HH:MM"))
-    verbose && flush(stdout)
+    Int(verbose) > 0 && println("Sweep Started: ", Dates.format(start_time, "d.u yyyy HH:MM"))
+    Int(verbose) > 0 && flush(stdout)
     for iter in 1:length(truncdims)
         alg_eigsolve = updatetol(alg.alg_eigsolve, iter, ϵ)
         zerovector!(ϵs)
@@ -25,6 +25,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
             errs[pos] = err^2
             ψ.AC[pos] = (al, complex(c))
             ψ.AC[pos + 1] = (complex(c), _transpose_front(ar))
+            Int(verbose) > 1 && println("  SweepL2R: site $(pos) => site $(pos+1) ", Dates.format(now(), "d.u yyyy HH:MM"))
         end
 
         # right to left sweep
@@ -39,6 +40,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
             errs[pos] = max(errs[pos], err^2)
             ψ.AC[pos + 1] = (complex(c), _transpose_front(ar))
             ψ.AC[pos] = (al, complex(c))
+            Int(verbose) > 1 && println("  SweepR2L: site $(pos) <= site $(pos+1) ", Dates.format(now(), "d.u yyyy HH:MM"))
         end
 
         err = maximum(errs)
@@ -47,7 +49,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
         D = length(ψ) <= 4 ? dim(domain(ψ[length(ψ)÷2])) : maximum([dim(domain(ψ[length(ψ)÷2])), dim(domain(ψ[length(ψ)÷2+1])), dim(domain(ψ[length(ψ)÷2-1]))])
         E₀ = expectation_value(ψ, H, envs)
         current_time = now()
-        verbose && println("[$(iter)/$(length(truncdims))] sweep", " | duration:", Dates.canonicalize(current_time-start_time))
+        Int(verbose) > 0 && println("[$(iter)/$(length(truncdims))] sweep", " | duration:", Dates.canonicalize(current_time-start_time))
         println("  E₀ = $(E₀), D = $(D), err² = $(err), ϵ = $(ϵ)")
         flush(stdout)
         mode = (iter == 1 ? "w" : "a")
@@ -60,7 +62,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
         start_time = current_time
     end
     record_end = now()
-    verbose && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(record_end-record_start))
+    Int(verbose) > 0 && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(record_end-record_start))
     return ψ, envs, ϵ
 end
 
