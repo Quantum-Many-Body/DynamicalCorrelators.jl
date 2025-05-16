@@ -29,6 +29,7 @@ export CustomLattice, BilayerSquare, twosite_bonds, onesite_bonds, find_position
 
 include("operators/fermions.jl")
 export fZ, e_plus, e_min, hopping, σz_hopping, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, neiborCoulomb, heisenberg, spinflip, pairhopping
+export singlet_dagger, singlet, triplet_dagger, triplet
 
 include("operators/chargedmpo.jl")
 include("operators/operator2mpo.jl")
