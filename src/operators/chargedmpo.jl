@@ -31,3 +31,24 @@ function chargedMPO(operator₁::AbstractTensorMap, operator₂::AbstractTensorM
     end
     return mpo
 end
+
+function chargedMPO(operator::AbstractTensorMap, site₁::Integer, site₂::Integer, nsites::Integer)
+    pspace = domain(operator)[1]
+    O₁, O₂ = decompose_localmpo(add_single_util_leg(operator))
+    iso₁ = isomorphism(storagetype(operator), codomain(O₂)[1], codomain(O₂)[1])
+    iso₂ = isomorphism(storagetype(operator), pspace, pspace)
+    @planar Z₁[-1 -2; -3 -4] := iso₁[-1; 1] * iso₂[-2; 2] * τ[1 2; 3 4] * iso₂[3; -3] * iso₁[4; -4]
+    Z₂ = fZ(operator)
+    I = isomorphism(storagetype(operator), oneunit(pspace)*pspace, pspace*oneunit(pspace))
+    if length(domain(operator)) > length(codomain(operator))
+        mpo = FiniteMPO([i < site₁ ? I : i == site₁ ? O₁ : site₁ < i < site₂ ? Z₁ : i == site₂ ? O₂ : Z₂ for i in 1:nsites])
+    elseif length(codomain(operator)) > length(domain(operator))
+        mpo = FiniteMPO([i < site₁ ? Z₂ : i == site₁ ? O₁ : site₁ < i < site₂ ? Z₁ : i == site₂ ? O₂ : I for i in 1:nsites])
+    elseif length(codomain(operator)) == length(domain(operator))
+        I = add_util_leg(isomorphism(storagetype(operator), pspace, pspace))
+        mpo = FiniteMPO([i < site₁ ? I : i == site₁ ? O₁ : site₁ < i < site₂ ? Z₁ : i == site₂ ? O₂ : I for i in 1:nsites])
+    else
+        throw(ArgumentError("invalid operator"))
+    end
+    return mpo
+end
