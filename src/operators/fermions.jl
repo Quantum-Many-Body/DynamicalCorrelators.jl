@@ -415,6 +415,85 @@ function pairhopping(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; fil
     return (Pij + Pji)/2
 end
 
+"""
+    singlet_dagger(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × SU(2) × U(1) singlet creation operator
+"""
+function singlet_dagger(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
+    if side == :L
+        A = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+        B = deepcopy(A)
+        vspace = domain(A,2)
+        fspace = Vect[FermionParity ⊠ Irrep[SU₂] ⊠ Irrep[U₁]]((0,0,2*(filling[2]))=>1)
+        iso = isometry(elt, vspace⊗vspace, fspace)
+        @planar slt[-1 -2; -3 -4 -5] := A[-1; -3 1] * τ[1 2; -4 3] * B[-2; 2 4] * iso[3 4; -5]
+    elseif side == :R
+        sd = singlet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)
+        vspace = domain(sd, 3)
+        F = isomorphism(storagetype(sd), vspace, flip(vspace))
+        @planar slt[-5 -1 -2; -3 -4] := sd[-1 -2; 4 2 1] * τ[2 1; 3 -4] * τ[4 3; 5 -3] * F[5; -5]
+    else
+        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+    end
+    return slt
+end
+
+"""
+    singlet(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × SU(2) × U(1) singlet annihilation operator
+"""
+function singlet(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
+    if side == :L
+        sd = singlet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)'
+        F = isomorphism(storagetype(sd), flip(space(sd, 3)), space(sd, 3))
+        @planar slt[-1 -2; -3 -4 -5] := sd[-1 -2 1; -3 -4] * F[-5; 1]
+    elseif side == :R
+        slt = permute(singlet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)', ((3, 1, 2), (4, 5)))
+    else
+        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+    end
+    return slt
+end
+
+"""
+    triplet_dagger(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × SU(2) × U(1) triplet creation operator
+"""
+function triplet_dagger(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
+    if side == :L
+        A = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+        B = deepcopy(A)
+        vspace = domain(A,2)
+        fspace = Vect[FermionParity ⊠ Irrep[SU₂] ⊠ Irrep[U₁]]((0,1,2*(filling[2]))=>1)
+        iso = isometry(elt, vspace⊗vspace, fspace)
+        @planar slt[-1 -2; -3 -4 -5] := A[-1; -3 1] * τ[1 2; -4 3] * B[-2; 2 4] * iso[3 4; -5]
+    elseif side == :R
+        sd = triplet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)
+        vspace = domain(sd, 3)
+        F = isomorphism(storagetype(sd), vspace, flip(vspace))
+        @planar slt[-5 -1 -2; -3 -4] := sd[-1 -2; 4 2 1] * τ[2 1; 3 -4] * τ[4 3; 5 -3] * F[5; -5]
+    else
+        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+    end
+    return slt/sqrt(3)
+end
+
+"""
+    triplet(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
+    fℤ₂ × SU(2) × U(1) triplet annihilation operator
+"""
+function triplet(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
+    if side == :L
+        sd = triplet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)'
+        F = isomorphism(storagetype(sd), flip(space(sd, 3)), space(sd, 3))
+        @planar slt[-1 -2; -3 -4 -5] := sd[-1 -2 1; -3 -4] * F[-5; 1]
+    elseif side == :R
+        slt = permute(triplet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)', ((3, 1, 2), (4, 5)))
+    else
+        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+    end
+    return slt
+end
 #==========================================================================================
     spin 1/2 fermions (realized by hard-core bosons and Jordan-Wigner transformation)
     include U(1) × U(1) fermions, 
