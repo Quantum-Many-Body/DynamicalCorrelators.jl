@@ -19,7 +19,7 @@ using Printf: @printf, @sprintf
 using Dates
 
 import QuantumLattices: expand
-import MPSKit: propagator, dot
+import MPSKit: propagator, dot, correlator
 
 include("models/hamiltonians.jl")
 export hubbard, hubbard_bilayer_2band, kitaev_hubbard
@@ -48,7 +48,7 @@ export DefaultDMRG, DefaultTDVP, DefaultTDVP2
 include("algorithms/dmrg2.jl")
 export dmrg2!, dmrg2
 
-include("observables/correlator.jl")
+include("observables/dcorrelator.jl")
 export propagator, dcorrelator
 export RetardedGF, GreaterLessGF
 
