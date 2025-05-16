@@ -419,21 +419,39 @@ end
     singlet_dagger(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
     fℤ₂ × SU(2) × U(1) singlet creation operator
 """
-function singlet_dagger(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
-    if side == :L
-        A = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
-        B = deepcopy(A)
-        vspace = domain(A,2)
-        fspace = Vect[FermionParity ⊠ Irrep[SU₂] ⊠ Irrep[U₁]]((0,0,2*(filling[2]))=>1)
-        iso = isometry(elt, vspace⊗vspace, fspace)
-        @planar slt[-1 -2; -3 -4 -5] := A[-1; -3 1] * τ[1 2; -4 3] * B[-2; 2 4] * iso[3 4; -5]
-    elseif side == :R
-        sd = singlet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)
-        vspace = domain(sd, 3)
-        F = isomorphism(storagetype(sd), vspace, flip(vspace))
-        @planar slt[-5 -1 -2; -3 -4] := sd[-1 -2; 4 2 1] * τ[2 1; 3 -4] * τ[4 3; 5 -3] * F[5; -5]
-    else
-        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+function singlet_dagger(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; onsite::Bool=false, side=:L, filling::NTuple{2, Integer}=(1,1))
+    if onsite == true
+        if side == :L
+            A = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+            B = deepcopy(A)
+            vspace = domain(A,2)
+            fspace = Vect[FermionParity ⊠ Irrep[SU₂] ⊠ Irrep[U₁]]((0,0,2*(filling[2]))=>1)
+            iso = isometry(elt, vspace⊗vspace, fspace)
+            @planar slt[-1; -2 -3] := A[-1; 1 2] * B[1; -2 3] * iso[3 2; -3]
+        elseif side == :R
+            sd = singlet_dagger(elt, spin_symmetry, particle_symmetry; onsite=true, side=:L, filling=filling)
+            vspace = domain(sd, 2)
+            F = isomorphism(storagetype(sd), vspace, flip(vspace))
+            @planar slt[-1 -2; -3] := sd[-2; 1 2] * τ[1 2; 3 -3] * F[3; -1]
+        else
+            throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+        end
+    else 
+        if side == :L
+            A = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+            B = deepcopy(A)
+            vspace = domain(A,2)
+            fspace = Vect[FermionParity ⊠ Irrep[SU₂] ⊠ Irrep[U₁]]((0,0,2*(filling[2]))=>1)
+            iso = isometry(elt, vspace⊗vspace, fspace)
+            @planar slt[-1 -2; -3 -4 -5] := A[-1; -3 1] * τ[1 2; -4 3] * B[-2; 2 4] * iso[3 4; -5]
+        elseif side == :R
+            sd = singlet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)
+            vspace = domain(sd, 3)
+            F = isomorphism(storagetype(sd), vspace, flip(vspace))
+            @planar slt[-5 -1 -2; -3 -4] := sd[-1 -2; 4 2 1] * τ[2 1; 3 -4] * τ[4 3; 5 -3] * F[5; -5]
+        else
+            throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+        end
     end
     return slt
 end
@@ -442,15 +460,27 @@ end
     singlet(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
     fℤ₂ × SU(2) × U(1) singlet annihilation operator
 """
-function singlet(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
-    if side == :L
-        sd = singlet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)'
-        F = isomorphism(storagetype(sd), flip(space(sd, 3)), space(sd, 3))
-        @planar slt[-1 -2; -3 -4 -5] := sd[-1 -2 1; -3 -4] * F[-5; 1]
-    elseif side == :R
-        slt = permute(singlet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)', ((3, 1, 2), (4, 5)))
+function singlet(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; onsite::Bool=false, side=:L, filling::NTuple{2, Integer}=(1,1))
+    if onsite == true
+        if side === :L
+            sd = singlet_dagger(elt, spin_symmetry, particle_symmetry; onsite=true, side=:L, filling=filling)'
+            F = isomorphism(storagetype(sd), flip(space(sd, 2)), space(sd, 2))
+            @planar slt[-1; -2 -3] := sd[-1 1; -2] * F[-3; 1]
+        elseif side === :R
+            slt = permute(singlet_dagger(elt, spin_symmetry, particle_symmetry; onsite=true, side=:L, filling=filling)', ((2, 1), (3,)))
+        else
+            throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+        end
     else
-        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+        if side == :L
+            sd = singlet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)'
+            F = isomorphism(storagetype(sd), flip(space(sd, 3)), space(sd, 3))
+            @planar slt[-1 -2; -3 -4 -5] := sd[-1 -2 1; -3 -4] * F[-5; 1]
+        elseif side == :R
+            slt = permute(singlet_dagger(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)', ((3, 1, 2), (4, 5)))
+        else
+            throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+        end
     end
     return slt
 end
