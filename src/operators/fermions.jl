@@ -3,8 +3,13 @@
     braiding operator 
 """
 function fZ(operator::AbstractTensorMap)
-    length(domain(operator))==2 ? vspace=domain(operator)[2] : length(codomain(operator))==2 ? vspace=codomain(operator)[1] : throw(ArgumentError("invalid creation or annihilation operator"))
-    pspace = domain(operator)[1]
+    if length(domain(operator)) > length(codomain(operator))
+        vspace = domain(operator)[length(domain(operator))]
+        pspace = domain(operator)[1]
+    elseif length(codomain(operator)) > length(domain(operator))
+        vspace = codomain(operator)[1]
+        pspace = domain(operator)[1]
+    end
     iso₁ = isomorphism(storagetype(operator), vspace, vspace)
     iso₂ = isomorphism(storagetype(operator), pspace, pspace)
     @planar Z[-1 -2; -3 -4] := iso₁[-1; 1] * iso₂[-2; 2] * τ[1 2; 3 4] * iso₂[3; -3] * iso₁[4; -4]
@@ -45,16 +50,16 @@ end
     fℤ₂ × U(1) × U(1) electron annihilation operator
 """
 function e_min end
-function e_min(particle_symmetry::Type{<:Sector}, spin_symmetry::Type{<:Sector}; kwargs...)
-    return e_min(ComplexF64, particle_symmetry, spin_symmetry; kwargs...)
+function e_min(spin_symmetry::Type{<:Sector}, particle_symmetry::Type{<:Sector}; kwargs...)
+    return e_min(ComplexF64, spin_symmetry, particle_symmetry; kwargs...)
 end
-function e_min(elt::Type{<:Number}, particle_symmetry::Type{U1Irrep}, spin_symmetry::Type{U1Irrep}; side=:L, spin=:up, filling::NTuple{2, Integer}=(1,1))
+function e_min(elt::Type{<:Number}, spin_symmetry::Type{U1Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, spin=:up, filling::NTuple{2, Integer}=(1,1))
     if side === :L
-        E = e_plus(elt, particle_symmetry, spin_symmetry; side=:L, spin=spin, filling=filling)'
+        E = e_plus(elt, spin_symmetry, particle_symmetry; side=:L, spin=spin, filling=filling)'
         F = isomorphism(storagetype(E), flip(space(E, 2)), space(E, 2))
         @planar e⁻[-1; -2 -3] := E[-1 1; -2] * F[-3; 1]
     elseif side === :R
-        e⁻ = permute(e_plus(elt, particle_symmetry, spin_symmetry; side=:L, spin=spin, filling=filling)',
+        e⁻ = permute(e_plus(elt, spin_symmetry, particle_symmetry; side=:L, spin=spin, filling=filling)',
                     ((2, 1), (3,)))
     else
         throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
@@ -261,16 +266,16 @@ function e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L,
     return e⁺
 end
 """
-    e_min(elt::Type{<:Number}, particle_symmetry::Type{SU2Irrep}, spin_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
+    e_min(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
     fℤ₂ × SU(2) × U(1) electron annihilation operator
 """
-function e_min(elt::Type{<:Number}, particle_symmetry::Type{SU2Irrep}, spin_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
+function e_min(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_symmetry::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
     if side === :L
-        E = e_plus(elt, particle_symmetry, spin_symmetry; side=:L, filling=filling)'
+        E = e_plus(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)'
         F = isomorphism(storagetype(E), flip(space(E, 2)), space(E, 2))
         @planar e⁻[-1; -2 -3] := E[-1 1; -2] * F[-3; 1]
     elseif side === :R
-        e⁻ = permute(e_plus(elt, particle_symmetry, spin_symmetry; side=:L, filling=filling)',
+        e⁻ = permute(e_plus(elt, spin_symmetry, particle_symmetry; side=:L, filling=filling)',
                     ((2, 1), (3,)))
     else
         throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
@@ -318,13 +323,13 @@ function onsiteCoulomb(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; f
 end
 
 """
-    S_plus(particle_symmetry::Type{<:Sector}, spin_symmetry::Type{<:Sector}; kwargs...)
+    S_plus(spin_symmetry::Type{<:Sector}, particle_symmetry::Type{<:Sector}; kwargs...)
     S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L)
     fℤ₂ × SU(2) × U(1) spin operator (-S⁺/√2, Sᶻ, S⁻/√2)
 """
 function S_plus end
-function S_plus(particle_symmetry::Type{<:Sector}, spin_symmetry::Type{<:Sector}; kwargs...)
-    return S_plus(ComplexF64, particle_symmetry, spin_symmetry; kwargs...)
+function S_plus(spin_symmetry::Type{<:Sector}, particle_symmetry::Type{<:Sector}; kwargs...)
+    return S_plus(ComplexF64, spin_symmetry, particle_symmetry; kwargs...)
 end
 function S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
     I = FermionParity ⊠ SU2Irrep ⊠ U1Irrep
@@ -350,8 +355,8 @@ end
     fℤ₂ × SU(2) × U(1) spin operator (-S⁻/√2, Sᶻ, S⁺/√2)
 """
 function S_min end
-function S_min(particle_symmetry::Type{<:Sector}, spin_symmetry::Type{<:Sector}; kwargs...)
-    return S_min(ComplexF64, particle_symmetry, spin_symmetry; kwargs...)
+function S_min(spin_symmetry::Type{<:Sector}, particle_symmetry::Type{<:Sector}; kwargs...)
+    return S_min(ComplexF64, spin_symmetry, particle_symmetry; kwargs...)
 end
 function S_min(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L, filling::NTuple{2, Integer}=(1,1))
     if side === :L
