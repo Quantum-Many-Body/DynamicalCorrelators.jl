@@ -1,15 +1,15 @@
 function add_single_util_leg(tensor::AbstractTensorMap{S,N1,N2}) where {S,N1,N2}
     ou = oneunit(_firstspace(tensor))
-    if (length(codomain(tensor))==1)&&(length(domain(tensor))==2)
+    if length(codomain(tensor)) < length(domain(tensor))
         util = isomorphism(storagetype(tensor), ou * codomain(tensor), codomain(tensor))
-        fourlegtensor = util * tensor
-    elseif (length(codomain(tensor))==2)&&(length(domain(tensor))==1)
+        tensors = util * tensor
+    elseif length(codomain(tensor)) > length(domain(tensor))
         util = isomorphism(storagetype(tensor), domain(tensor), domain(tensor) * ou)
-        fourlegtensor = tensor * util
+        tensors = tensor * util
     else 
-        throw(ArgumentError("invalid operator, expected 3-leg tensor"))
+        throw(ArgumentError("invalid operator"))
     end
-    return fourlegtensor
+    return tensors
 end
 
 function execute(f::Function, args; name::String="name", info::String="info", id::String="id", cachepath::String="./", kwargs...)
