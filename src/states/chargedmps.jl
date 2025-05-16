@@ -2,8 +2,11 @@
     chargedMPS(operator::AbstractTensorMap, state::FiniteMPS, site::Integer)
 """
 function chargedMPS(operator::AbstractTensorMap, state::FiniteMPS, site::Integer)
-    mpo = chargedMPO(operator, site, length(state))
-    return mpo*state
+    return chargedMPO(operator, site, length(state))*state
+end
+
+function chargedMPS(operator::AbstractTensorMap, state::FiniteMPS, site₁::Integer, site₂::Integer)
+    return chargedMPO(operator, site₁, site₂, length(state))*state
 end
 
 function chargedMPS(H::MPOHamiltonian, operator::AbstractTensorMap, state::FiniteMPS, site::Integer; imag::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
