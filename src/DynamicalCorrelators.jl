@@ -5,7 +5,7 @@ using QuantumLattices: Hilbert, Term, Lattice, Neighbors, bonds, Bond, OperatorG
 using QuantumLattices: AbstractLattice as QLattice
 using TensorKit: FermionParity, U1Irrep, SU2Irrep, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, sectortype, Bosonic
 using TensorKit: truncdim, truncerr, truncspace, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit
-using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum
+using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum
 using MPSKit: FiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2
 using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, timestep, environments, expectation_value, max_virtualspaces, physicalspace
 using MPSKit.Defaults: _finalize
