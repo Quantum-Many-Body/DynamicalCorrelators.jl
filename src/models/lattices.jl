@@ -2,7 +2,7 @@
 
 abstract type CustomLattice end
 
-struct BilayerSquare{T<:Integer, U<:AbstractLattice, L<:AbstractLattice} <: CustomLattice
+struct BilayerSquare{T<:Integer, U<:QLattice, L<:QLattice} <: CustomLattice
     W::T
     L::T
     unitcell::U
