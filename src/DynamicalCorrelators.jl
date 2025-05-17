@@ -1,7 +1,8 @@
 module DynamicalCorrelators
 
 using LinearAlgebra: norm
-using QuantumLattices: Hilbert, Term, AbstractLattice, Lattice, Neighbors, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
+using QuantumLattices: Hilbert, Term, Lattice, Neighbors, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
+using QuantumLattices: AbstractLattice as QLattice
 using TensorKit: FermionParity, U1Irrep, SU2Irrep, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, sectortype, Bosonic
 using TensorKit: truncdim, truncerr, truncspace, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum
@@ -12,6 +13,7 @@ using MPSKit: AbstractFiniteMPS, calc_galerkin, updatetol, zerovector!, AC2_hami
 using KrylovKit: exponentiate, eigsolve, Lanczos, ModifiedGramSchmidt
 using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, next_nearest_neighbours
 using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadder, FiniteChain, FiniteCylinder, FiniteStrip, FiniteHelix, FiniteLadder
+using MPSKitModels: AbstractLattice as MLattice
 using Distributed: @sync, @distributed, workers, addprocs
 using SharedArrays: SharedArray
 using JLD2: save, load, jldopen, write, close
@@ -47,6 +49,9 @@ export DefaultDMRG, DefaultTDVP, DefaultTDVP2
 
 include("algorithms/dmrg2.jl")
 export dmrg2!, dmrg2
+
+include("observables/correlator.jl")
+export Correlation, PairingCorrelation, SpinCorrelation, correlator
 
 include("observables/dcorrelator.jl")
 export propagator, dcorrelator
