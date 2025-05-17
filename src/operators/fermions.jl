@@ -425,7 +425,7 @@ function singlet_dagger(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, part
             A = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
             B = deepcopy(A)
             vspace = domain(A,2)
-            fspace = Vect[FermionParity ⊠ Irrep[SU₂] ⊠ Irrep[U₁]]((0,0,2*(filling[2]))=>1)
+            fspace = Vect[FermionParity ⊠ SU2Irrep ⊠ U1Irrep]((0,0,2*(filling[2]))=>1)
             iso = isometry(elt, vspace⊗vspace, fspace)
             @planar slt[-1; -2 -3] := A[-1; 1 2] * B[1; -2 3] * iso[3 2; -3]
         elseif side == :R
@@ -441,7 +441,7 @@ function singlet_dagger(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, part
             A = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
             B = deepcopy(A)
             vspace = domain(A,2)
-            fspace = Vect[FermionParity ⊠ Irrep[SU₂] ⊠ Irrep[U₁]]((0,0,2*(filling[2]))=>1)
+            fspace = Vect[FermionParity ⊠ SU2Irrep ⊠ U1Irrep]((0,0,2*(filling[2]))=>1)
             iso = isometry(elt, vspace⊗vspace, fspace)
             @planar slt[-1 -2; -3 -4 -5] := A[-1; -3 1] * τ[1 2; -4 3] * B[-2; 2 4] * iso[3 4; -5]
         elseif side == :R
@@ -494,7 +494,7 @@ function triplet_dagger(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, part
         A = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
         B = deepcopy(A)
         vspace = domain(A,2)
-        fspace = Vect[FermionParity ⊠ Irrep[SU₂] ⊠ Irrep[U₁]]((0,1,2*(filling[2]))=>1)
+        fspace = Vect[FermionParity ⊠ SU2Irrep ⊠ U1Irrep]((0,1,2*(filling[2]))=>1)
         iso = isometry(elt, vspace⊗vspace, fspace)
         @planar slt[-1 -2; -3 -4 -5] := A[-1; -3 1] * τ[1 2; -4 3] * B[-2; 2 4] * iso[3 4; -5]
     elseif side == :R
