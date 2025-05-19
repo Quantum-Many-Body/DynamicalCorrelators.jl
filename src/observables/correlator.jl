@@ -66,9 +66,9 @@ struct SpinCorrelation{K} <: AbstractCorrelation
 end
 
 """
-    spin_indices(latt::CustomLattice; a::Union{Nohting, Integer})
+    spin_indices(latt::CustomLattice; a::Union{Nothing, Integer})
 """
-function spin_indices(latt::CustomLattice; a::Union{Nohting, Integer})
+function spin_indices(latt::CustomLattice; a::Union{Nothing, Integer})
     indices = isnothing(a) ? latt.indices : [[latt.indices[i][a],] for i in 1:length(latt.lattice)]
     return indices
 end

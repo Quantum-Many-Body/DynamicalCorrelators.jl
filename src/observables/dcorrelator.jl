@@ -24,6 +24,9 @@ function propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool
     return propagators
 end
 
+"""
+    propagator(gs::AbstractFiniteMPS, H::MPOHamiltonian, op::AbstractTensorMap, id::Integer; savekets::Bool=false, filename::String="default_gf_slice.jld2", verbose::Bool=true, rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
+"""
 function propagator(gs::AbstractFiniteMPS, H::MPOHamiltonian, op::AbstractTensorMap, id::Integer; savekets::Bool=false, filename::String="default_gf_slice.jld2", verbose::Bool=true, rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
     times = collect(0:dt:ft)
     propagators = zeros(ComplexF64, length(H), length(times))
@@ -61,6 +64,9 @@ function propagator(gs::AbstractFiniteMPS, H::MPOHamiltonian, op::AbstractTensor
     return propagators
 end
 
+"""
+    propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; savekets::Bool=false, filename::String="default_gf_slice.jld2", verbose::Bool=true, rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
+"""
 function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; savekets::Bool=false, filename::String="default_gf_slice.jld2", verbose::Bool=true, rev::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
     times = collect(0:dt:ft)
     propagators = zeros(ComplexF64, length(bras), length(times))
@@ -96,11 +102,18 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
     return propagators
 end
 
+"""
+    RetardedGF{K}
+    RetardedGF(::Type{RetardedGF{:f}}) = 1
+    RetardedGF(::Type{RetardedGF{:b}}) = -1
+"""
 struct RetardedGF{K} end
 RetardedGF(::Type{RetardedGF{:f}}) = 1
 RetardedGF(::Type{RetardedGF{:b}}) = -1
 
-
+"""
+    dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap})
+"""
 function dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap};
                     verbose=true, 
                     path::String="./", 
@@ -154,6 +167,9 @@ function dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::T
     return gf[1:half,:,:] + RetardedGF(R)*gf[(half+1):end,:,:]
 end
 
+"""
+    dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS})
+"""
 function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS}; 
                     parallel::Union{String, Integer}=Threads.nthreads(), 
                     verbose=true, 
@@ -205,6 +221,9 @@ function dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector
     return gf[1:half,:,:] + RetardedGF(R)*gf[(half+1):end,:,:]
 end
 
+"""
+    dcorrelator(::Type{R}, gf_slices::AbstractArray{<:AbstractMatrix}, gsenergy::Number, t::AbstractRange) where R<:RetardedGF
+"""
 function dcorrelator(::Type{R}, gf_slices::AbstractArray{<:AbstractMatrix}, gsenergy::Number, t::AbstractRange) where R<:RetardedGF
     half = length(gf_slices)÷2
     gf = zeros(ComplexF64, length(gf_slices), half, length(t))
@@ -221,6 +240,9 @@ end
 
 struct GreaterLessGF end
 
+"""
+    dcorrelator(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap})
+"""
 function dcorrelator(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}; 
     whichs=:both, 
     verbose=true, 
