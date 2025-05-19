@@ -51,7 +51,7 @@ function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS; is=Vect
     O, amplitudes, indices = correlation.operator, correlation.amplitudes, correlation.indices
     Fr = zeros(Float64, length(is))
     for i in eachindex(is) 
-        Fr[i] = sum(dot(chargedMPS(O, gs, Tuple(indices[is[i]][a])), chargedMPS(O, gs, Tuple(indices[js[i]][b]))) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+        Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
     end
     return Fr
 end
@@ -91,7 +91,7 @@ function correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS; is=Vect
     O, indices = correlation.operator, correlation.indices
     Fr = zeros(Float64, length(is))
     for i in eachindex(is) 
-        Fr[i] = sum(dot(chargedMPS(O, gs, Tuple(indices[is[i]][a])), chargedMPS(O, gs, Tuple(indices[js[i]][b]))) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+        Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
     end
     return Fr
 end
