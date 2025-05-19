@@ -1,15 +1,21 @@
 """
-
+    abstract type AbstractCorrelation end
 """
 abstract type AbstractCorrelation end
 
+"""
+    PairCorrelation{K} <: AbstractCorrelation
+"""
 struct PairCorrelation{K} <: AbstractCorrelation
     operator::AbstractTensorMap
-    lattice:: CustomLattice
+    lattice::CustomLattice
     amplitudes::AbstractArray
     indices::AbstractArray
 end
 
+"""
+    PairCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing) 
+"""
 function PairCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing) where K
     operator = operator
     lattice = latt
@@ -17,6 +23,9 @@ function PairCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, ne
     return PairCorrelation{K}(operator, lattice, amplitudes, indices)
 end
 
+"""
+    pair_amplitude_indices(latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing)
+"""
 function pair_amplitude_indices(latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing)
     bs = isnothing(intralayer) ? bonds(latt.lattice, neighbors) : intralayer ? filter(bond->bond.points[1].rcoordinate[3] == bond.points[2].rcoordinate[3], bonds(latt.lattice, neighbors)) : filter(bond->bond.points[1].rcoordinate[3] !== bond.points[2].rcoordinate[3], bonds(latt.lattice, neighbors))
     amp = Vector{Vector}(undef, length(latt.lattice))
@@ -34,24 +43,69 @@ function pair_amplitude_indices(latt::CustomLattice, neighbors::Neighbors, a::In
     return amp, indices
 end
 
-function correlator(correlation::AbstractCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
-    correlator(correlation.operator, gs, correlation.amplitudes, correlation.indices, is, js)
-end
-
-function correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, amplitudes::AbstractArray, indices::AbstractArray, is::AbstractArray{<:Integer, 1}, js::AbstractArray{<:Integer, 1})
-    @assert length(amplitudes) == length(indices) "Length of amplitudes and indices must be the same"
+"""
+    correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
+"""
+function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
     @assert length(is) == length(js) "Length of is and js must be the same"
+    O, amplitudes, indices = correlation.operator, correlation.amplitudes, correlation.indices
     Fr = zeros(Float64, length(is))
     for i in eachindex(is) 
-            Fr[i] = sum(dot(chargedMPS(O, gs, Tuple(indices[is[i]][a])), chargedMPS(O, gs, Tuple(indices[js[i]][b]))) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+        Fr[i] = sum(dot(chargedMPS(O, gs, Tuple(indices[is[i]][a])), chargedMPS(O, gs, Tuple(indices[js[i]][b]))) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
     end
     return Fr
 end
 
+"""
+    SpinCorrelation{K} <: AbstractCorrelation
+"""
+struct SpinCorrelation{K} <: AbstractCorrelation
+    operator::AbstractTensorMap
+    lattice::CustomLattice
+    indices::AbstractArray{<:AbstractArray{<:Integer, 1}, 1}
+end
+
+"""
+    spin_indices(latt::CustomLattice; a::Union{Nohting, Integer})
+"""
+function spin_indices(latt::CustomLattice; a::Union{Nohting, Integer})
+    indices = isnothing(a) ? latt.indices : [[latt.indices[i][a],] for i in 1:length(latt.lattice)]
+    return indices
+end
+
+"""
+    SpinCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer)
+"""
+function SpinCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer) where K
+    operator = operator
+    lattice = latt
+    indices = spin_indices(latt; a=orbital)
+    return SpinCorrelation{K}(operator, lattice, amplitudes, indices)
+end
+
+"""
+    correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
+"""
+function correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
+    @assert length(is) == length(js) "Length of is and js must be the same"
+    O, indices = correlation.operator, correlation.indices
+    Fr = zeros(Float64, length(is))
+    for i in eachindex(is) 
+        Fr[i] = sum(dot(chargedMPS(O, gs, Tuple(indices[is[i]][a])), chargedMPS(O, gs, Tuple(indices[js[i]][b]))) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+    end
+    return Fr
+end
+
+"""
+    correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{1, Integer}, j::NTuple{1, Integer})
+"""
 function correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{1, Integer}, j::NTuple{1, Integer})
     dot(chargedMPS(O, gs, i[1]), chargedMPS(O, gs, j[1]))
 end
 
+"""
+    correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{2, Integer}, j::NTuple{1, Integer})
+"""
 function correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{2, Integer}, j::NTuple{2, Integer})
     dot(chargedMPS(O, gs, i[1], i[2]), chargedMPS(O, gs, j[1], j[2]))
 end
