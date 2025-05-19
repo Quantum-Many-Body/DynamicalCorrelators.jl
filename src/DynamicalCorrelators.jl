@@ -1,7 +1,7 @@
 module DynamicalCorrelators
 
 using LinearAlgebra: norm
-using QuantumLattices: Hilbert, Term, Lattice, Neighbors, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
+using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice
 using TensorKit: FermionParity, U1Irrep, SU2Irrep, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, sectortype, Bosonic
 using TensorKit: truncdim, truncerr, truncspace, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit
@@ -51,7 +51,7 @@ include("algorithms/dmrg2.jl")
 export dmrg2!, dmrg2
 
 include("observables/correlator.jl")
-export Correlation, PairingCorrelation, SpinCorrelation, correlator
+export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, correlator
 
 include("observables/dcorrelator.jl")
 export propagator, dcorrelator
