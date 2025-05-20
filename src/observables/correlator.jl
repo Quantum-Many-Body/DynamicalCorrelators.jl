@@ -50,14 +50,15 @@ function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS; paralle
     @assert length(is) == length(js) "Length of is and js must be the same"
     O, amplitudes, indices = correlation.operator, correlation.amplitudes, correlation.indices
     if parallel == "np"
-        Fr = SharedArray{ComplexF64, 1}(length(is))
+        Fr = SharedArray{Float64, 1}(length(is))
         @sync @distributed for i in eachindex(is) 
             Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
         end
+        Fr = abs.(Fr[1:end])
     elseif parallel == 1
         Fr = zeros(Float64, length(is))
         for i in eachindex(is) 
-            Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+            Fr[i] = abs(sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]])))
         end
     else
         Fr = zeros(Float64, length(is))
@@ -67,7 +68,7 @@ function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS; paralle
             Threads.@spawn while true
                 i = Threads.atomic_add!(idx, 1) 
                 i > n && break  
-                Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+                Fr[i] = abs(sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]])))
             end
         end
     end
@@ -108,14 +109,15 @@ function correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS; paralle
     @assert length(is) == length(js) "Length of is and js must be the same"
     O, indices = correlation.operator, correlation.indices
     if parallel == "np"
-        Fr = SharedArray{ComplexF64, 1}(length(is))
+        Fr = SharedArray{Float64, 1}(length(is))
         @sync @distributed for i in eachindex(is) 
             Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
         end
+        Fr = abs.(Fr[1:end])
     elseif parallel == 1
         Fr = zeros(Float64, length(is))
         for i in eachindex(is) 
-            Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+            Fr[i] = abs(sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]])))
         end
     else
         Fr = zeros(Float64, length(is))
@@ -125,7 +127,7 @@ function correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS; paralle
             Threads.@spawn while true
                 i = Threads.atomic_add!(idx, 1) 
                 i > n && break  
-                Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+                Fr[i] = abs(sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]])))
             end
         end
     end
