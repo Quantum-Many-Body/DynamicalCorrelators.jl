@@ -12,33 +12,19 @@ function add_single_util_leg(tensor::AbstractTensorMap{S,N1,N2}) where {S,N1,N2}
     return tensors
 end
 
-function execute(f::Function, args; name::String="name", info::String="info", id::String="id", cachepath::String="./", kwargs...)
-    cache_file_path = joinpath(cachepath, @sprintf "%s_%s_%s.jld2" name id info)
-    if isfile(cache_file_path)
-        task = load(cache_file_path, "task")
-        println("Load from $cache_file_path")
-    else
-        if !isdir(cachepath)
-        mkdir(cachepath)
-        println("Cache directory created at $cachepath")
-        end
-        task = f(args...; kwargs...)
-        save(cache_file_path, "task", task, "info", info, "id", id)
-        println("Save as $cache_file_path")
-    end
-    return task
+function cart2polar(point::AbstractArray)
+    r = norm(point) 
+    θ = atan(point[2], point[1])
+    ϕ = length(point) == 3 ? acos(point[3]/r) : π/2
+    return r, θ, ϕ
 end
 
-function execute!(f::Function, args; name::String="name", info::String="info", id::String="id", cachepath::String="./", kwargs...)
-    cache_file_path = joinpath(cachepath, @sprintf "%s_%s_%s.jld2" name id info)
-    if isfile(cache_file_path)
-        Println("Task has finished or file with same name has existed!")
-    else
-        if !isdir(cachepath)
-            mkdir(cachepath)
-            println("Cache directory created at $cachepath")
+function phase_by_polar(theta::AbstractVector, phi::AbstractVector, phases::AbstractVector)
+    function _phase_by_polar(bond::Bond)
+        _, θ, ϕ = cart2polar(rcoordinate(bond))
+        for i in eachindex(phases)
+            any(≈(θ), theta[i]) && any(≈(ϕ), phi[i]) && return phases[i]
         end
-        save(cache_file_path, "task", f(args...; kwargs...), "info", info, "id", id)
-        println("Save as $cache_file_path")
     end
+    return _phase_by_polar
 end
