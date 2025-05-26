@@ -3,7 +3,7 @@
     hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, lattice=InfiniteChain(1); t=1.0, U=1.0, μ=0.0, filling=(1,1))
     fℤ₂ × U(1) × U(1) single-band Hubbard model
 """
-function hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, lattice=InfiniteChain(1); t=1.0, U=1.0, μ=0.0, filling=(1,1))
+function hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, lattice::MLattice; t=1.0, U=1.0, μ=0.0, filling=(1,1))
     hoppings = hopping(elt, U1Irrep, U1Irrep;filling=filling)
     interaction = onsiteCoulomb(elt, U1Irrep, U1Irrep; filling=filling)
     numbers = number(elt, U1Irrep, U1Irrep; filling=filling)
@@ -21,7 +21,7 @@ end
     hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, lattice=InfiniteChain(1); t=1.0, U=1.0, μ=0.0, filling=(1,1))
     fℤ₂ × SU(2) × U(1) single-band Hubbard model
 """
-function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, lattice=InfiniteChain(1); t=1.0, U=1.0, μ=0.0, filling=(1,1))
+function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, lattice::MLattice; t=1.0, U=1.0, μ=0.0, filling=(1,1))
     hoppings = hopping(elt, SU2Irrep, U1Irrep; filling=filling)
     interaction = onsiteCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
     numbers = number(elt, SU2Irrep, U1Irrep; filling=filling)
@@ -33,6 +33,36 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, lattice
             return U*interaction{i} - μ*numbers{i}
         end
     end
+end
+
+"""
+    hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
+                    lattice::CustomLattice; kwargs...)
+    fℤ₂ × SU(2) × U(1)  Hubbard model
+"""
+function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
+                        lattice::CustomLattice; t = 1.0, U = 6.0, μ = 0.0, filling=(1,1))
+    hop = hopping(elt, SU2Irrep, U1Irrep; filling=filling)
+    onc = onsiteCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
+    num = number(elt, SU2Irrep, U1Irrep; filling=filling)
+    terms = []
+    tb = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>1))
+    for i in eachindex(tb)
+        push!(terms, tb[i]=>-t*hop)
+    end
+    tf = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>1))
+    for i in eachindex(tf)
+        push!(terms, tf[i]=>-t*hop)
+    end
+    ob = onesite_bonds(lattice, 1)
+    for i in eachindex(ob)
+        push!(terms, ob[i]=>-μ*num) 
+        push!(terms, ob[i]=>U*onc)
+    end
+    I = ProductSector{Tuple{FermionParity, SU2Irrep, U1Irrep}}
+    P, Q = filling
+    pspace = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1//2,Q-P) => 1)
+    return FiniteMPOHamiltonian(fill(pspace, sum(length,lattice.indices)), terms...)
 end
 
 """
