@@ -28,3 +28,28 @@ function phase_by_polar(theta::AbstractVector, phi::AbstractVector, phases::Abst
     end
     return _phase_by_polar
 end
+
+function sort_by_distance(latt::CustomLattice, ij)
+    is = ij[length(ij)÷2:-1:1]
+    js = ij[length(ij)÷2+1:1:length(ij)]
+    ks = is[2:end]
+    ls = js[1:end-1]
+    r = []
+    for i in eachindex(is)
+        push!(r, [is[i], js[i], norm(latt.lattice[is[i]]-latt.lattice[js[i]])])
+    end
+    for i in eachindex(ks)
+        push!(r, [ks[i], ls[i], norm(latt.lattice[ks[i]]-latt.lattice[ls[i]])])
+    end
+    sort!(r, by=x->x[3])
+    is = zeros(Int64, length(r))
+    js = zeros(Int64, length(r))
+    ds = zeros(Float64, length(r))
+    for i in eachindex(is)
+        is[i] = Int(r[i][1])
+        js[i] = Int(r[i][2])
+        ds[i] = r[i][3]
+    end
+    return is, js, ds
+end
+

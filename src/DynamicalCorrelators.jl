@@ -42,7 +42,7 @@ include("states/randmps.jl")
 export chargedMPS, randFiniteMPS
 
 include("utility/tools.jl")
-export add_single_util_leg, cart2polar, phase_by_polar
+export add_single_util_leg, cart2polar, phase_by_polar, sort_by_distance
 
 include("utility/defaults.jl")
 export DefaultDMRG, DefaultTDVP, DefaultTDVP2
