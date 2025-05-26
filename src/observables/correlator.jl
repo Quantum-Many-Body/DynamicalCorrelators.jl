@@ -33,11 +33,11 @@ function pair_amplitude_indices(latt::CustomLattice, neighbors::Neighbors, a::In
     for i in 1:length(latt.lattice)
         ibs = filter(bo -> any(p -> p.site == i, bo.points), bs)
         pos = [sort(collect(p.site for p in bo.points)) for bo in ibs]
-        amp[i] = isnothing(amplitude) ? [1.0 for _ in 1:length(ibs)] : [amplitude(b) for b in ibs]
+        amp[i] = isnothing(amplitude) ? [1.0 for _ in 1:length(ibs)] : [amplitude(bo) for bo in ibs]
         if a == b
             indices[i] = map(p -> map(s -> latt.indices[s][a], p), pos)
         else
-            indices[i] = [latt.indices[p][a], latt.indices[p][b] for p in pos]
+            indices[i] = map(p -> [latt.indices[p[1]][a], latt.indices[p[2]][b]], pos)
         end
     end
     return amp, indices
