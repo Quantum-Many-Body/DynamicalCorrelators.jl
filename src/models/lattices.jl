@@ -61,3 +61,21 @@ function find_position(indices::AbstractArray{<:AbstractArray{<:Integer, 1}, 1},
     end
     return nothing 
 end
+
+
+struct Square{T<:Integer, U<:QLattice, L<:QLattice} <: CustomLattice
+    W::T
+    L::T
+    unitcell::U
+    lattice::L
+    indices::AbstractArray{<:AbstractArray{T, 1}, 1}
+end
+
+function Square(W::Integer, L::Integer; 
+                    norbit::Integer=1, 
+                    periodic::Bool=false)
+    unitcell = Lattice([0,0]; vectors=[[1,0],[0,1]], name=:S)
+    lattice = periodic ? Lattice(unitcell, (W, L), ('p', 'o')) : Lattice(unitcell, (W, L), ('o', 'o'))
+    indeces = [[(i-1)*norbit + j for j in 1:norbit] for i in 1:length(lattice)]
+    return Square(W, L, unitcell, lattice, indeces)
+end

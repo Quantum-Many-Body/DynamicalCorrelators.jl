@@ -24,7 +24,7 @@ import QuantumLattices: expand
 import MPSKit: propagator, dot, correlator
 
 include("models/lattices.jl")
-export CustomLattice, BilayerSquare, twosite_bonds, onesite_bonds, find_position
+export CustomLattice, BilayerSquare, Square, twosite_bonds, onesite_bonds, find_position
 
 include("models/hamiltonians.jl")
 export hubbard, hubbard_bilayer_2band, kitaev_hubbard
