@@ -22,7 +22,11 @@ end
 function twosite_bonds(customlattice::CustomLattice, a::Integer, b::Integer;
     intralayer::Bool=true,
     neighbors::Neighbors=Neighbors(1=>1))
-    bs = intralayer ? filter(bond->bond.points[1].rcoordinate[3] == bond.points[2].rcoordinate[3], bonds(customlattice.lattice, neighbors)) : filter(bond->bond.points[1].rcoordinate[3] !== bond.points[2].rcoordinate[3], bonds(customlattice.lattice, neighbors))
+    if length(customlattice.lattice[1]) == 2
+        bs = bonds(customlattice.lattice, neighbors)
+    elseif length(customlattice.lattice[1]) == 3
+        bs = intralayer ? filter(bond->bond.points[1].rcoordinate[3] == bond.points[2].rcoordinate[3], bonds(customlattice.lattice, neighbors)) : filter(bond->bond.points[1].rcoordinate[3] !== bond.points[2].rcoordinate[3], bonds(customlattice.lattice, neighbors))
+    end
     tbs = Vector(undef, length(bs))
     for (o, bond) in enumerate(bs)
     (i, j) = bond.points[1].site > bond.points[2].site ? (bond.points[2].site, bond.points[1].site) : (bond.points[1].site, bond.points[2].site)   
