@@ -46,13 +46,20 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
     onc = onsiteCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
     num = number(elt, SU2Irrep, U1Irrep; filling=filling)
     terms = []
-    tb = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>1))
-    for i in eachindex(tb)
-        push!(terms, tb[i]=>-t*hop)
-    end
-    tf = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>1))
-    for i in eachindex(tf)
-        push!(terms, tf[i]=>-t*hop)
+    if length(lattice.lattice[1]) == 3
+        tb = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>1))
+        for i in eachindex(tb)
+            push!(terms, tb[i]=>-t*hop)
+        end
+        tf = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>1))
+        for i in eachindex(tf)
+            push!(terms, tf[i]=>-t*hop)
+        end
+    elseif length(lattice.lattice[1]) == 2
+        tb = twosite_bonds(lattice, 1, 1; neighbors=Neighbors(1=>1))
+        for i in eachindex(tb)
+            push!(terms, tb[i]=>-t*hop)
+        end
     end
     ob = onesite_bonds(lattice, 1)
     for i in eachindex(ob)
