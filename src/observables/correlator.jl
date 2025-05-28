@@ -46,7 +46,10 @@ end
 """
     correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
 """
-function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS; parallel::Union{String, Integer}=Threads.nthreads(), is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
+function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS; 
+                    parallel::Union{String, Integer}=Threads.nthreads(), 
+                    is=Vector((length(correlation.lattice.lattice)÷2):-1:1), 
+                    js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
     @assert length(is) == length(js) "Length of is and js must be the same"
     O, amplitudes, indices = correlation.operator, correlation.amplitudes, correlation.indices
     if parallel == "np"
@@ -105,7 +108,10 @@ end
 """
     correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
 """
-function correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS; parallel::Union{String, Integer}=Threads.nthreads(), is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
+function correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS; 
+                    parallel::Union{String, Integer}=Threads.nthreads(), 
+                    is=Vector((length(correlation.lattice.lattice)÷2):-1:1), 
+                    js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
     @assert length(is) == length(js) "Length of is and js must be the same"
     O, indices = correlation.operator, correlation.indices
     if parallel == "np"
