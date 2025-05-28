@@ -26,6 +26,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
             ψ.AC[pos] = (al, complex(c))
             ψ.AC[pos + 1] = (complex(c), _transpose_front(ar))
             Int(verbose) > 1 && println("  SweepL2R: site $(pos) => site $(pos+1) ", Dates.format(now(), "d.u yyyy HH:MM"))
+            Int(verbose) > 1 && flush(stdout)
         end
 
         # right to left sweep
@@ -41,6 +42,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
             ψ.AC[pos + 1] = (complex(c), _transpose_front(ar))
             ψ.AC[pos] = (al, complex(c))
             Int(verbose) > 1 && println("  SweepR2L: site $(pos) <= site $(pos+1) ", Dates.format(now(), "d.u yyyy HH:MM"))
+            Int(verbose) > 1 && flush(stdout)
         end
 
         err = maximum(errs)
