@@ -39,7 +39,7 @@ function randFiniteMPS(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, N
     Vs = [_vspaces(SU2Irrep, U1Irrep, P, Q, k[i], ℤ, ℕ, I, md) for i in 2:length(k)]
     Ps = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1//2,Q-P) => 1)
     pspaces = repeat([Ps,], N)
-    M = div(N, 2Q)
+    M = div(N, length(Vs))
     M == 1 ? maxvspaces = Vs[1:end-1] : maxvspaces = repeat(Vs, M)[1:end-1]
     randmps = FiniteMPS(rand, elt, pspaces, maxvspaces)
     return randmps
