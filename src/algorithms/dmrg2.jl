@@ -3,7 +3,7 @@
     Add some auxiliary content to `find_groundstate` in MPSKit.jl and rename the function as `dmrg2`.
 """
 function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true, envs=environments(ψ, H))
-    ϵs = map(pos -> calc_galerkin(pos, ψ, H, ψ, envs), 1:length(ψ))
+    ϵs = map(pos -> 1.0, 1:length(ψ))
     ϵ = maximum(ϵs)
     trschemes =  map(d -> truncdim(d), truncdims)
     start_time, record_start = now(), now()

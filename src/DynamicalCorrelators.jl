@@ -9,7 +9,7 @@ using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, isometry, sto
 using MPSKit: FiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2
 using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, timestep, environments, expectation_value, max_virtualspaces, physicalspace
 using MPSKit.Defaults: _finalize
-using MPSKit: AbstractFiniteMPS, calc_galerkin, updatetol, zerovector!, AC2_hamiltonian, _transpose_front
+using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, _transpose_front
 using KrylovKit: exponentiate, eigsolve, Lanczos, ModifiedGramSchmidt
 using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, next_nearest_neighbours
 using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadder, FiniteChain, FiniteCylinder, FiniteStrip, FiniteHelix, FiniteLadder
