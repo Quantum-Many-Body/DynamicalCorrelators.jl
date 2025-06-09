@@ -41,24 +41,36 @@ end
     fℤ₂ × SU(2) × U(1)  Hubbard model
 """
 function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
-                        lattice::CustomLattice; t = 1.0, U = 6.0, μ = 0.0, filling=(1,1))
+                        lattice::CustomLattice; t = 1.0, t2 = 0.0, U = 6.0, μ = 0.0, filling=(1,1))
     hop = hopping(elt, SU2Irrep, U1Irrep; filling=filling)
     onc = onsiteCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
     num = number(elt, SU2Irrep, U1Irrep; filling=filling)
     terms = []
     if length(lattice.lattice[1]) == 3
-        tb = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>1))
+        tb = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
+        tb2 = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
         for i in eachindex(tb)
             push!(terms, tb[i]=>-t*hop)
         end
-        tf = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>1))
+        for i in eachindex(tb2)
+            push!(terms, tb2[i]=>-t2*hop)
+        end
+        tf = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
+        tf2 = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
         for i in eachindex(tf)
             push!(terms, tf[i]=>-t*hop)
         end
+        for i in eachindex(tf2)
+            push!(terms, tf2[i]=>-t2*hop)
+        end
     elseif length(lattice.lattice[1]) == 2
-        tb = twosite_bonds(lattice, 1, 1; neighbors=Neighbors(1=>1))
+        tb = twosite_bonds(lattice, 1, 1; neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
+        tb2 = twosite_bonds(lattice, 1, 1; neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
         for i in eachindex(tb)
             push!(terms, tb[i]=>-t*hop)
+        end
+        for i in eachindex(tb2)
+            push!(terms, tb2[i]=>-t2*hop)
         end
     end
     ob = onesite_bonds(lattice, 1)
@@ -71,7 +83,6 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
     pspace = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1//2,Q-P) => 1)
     return FiniteMPOHamiltonian(fill(pspace, sum(length,lattice.indices)), terms...)
 end
-
 """
     hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
                     lattice=BilayerSquare(2, 2; norbit=2); kwargs...)
