@@ -97,8 +97,10 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
     end
     record_end = now()
     verbose && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(record_end-record_start))
-
     rev ? propagators = conj.(propagators) : propagators = propagators
+    jldopen(filename, "a") do f
+        f["pros"] = propagators
+    end
     return propagators
 end
 
