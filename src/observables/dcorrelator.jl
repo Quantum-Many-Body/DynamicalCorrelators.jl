@@ -169,6 +169,46 @@ function dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::T
     return gf[1:half,:,:] + RetardedGF(R)*gf[(half+1):end,:,:]
 end
 
+function dcorrelator(gs::AbstractFiniteMPS, H::MPOHamiltonian, op::AbstractTensorMap, rev::Bool;
+                    verbose=true, 
+                    path::String="./", 
+                    savekets=false,  
+                    parallel::Union{String, Integer}=Threads.nthreads(), 
+                    dt::Number=0.05, 
+                    ft::Number=5.0, 
+                    n::Integer=3, 
+                    trscheme=truncerr(1e-3))
+    t, half = collect(0:dt:ft), length(H)
+    gsenergy = expectation_value(gs, H)
+    if parallel == "np"
+        gf = SharedArray{ComplexF64, 3}(half, half, length(0:dt:ft))
+        @sync @distributed for i in 1:(half)
+            gf[i,:,:] = propagator(gs, H, op, i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=rev, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+        end
+    elseif parallel == 1
+        gf = zeros(ComplexF64, half, half, length(0:dt:ft))
+        for i in 1:(2*half)
+            gf[i,:,:] = propagator(gs, H, op, i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=rev, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+        end
+    else
+        gf = zeros(ComplexF64, half, half, length(0:dt:ft))
+        idx = Threads.Atomic{Int}(1)
+        n = half
+        Threads.@sync for _ in 1:parallel
+            Threads.@spawn while true
+                i = Threads.atomic_add!(idx, 1) 
+                i > n && break  
+                gf[i,:,:] = propagator(gs, H, op, i; filename=joinpath(path, "gf_slice_$(i)_$(dt)_$(ft).jld2"), verbose=verbose, savekets=savekets, rev=rev, dt=dt, ft=ft, n=n, trscheme=trscheme) 
+            end
+        end
+    end
+    for i in eachindex(t)
+        factor = rev ? -im*exp(-im*gsenergy*t[i]) : -im*exp(im*gsenergy*t[i])
+        gf[:,:,i] = factor*gf[:,:,i]
+    end
+    return gf
+end
+
 """
     dcorrelator(::Type{R}, H::MPOHamiltonian, gsenergy::Number, mps::Vector{<:FiniteMPS})
 """
