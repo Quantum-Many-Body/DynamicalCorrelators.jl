@@ -59,6 +59,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
             f["sweep_$(iter)_ψ"] = ψ
             f["sweep_$(iter)_ϵ"]  = ϵ
             f["sweep_$(iter)_err"] = err
+            f["sweep_$(iter)_errs"] = errs
             f["sweep_$(iter)_D"]  = D
         end
         start_time = current_time
