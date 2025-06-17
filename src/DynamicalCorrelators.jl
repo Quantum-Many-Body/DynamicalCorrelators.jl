@@ -51,7 +51,7 @@ include("algorithms/dmrg2.jl")
 export dmrg2!, dmrg2
 
 include("observables/correlator.jl")
-export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, SpinCorrelation, spin_indices, correlator
+export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, SiteCorrelation, site_indices, correlator
 
 include("observables/dcorrelator.jl")
 export propagator, dcorrelator

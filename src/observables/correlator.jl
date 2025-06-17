@@ -79,36 +79,36 @@ function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS;
 end
 
 """
-    SpinCorrelation{K} <: AbstractCorrelation
+    SiteCorrelation{K} <: AbstractCorrelation
 """
-struct SpinCorrelation{K} <: AbstractCorrelation
+struct SiteCorrelation{K} <: AbstractCorrelation
     operator::AbstractTensorMap
     lattice::CustomLattice
     indices::AbstractArray{<:AbstractArray{<:Integer, 1}, 1}
 end
 
 """
-    spin_indices(latt::CustomLattice; a::Union{Nothing, Integer})
+    site_indices(latt::CustomLattice; a::Union{Nothing, Integer})
 """
-function spin_indices(latt::CustomLattice; a::Union{Nothing, Integer})
+function site_indices(latt::CustomLattice; a::Union{Nothing, Integer})
     indices = isnothing(a) ? latt.indices : [[latt.indices[i][a],] for i in 1:length(latt.lattice)]
     return indices
 end
 
 """
-    SpinCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer)
+    SiteCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer)
 """
-function SpinCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer) where K
+function SiteCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer) where K
     operator = operator
     lattice = latt
-    indices = spin_indices(latt; a=orbital)
-    return SpinCorrelation{K}(operator, lattice, amplitudes, indices)
+    indices = site_indices(latt; a=orbital)
+    return SiteCorrelation{K}(operator, lattice, indices)
 end
 
 """
-    correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
+    correlator(correlation::SiteCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
 """
-function correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS; 
+function correlator(correlation::SiteCorrelation, gs::AbstractFiniteMPS; 
                     parallel::Union{String, Integer}=Threads.nthreads(), 
                     is=Vector((length(correlation.lattice.lattice)÷2):-1:1), 
                     js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
@@ -123,7 +123,7 @@ function correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS;
     elseif parallel == 1
         Fr = zeros(Float64, length(is))
         for i in eachindex(is) 
-            Fr[i] = abs(sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]])))
+            Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
         end
     else
         Fr = zeros(Float64, length(is))
@@ -133,7 +133,7 @@ function correlator(correlation::SpinCorrelation, gs::AbstractFiniteMPS;
             Threads.@spawn while true
                 i = Threads.atomic_add!(idx, 1) 
                 i > n && break  
-                Fr[i] = abs(sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]])))
+                Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
             end
         end
     end
