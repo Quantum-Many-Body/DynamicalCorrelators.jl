@@ -365,9 +365,9 @@ version = "1.0.3"
 
 [[deps.MPSKit]]
 deps = ["Accessors", "BlockTensorKit", "Compat", "DocStringExtensions", "HalfIntegers", "KrylovKit", "LinearAlgebra", "LoggingExtras", "OhMyThreads", "OptimKit", "Printf", "Random", "RecipesBase", "TensorKit", "TensorKitManifolds", "TensorOperations", "VectorInterface"]
-git-tree-sha1 = "acdc0a62da641e695bd9bdcaf5dd0e3bc460d602"
+git-tree-sha1 = "d89a07457b170c81a3d9109207db96cd7f2756a0"
 uuid = "bb1c41ca-d63c-52ed-829e-0820dda26502"
-version = "0.13.1"
+version = "0.13.3"
 
 [[deps.MPSKitModels]]
 deps = ["LinearAlgebra", "MPSKit", "MacroTools", "PrecompileTools", "TensorKit", "TensorOperations", "TupleTools"]
