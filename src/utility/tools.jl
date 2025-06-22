@@ -53,3 +53,12 @@ function sort_by_distance(latt::CustomLattice, ij)
     return is, js, ds
 end
 
+function transfer_left(v::AbstractTensorMap{T, S, 4, 1}, A::MPSTensor{S}, Ab::MPSTensor{S}) where {T, S}
+    check_unambiguous_braiding(space(v, 4))
+    @plansor v[-1 -2 -3 -4; -5] := v[1 2 3 4; 5] * A[5 6; -5] * τ[4 7; 6 -4] * τ[3 8; 7 -3] * τ[2 9; 8 -2] * conj(Ab[1 9; -1])
+end
+
+function transfer_left(v::AbstractTensorMap{T, S, 3, 1}, A::MPSTensor{S}, Ab::MPSTensor{S}) where {T, S}
+    check_unambiguous_braiding(space(v, 2))
+    @plansor v[-1 -2 -3; -4] := v[1 2 3; 4] * A[4 5; -4] * τ[3 6; 5 -3] * τ[2 7; 6 -2] * conj(Ab[1 7; -1])
+end
