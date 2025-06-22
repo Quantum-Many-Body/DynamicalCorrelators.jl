@@ -107,7 +107,7 @@ end
 """
 function TwoSiteCorrelation(operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, latt::CustomLattice, orbital::Integer)
     indices = site_indices(latt; a=orbital)
-    return TwoiteCorrelation(operators, latt, indices)
+    return TwoSiteCorrelation(operators, latt, indices)
 end
 
 """
