@@ -9,7 +9,7 @@ using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, isometry, sto
 using MPSKit: FiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2
 using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, environments, expectation_value, max_virtualspaces, physicalspace
 using MPSKit.Defaults: _finalize
-using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, _transpose_front, MPSTensor, check_unambiguous_braiding
+using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, _transpose_front, MPSTensor, check_unambiguous_braiding, scalartype
 using KrylovKit: exponentiate, eigsolve, Lanczos, ModifiedGramSchmidt
 using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, next_nearest_neighbours
 using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadder, FiniteChain, FiniteCylinder, FiniteStrip, FiniteHelix, FiniteLadder
@@ -52,7 +52,7 @@ include("algorithms/dmrg2.jl")
 export dmrg2!, dmrg2
 
 include("observables/correlator.jl")
-export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, SiteCorrelation, site_indices, correlator
+export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorrelation, OneSiteCorrelation, site_indices, correlator
 
 include("observables/dcorrelator.jl")
 export propagator, dcorrelator
