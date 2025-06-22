@@ -4,23 +4,21 @@
 abstract type AbstractCorrelation end
 
 """
-    PairCorrelation{K} <: AbstractCorrelation
+    PairCorrelation <: AbstractCorrelation
 """
-struct PairCorrelation{K} <: AbstractCorrelation
-    operator::AbstractTensorMap
+struct PairCorrelation <: AbstractCorrelation
+    operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}
     lattice::CustomLattice
     amplitudes::AbstractArray
     indices::AbstractArray
 end
 
 """
-    PairCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing) 
+    PairCorrelation(ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing) 
 """
-function PairCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing) where K
-    operator = operator
-    lattice = latt
+function PairCorrelation(ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing)
     amplitudes, indices = pair_amplitude_indices(latt, neighbors, a, b; amplitude=amplitude, intralayer=intralayer)
-    return PairCorrelation{K}(operator, lattice, amplitudes, indices)
+    return PairCorrelation(ops, latt, amplitudes, indices)
 end
 
 """
@@ -51,17 +49,17 @@ function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS;
                     is=Vector((length(correlation.lattice.lattice)÷2):-1:1), 
                     js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
     @assert length(is) == length(js) "Length of is and js must be the same"
-    O, amplitudes, indices = correlation.operator, correlation.amplitudes, correlation.indices
+    ops, amplitudes, indices = correlation.operators, correlation.amplitudes, correlation.indices
     if parallel == "np"
         Fr = SharedArray{Float64, 1}(length(is))
         @sync @distributed for i in eachindex(is) 
-            Fr[i] = sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+            Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
         end
         Fr = abs.(Fr[1:end])
     elseif parallel == 1
         Fr = zeros(Float64, length(is))
         for i in eachindex(is) 
-            Fr[i] = abs(sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]])))
+            Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
         end
     else
         Fr = zeros(Float64, length(is))
@@ -71,7 +69,7 @@ function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS;
             Threads.@spawn while true
                 i = Threads.atomic_add!(idx, 1) 
                 i > n && break  
-                Fr[i] = abs(sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]])))
+                Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
             end
         end
     end
@@ -79,9 +77,18 @@ function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS;
 end
 
 """
-    SiteCorrelation{K} <: AbstractCorrelation
+    TwoSiteCorrelation <: AbstractCorrelation
 """
-struct SiteCorrelation{K} <: AbstractCorrelation
+struct TwoSiteCorrelation <: AbstractCorrelation
+    operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}
+    lattice::CustomLattice
+    indices::AbstractArray{<:AbstractArray{<:Integer, 1}, 1}
+end
+
+"""
+    OneSiteCorrelation <: AbstractCorrelation
+"""
+struct OneSiteCorrelation <: AbstractCorrelation
     operator::AbstractTensorMap
     lattice::CustomLattice
     indices::AbstractArray{<:AbstractArray{<:Integer, 1}, 1}
@@ -96,34 +103,39 @@ function site_indices(latt::CustomLattice; a::Union{Nothing, Integer})
 end
 
 """
-    SiteCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer)
+    TwoSiteCorrelation(operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, latt::CustomLattice, orbital::Integer)
 """
-function SiteCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer) where K
-    operator = operator
-    lattice = latt
+function TwoSiteCorrelation(operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, latt::CustomLattice, orbital::Integer)
     indices = site_indices(latt; a=orbital)
-    return SiteCorrelation{K}(operator, lattice, indices)
+    return TwoiteCorrelation(operators, latt, indices)
 end
 
 """
-    correlator(correlation::SiteCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
+    OneSiteCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer)
 """
-function correlator(correlation::SiteCorrelation, gs::AbstractFiniteMPS; 
-                    single::Bool=false,
+function OneSiteCorrelation(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer)
+    indices = site_indices(latt; a=orbital)
+    return OneSiteCorrelation(operator, latt, indices)
+end
+
+"""
+    correlator(correlation::TwoSiteCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
+"""
+function correlator(correlation::TwoSiteCorrelation, gs::AbstractFiniteMPS; 
                     parallel::Union{String, Integer}=Threads.nthreads(), 
                     is=Vector((length(correlation.lattice.lattice)÷2):-1:1), 
                     js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
     @assert length(is) == length(js) "Length of is and js must be the same"
-    O, indices = correlation.operator, correlation.indices
+    ops, indices = correlation.operators, correlation.indices
     if parallel == "np"
         Fr = SharedArray{Float64, 1}(length(is))
         @sync @distributed for i in eachindex(is) 
-            Fr[i] = single ? sum(dot(gs, chargedMPS(O, gs, indices[is[i]][a])) for a in 1:length(indices[is[i]])) : sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+            Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
         end
     elseif parallel == 1
         Fr = zeros(Float64, length(is))
         for i in eachindex(is) 
-            Fr[i] = single ? sum(dot(gs, chargedMPS(O, gs, indices[is[i]][a])) for a in 1:length(indices[is[i]])) : sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+            Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
         end
     else
         Fr = zeros(Float64, length(is))
@@ -133,7 +145,7 @@ function correlator(correlation::SiteCorrelation, gs::AbstractFiniteMPS;
             Threads.@spawn while true
                 i = Threads.atomic_add!(idx, 1) 
                 i > n && break  
-                Fr[i] = single ? sum(dot(gs, chargedMPS(O, gs, indices[is[i]][a])) for a in 1:length(indices[is[i]])) : sum(correlator(O, gs, Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+                Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
             end
         end
     end
@@ -141,20 +153,52 @@ function correlator(correlation::SiteCorrelation, gs::AbstractFiniteMPS;
 end
 
 """
-    correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{1, Integer}, j::NTuple{1, Integer})
+    correlator(correlation::OneSiteCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
 """
-function correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{1, Integer}, j::NTuple{1, Integer})
-    dot(chargedMPS(O, gs, i[1]), chargedMPS(O, gs, j[1]))
+function correlator(correlation::OneSiteCorrelation, gs::AbstractFiniteMPS; 
+                    parallel::Union{String, Integer}=Threads.nthreads(), 
+                    is=Vector((length(correlation.lattice.lattice)÷2):-1:1), 
+                    js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
+    @assert length(is) == length(js) "Length of is and js must be the same"
+    O, indices = correlation.operator, correlation.indices
+    if parallel == "np"
+        Fr = SharedArray{Float64, 1}(length(is))
+        @sync @distributed for i in eachindex(is) 
+            Fr[i] = sum(correlator(gs, O, indices[is[i]][a]) for a in 1:length(indices[is[i]]))
+        end
+    elseif parallel == 1
+        Fr = zeros(Float64, length(is))
+        for i in eachindex(is) 
+            Fr[i] = sum(correlator(gs, O, indices[is[i]][a]) for a in 1:length(indices[is[i]]))
+        end
+    else
+        Fr = zeros(Float64, length(is))
+        idx = Threads.Atomic{Int}(1)
+        n = length(is)
+        Threads.@sync for _ in 1:parallel
+            Threads.@spawn while true
+                i = Threads.atomic_add!(idx, 1) 
+                i > n && break  
+                Fr[i] = sum(correlator(gs, O, indices[is[i]][a]) for a in 1:length(indices[is[i]]))
+            end
+        end
+    end
+    return Fr
 end
 
 """
-    correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{2, Integer}, j::NTuple{1, Integer})
+    correlator(state::AbstractFiniteMPS, O::AbstractTensorMap, i::Integer)
 """
-function correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{2, Integer}, j::NTuple{2, Integer})
-    dot(chargedMPS(O, gs, i[1], i[2]), chargedMPS(O, gs, j[1], j[2]))
+function correlator(state::AbstractFiniteMPS, O::AbstractTensorMap, i::Integer)
+    G = @plansor state.AC[i][1 2; 4] * O[3; 2] * conj(state.AC[i][1 3; 4])
+    return G
 end
 
-function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap, i::Integer, j::Integer)
+"""
+    correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap, i::NTuple{1, Integer}, j::NTuple{1, Integer})
+"""
+function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap, i::NTuple{1, Integer}, j::NTuple{1, Integer})
+    i, j = i[1], j[1]
     i <= j || @error "i should be equal or smaller than j ($i, $j)"
     if i == j 
         O = contract_onesite(O₁, O₂)
@@ -177,12 +221,16 @@ function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::Abs
     return G
 end
 
-
-function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap, i::Integer, j::Integer, k::Integer, l::Integer)
+"""
+    correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap, ij::NTuple{2, Integer}, kl::NTuple{2, Integer})
+"""
+function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap, ij::NTuple{2, Integer}, kl::NTuple{2, Integer})
         O₁, O₂ = add_single_util_leg(O₁),  add_single_util_leg(O₂)
         I, J = decompose_localmpo(O₁)
         K, L = decompose_localmpo(O₂)
         U = ones(scalartype(state), _firstspace(O₁))
+        i, j = ij
+        k, l = kl
     if i < j < k < l
         @plansor Vᵢ[-1 -2; -3] := state.AC[i][3 4; -3] * conj(U[1]) * I[1 2; 4 -2] *
                             conj(state.AC[i][3 2; -1])
@@ -395,3 +443,18 @@ function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::Abs
     end
     return G
 end
+
+
+# """
+#     correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{1, Integer}, j::NTuple{1, Integer})
+# """
+# function correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{1, Integer}, j::NTuple{1, Integer})
+#     dot(chargedMPS(O, gs, i[1]), chargedMPS(O, gs, j[1]))
+# end
+
+# """
+#     correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{2, Integer}, j::NTuple{1, Integer})
+# """
+# function correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{2, Integer}, j::NTuple{2, Integer})
+#     dot(chargedMPS(O, gs, i[1], i[2]), chargedMPS(O, gs, j[1], j[2]))
+# end
