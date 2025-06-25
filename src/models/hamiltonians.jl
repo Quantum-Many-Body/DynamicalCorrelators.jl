@@ -41,7 +41,13 @@ end
     fℤ₂ × SU(2) × U(1)  Hubbard model
 """
 function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
-                        lattice::CustomLattice; t = 1.0, t2 = 0.0, U = 6.0, μ = 0.0, filling=(1,1))
+                        lattice::CustomLattice;
+                        t = 1.0, 
+                        t2 = 0.0, 
+                        U = 6.0, 
+                        μ = 0.0, 
+                        pinning = nothing,
+                        filling=(1,1))
     hop = hopping(elt, SU2Irrep, U1Irrep; filling=filling)
     onc = onsiteCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
     num = number(elt, SU2Irrep, U1Irrep; filling=filling)
@@ -78,6 +84,11 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
         push!(terms, ob[i]=>-μ*num) 
         push!(terms, ob[i]=>U*onc)
     end
+    if !isnothing(pinning)
+        for i in eachindex(pinning[1])
+            push!(terms, pinning[1][i] => pinning[2][i]*num)
+        end
+    end
     I = ProductSector{Tuple{FermionParity, SU2Irrep, U1Irrep}}
     P, Q = filling
     pspace = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1//2,Q-P) => 1)
@@ -90,6 +101,7 @@ end
 """
 function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
                         lattice=BilayerSquare(2, 2; norbit=2); 
+                        pinning = nothing,
                         tzz10 = -0.1123,
                         tzz20 = -0.0142,
                         txx10 = -0.4897,
@@ -206,6 +218,11 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
         push!(terms, ab[i]=>UpJ2*nbc)
         push!(terms, ab[i]=>J*sf)
         push!(terms, ab[i]=>J2*ph)
+    end
+    if !isnothing(pinning)
+        for i in eachindex(pinning[1])
+            push!(terms, pinning[1][i] => pinning[2][i]*num)
+        end
     end
     I = ProductSector{Tuple{FermionParity, SU2Irrep, U1Irrep}}
     P, Q = filling
