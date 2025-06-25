@@ -10,6 +10,17 @@ DefaultDMRG = DMRG2(; tol=1e-8, maxiter=5, verbosity=0,
             alg_svd= SDD(), 
             trscheme=truncdim(4096))
 
+DefaultDMRG2(tol, krylovdim) = DMRG2(; tol=1e-8, maxiter=5, verbosity=0,
+            alg_eigsolve= Lanczos(;
+                krylovdim = krylovdim,
+                maxiter = 1,
+                tol = tol,
+                orth = ModifiedGramSchmidt(),
+                eager = true,
+                verbosity = 0), 
+            alg_svd= SDD(), 
+            trscheme=truncdim(4096))
+
 
 DefaultTDVP = TDVP(;
             integrator = Lanczos(; 

@@ -46,7 +46,7 @@ include("utility/tools.jl")
 export add_single_util_leg, cart2polar, phase_by_polar, sort_by_distance, transfer_left
 
 include("utility/defaults.jl")
-export DefaultDMRG, DefaultTDVP, DefaultTDVP2
+export DefaultDMRG, DefaultDMRG2, DefaultTDVP, DefaultTDVP2
 
 include("algorithms/dmrg2.jl")
 export dmrg2!, dmrg2, dmrg2_sweep!
