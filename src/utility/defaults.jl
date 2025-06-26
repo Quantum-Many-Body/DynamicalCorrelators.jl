@@ -1,7 +1,7 @@
 #Set default parameters with reference to FiniteMPS.jl
 DefaultDMRG = DMRG2(; tol=1e-8, maxiter=5, verbosity=0,
             alg_eigsolve= Lanczos(;
-                krylovdim = 8,
+                krylovdim = 3,
                 maxiter = 1,
                 tol = 1e-8,
                 orth = ModifiedGramSchmidt(),
@@ -15,7 +15,7 @@ DefaultDMRG2(tol, krylovdim) = DMRG2(; tol=1e-8, maxiter=5, verbosity=0,
                 krylovdim = krylovdim,
                 maxiter = 1,
                 tol = tol,
-                orth = ModifiedGramSchmidt(),
+                orth = ModifiedGramSchmidtIR(),
                 eager = true,
                 verbosity = 0), 
             alg_svd= SDD(), 
