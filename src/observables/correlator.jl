@@ -199,24 +199,34 @@ end
 """
 function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap, i::NTuple{1, Integer}, j::NTuple{1, Integer})
     i, j = i[1], j[1]
-    i <= j || @error "i should be equal or smaller than j ($i, $j)"
-    if i == j 
-        O = contract_onesite(O₁, O₂)
-        G = @plansor state.AC[i][1 2; 3] * O[4; 2] * conj(state.AC[i][1 4; 3])
-    elseif  (length(domain(O₁)) == 2)&&(length(codomain(O₂)) == 2)
-        @plansor Vₗ[-1 -2; -3] := state.AC[i][3 4; -3] * O₁[2; 4 -2] * conj(state.AC[i][3 2; -1])
-        ctr = i + 1
-        if j > ctr
-            Vₗ = Vₗ * TransferMatrix(state.AR[ctr:(j - 1)])
+    if (length(domain(O₁)) == 2)&&(length(codomain(O₂)) == 2)
+        if i == j 
+            O = contract_onesite(O₁, O₂)
+            G = @plansor state.AC[i][1 2; 3] * O[4; 2] * conj(state.AC[i][1 4; 3])
+        elseif  i < j
+            @plansor Vₗ[-1 -2; -3] := state.AC[i][3 4; -3] * O₁[2; 4 -2] * conj(state.AC[i][3 2; -1])
+            ctr = i + 1
+            if j > ctr
+                Vₗ = Vₗ * TransferMatrix(state.AR[ctr:(j - 1)])
+            end
+            G = @plansor Vₗ[2 3; 5] * state.AR[j][5 6; 7] * O₂[3 4; 6] * conj(state.AR[j][2 4; 7])
+        else
+            @plansor Vₗ[-1 -2; -3] := state.AC[j][3 4; -3] * O₂[2 1; 4] * τ[2 5; 1 -2] * conj(state.AC[j][3 5; -1])
+            ctr = j + 1
+            if i > ctr
+                Vₗ = Vₗ * TransferMatrix(state.AR[ctr:(i - 1)])
+            end
+            G = @plansor Vₗ[1 2; 3] * state.AR[i][3 4; 8] * τ[2 5; 4 6] * O₁[7; 5 6] * conj(state.AR[i][1 7; 8])
         end
-        G = @plansor Vₗ[2 3; 5] * state.AR[j][5 6; 7] * O₂[3 4; 6] * conj(state.AR[j][2 4; 7])
-    else
+    elseif (length(domain(O₁)) == 1)&&(length(codomain(O₂)) == 1)
         @plansor Vₗ[-1; -3] := state.AC[i][3 4; -3] * O₁[2; 4] * conj(state.AC[i][3 2; -1])
         ctr = i + 1
         if j > ctr
             Vₗ = Vₗ * TransferMatrix(state.AR[ctr:(j - 1)])
         end
         G = @plansor Vₗ[2; 5] * state.AR[j][5 6; 7] * O₂[4; 6] * conj(state.AR[j][2 4; 7])
+    else
+        throw(ArgumentError("invalid legs of O₁ and O₂!"))
     end
     return G
 end
