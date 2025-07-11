@@ -57,11 +57,19 @@ function _vspaces(::Type{SU2Irrep}, ::Type{U1Irrep}, P, Q, k, Z, N, I, md)
     return vsp
 end
 
-function randFiniteMPS(elt::Type{<:Number}, H::MPOHamiltonian; L=10, right=oneunit(physicalspace(H)[1]))
+function randFiniteMPS(elt::Type{<:Number}, H::MPOHamiltonian; left=oneunit(physicalspace(H)[1]), right=oneunit(physicalspace(H)[1]))
     Ps = physicalspace(H)
-    Vs = restrict_virtualspaces(Ps; right=right, L=L)
-    FiniteMPS(rand, elt, Ps, Vs[2:(end - 1)]; right=right)
+    temp = restrict_virtualspaces(Ps; left=left, right=right)
+    st = FiniteMPS(rand, elt, Ps,temp[2:(end - 1)]; left=left, right=right)
+    changebonds!(st, SvdCut(;trscheme=truncdim(32)))
+    Vs = Vector{eltype(Ps)}(undef, length(temp))
+    for i in 1:length(Ps)
+        Vs[i] = left_virtualspace(st[i])
+    end
+    Vs[length(Ps)+1] = right_virtualspace(st[length(Ps)])
+    return FiniteMPS(rand, elt, Ps, Vs[2:end-1]; left=left, right=right)
 end
+
 
 function randFiniteMPS(elt::Type{<:Number}, pspace, N::Integer; right=oneunit(pspace))
     pspaces = repeat([pspace], N)
@@ -69,25 +77,20 @@ function randFiniteMPS(elt::Type{<:Number}, pspace, N::Integer; right=oneunit(ps
     FiniteMPS(rand, elt, pspaces, vspaces[2:(end - 1)]; right=right)
 end
 
-function restrict_virtualspaces(Ps; left=oneunit(Ps[1]), right=oneunit(Ps[1]), L=10)
-    if length(Ps) <= L
-        Vs = max_virtualspaces(Ps; right=right)
+function restrict_virtualspaces(Ps; left=oneunit(Ps[1]), right=oneunit(Ps[1]))
+    N = length(Ps)
+    if  N <= 12
+        Vs = max_virtualspaces(Ps; left=left, right=right)
     else
-        Vs = similar(Ps, length(Ps) + 1)
-        Vs[1] = left
-        Vs[end] = right
-        for k in 2:(L÷2)
-            Vs[k] = fuse(Vs[k - 1], fuse(Ps[k - 1]))
-        end
-        for k in (L÷2+1):2:length(Ps)
-            Vs[k] = Vs[4]
-        end
-        for k in (L÷2+2):2:(length(Ps)-1)
-            Vs[k] = Vs[5]
-        end 
-        for k in reverse(2:length(Ps))
-            Vs[k] = infimum(Vs[k], fuse(Vs[k + 1], dual(fuse(Ps[k]))))
-        end
+        Vs = Vector{eltype(Ps)}(undef, N+1)
+        temp = max_virtualspaces(Ps[1:10]; left=left, right=right)
+        Vs[1:3] = temp[1:3]
+        Vs[N-1:N+1] = temp[9:11]
+        Vs[N÷2+1] = temp[6]
+        Vs[4:2:(N÷2-1)] = [temp[4] for _ in 1:length(4:2:(N÷2-1))]
+        Vs[5:2:N÷2] = [temp[5]  for _ in 1:length(5:2:N÷2)]
+        Vs[(N÷2+2):2:(N-3)] = [temp[7] for _ in 1:length((N÷2+2):2:(N-3))]
+        Vs[(N÷2+3):2:(N-2)] = [temp[8] for _ in 1:length((N÷2+3):2:(N-2))]
     end
     return Vs
 end
