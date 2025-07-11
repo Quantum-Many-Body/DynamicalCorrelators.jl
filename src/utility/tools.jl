@@ -62,3 +62,15 @@ function transfer_left(v::AbstractTensorMap{T, S, 3, 1}, A::MPSTensor{S}, Ab::MP
     check_unambiguous_braiding(space(v, 2))
     @plansor v[-1 -2 -3; -4] := v[1 2 3; 4] * A[4 5; -4] * τ[3 6; 5 -3] * τ[2 7; 6 -2] * conj(Ab[1 7; -1])
 end
+
+
+function contract_MPO(mpo1::FiniteMPO{<:MPOTensor}, mpo2::FiniteMPO{<:MPOTensor})
+    T = promote_type(scalartype(mpo1[1]), scalartype(mpo2[end]))
+    F1 = fuser(T, right_virtualspace(mpo2[1]), right_virtualspace(mpo1[1]))
+    F2 = fuser(T, left_virtualspace(mpo2[end]), left_virtualspace(mpo1[end]))
+    ops = map(fuse_mul_mpo, parent(mpo1)[2:end-1], parent(mpo2)[2:end-1])
+    @plansor O₁[-1; -2 -3] :=  mpo2[1][1 2; -2 3] * mpo1[1][1 -1; 2 4] * conj(F1[-3; 3 4])
+    @plansor O₂[-3 -1; -2] := F2[-3; 3 4] * mpo2[end][3 2; -2 1] * mpo1[end][4 -1; 2 1] 
+    O₁, O₂ = add_single_util_leg(O₁), add_single_util_leg(O₂)
+    return changebonds!(FiniteMPO([O₁;ops;O₂]), SvdCut(; trscheme=notrunc()))
+end
