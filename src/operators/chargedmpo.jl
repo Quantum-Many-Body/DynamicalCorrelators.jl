@@ -52,3 +52,14 @@ function chargedMPO(operator::AbstractTensorMap, site₁::Integer, site₂::Inte
     end
     return mpo
 end
+
+"""
+    identityMPO(H::FiniteMPOHamiltonian)
+"""
+function identityMPO(H::FiniteMPOHamiltonian)
+    V = oneunit(spacetype(H))
+    W = map(1:length(H)) do site
+        return BraidingTensor{scalartype(H)}(physicalspace(H, site), V)
+    end
+    return FiniteMPO(W)
+end
