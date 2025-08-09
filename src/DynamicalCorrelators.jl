@@ -3,11 +3,12 @@ module DynamicalCorrelators
 using LinearAlgebra: norm
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice
-using TensorKit: FermionParity, U1Irrep, SU2Irrep, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, sectortype, Bosonic
+using TensorKit: FermionParity, U1Irrep, SU2Irrep, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, Bosonic
 using TensorKit: truncdim, truncerr, truncspace, TruncationScheme, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum
 using MPSKit: FiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
-using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, environments, expectation_value, max_virtualspaces, physicalspace, fuse_mul_mpo, fuser, DenseMPO, MPOTensor
+using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, environments, expectation_value, max_virtualspaces, physicalspace
+using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor
 using MPSKit.Defaults: _finalize
 using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, _transpose_front, MPSTensor, check_unambiguous_braiding, scalartype
 using KrylovKit: exponentiate, eigsolve, Lanczos, ModifiedGramSchmidt
@@ -36,7 +37,7 @@ export singlet_dagger, singlet, triplet_dagger, triplet
 
 include("operators/chargedmpo.jl")
 include("operators/operator2mpo.jl")
-export chargedMPO, hamiltonian
+export chargedMPO, identityMPO, hamiltonian
 
 include("states/chargedmps.jl")
 include("states/randmps.jl")
@@ -55,7 +56,7 @@ include("observables/correlator.jl")
 export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorrelation, OneSiteCorrelation, site_indices, correlator
 
 include("observables/dcorrelator.jl")
-export propagator, dcorrelator
+export expHt, propagator, dcorrelator
 export RetardedGF, GreaterLessGF
 
 include("observables/fourier.jl")
