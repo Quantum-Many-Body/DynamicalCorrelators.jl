@@ -1,4 +1,35 @@
 """
+    expHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
+"""
+function expHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
+    rho_mps = convert(FiniteMPS, initMPO)
+    start_time, record_start = now(), now()
+    verbose && println("[1/$(length(ts))] t = $(ts[1]) Started:", Dates.format(start_time, "d.u yyyy HH:MM"))
+    flush(stdout)
+    envs = environments(rho_mps, H)
+    jldopen(filename, "w") do f
+        f["ts"] = ts
+    end
+    for i in 2:length(ts)
+        alg = i > n ? DefaultTDVP : DefaultTDVP2(trscheme)
+        rho_mps, envs = timestep(rho_mps, H, 0, ts[i]-ts[i-1], alg, envs)
+        current_time = now()
+        verbose && println("[$i/$(length(ts))] t = $(ts[i]) ", " | duration:", Dates.canonicalize(current_time-start_time))
+        flush(stdout)
+        jldopen(filename, "a") do f
+            if save_all || i == length(ts)
+                f["t=$(ts[i])"] = convert(FiniteMPO, rho_mps)
+            end
+        end
+        start_time = current_time
+    end
+    record_end = now()
+    verbose && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(record_end-record_start))
+
+    return convert(FiniteMPO, rho_mps)
+end
+
+"""
     propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool=false, imag::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
     propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS; verbose::Bool=false, rev::Bool=false, imag::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
 """
