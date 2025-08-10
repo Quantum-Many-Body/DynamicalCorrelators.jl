@@ -7,7 +7,7 @@ using TensorKit: FermionParity, U1Irrep, SU2Irrep, Vect, Sector, ProductSector, 
 using TensorKit: truncdim, truncerr, truncspace, TruncationScheme, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum
 using MPSKit: FiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
-using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, environments, expectation_value, max_virtualspaces, physicalspace
+using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, timestep!, environments, expectation_value, max_virtualspaces, physicalspace
 using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor
 using MPSKit.Defaults: _finalize
 using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, _transpose_front, MPSTensor, check_unambiguous_braiding, scalartype
@@ -56,7 +56,7 @@ include("observables/correlator.jl")
 export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorrelation, OneSiteCorrelation, site_indices, correlator
 
 include("observables/dcorrelator.jl")
-export expHt, propagator, dcorrelator
+export expiHt, A_expiHt_B, propagator, dcorrelator
 export RetardedGF, GreaterLessGF
 
 include("observables/fourier.jl")

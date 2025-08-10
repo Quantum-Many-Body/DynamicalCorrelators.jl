@@ -1,10 +1,10 @@
 """
-    expHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
+    expiHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
 """
-function expHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
+function expiHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
     rho_mps = convert(FiniteMPS, initMPO)
     start_time, record_start = now(), now()
-    verbose && println("[1/$(length(ts))] t = $(ts[1]) Started:", Dates.format(start_time, "d.u yyyy HH:MM"))
+    verbose && println("[1/$(length(ts))] t = $(ts[1]) ", " | Started:", Dates.format(start_time, "d.u yyyy HH:MM"))
     flush(stdout)
     envs = environments(rho_mps, H)
     jldopen(filename, "w") do f
@@ -12,7 +12,7 @@ function expHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identit
     end
     for i in 2:length(ts)
         alg = i > n ? DefaultTDVP : DefaultTDVP2(trscheme)
-        rho_mps, envs = timestep(rho_mps, H, 0, ts[i]-ts[i-1], alg, envs)
+        rho_mps, envs = timestep!(rho_mps, H, 0, ts[i]-ts[i-1], alg, envs)
         current_time = now()
         verbose && println("[$i/$(length(ts))] t = $(ts[i]) ", " | duration:", Dates.canonicalize(current_time-start_time))
         flush(stdout)
@@ -27,6 +27,70 @@ function expHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identit
     verbose && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(record_end-record_start))
 
     return convert(FiniteMPO, rho_mps)
+end
+
+function A_expiHt_B(::Type{R}, H::MPOHamiltonian, gs::AbstractFiniteMPS, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H);
+                    verbose=true, 
+                    filename::String="default_gfs.jld2", 
+                    save_all=false,  
+                    parallel::Union{String, Integer}=Threads.nthreads(), 
+                    n::Integer=3, 
+                    trscheme=truncerr(1e-3)) where R<:RetardedGF
+    gsenergy = expectation_value(gs, H)
+    gf = zeros(ComplexF64, (2*length(H)), length(H), length(ts))
+    rho_mps = convert(FiniteMPS, initMPO)
+    evolve_start, evolve_finish, record_start = now(), now(), now()
+    verbose && println("[1/$(length(ts))] t = $(ts[1]) ", " | Started:", Dates.format(record_start, "d.u yyyy HH:MM"))
+    flush(stdout)
+    envs = environments(rho_mps, H)
+    jldopen(filename, "w") do f
+        f["ts"] = ts
+    end
+    for i in eachindex(ts)
+        if i > 1
+            alg = i > n ? DefaultTDVP : DefaultTDVP2(trscheme)
+            rho_mps, envs = timestep!(rho_mps, H, 0, ts[i]-ts[i-1], alg, envs)
+            rho = convert(FiniteMPO, rho_mps)
+            evolve_finish = now()
+            verbose && println("[$i/$(length(ts))] t = $(ts[i]) ", " | duration:", Dates.canonicalize(evolve_finish-evolve_start))
+            flush(stdout)
+        end
+
+        idx = Threads.Atomic{Int}(1)
+        indices = CartesianIndices((2*length(H), length(H)))
+        Threads.@sync for _ in 1:parallel
+            Threads.@spawn while true
+                j = Threads.atomic_add!(idx, 1) 
+                j > length(indices) && break  
+                b, a = indices[j].I
+                if a <= length(H)
+                    gf[b,a,i] = dot(chargedMPS(ops[1], gs, a), rho, chargedMPS(ops[1], gs, b))
+                else
+                    gf[b,a,i] = conj(dot(chargedMPS(ops[2], gs, a), rho, chargedMPS(ops[2], gs, b)))
+                end
+            end
+        end
+
+        factor₁, factor₂ = -im*exp(im*gsenergy*ts[i]), -im*exp(-im*gsenergy*ts[i])
+        gf[1:length(H),:,i] = factor₁*gf[1:length(H),:,i]
+        gf[(length(H)+1):end,:,i] = factor₂*gf[(length(H)+1):end,:,i]
+
+        jldopen(filename, "a") do f
+            f["gf_$(ts[i])"] = gf[:,:,i]
+            if save_all || i == length(ts)
+                f["rho_$(ts[i])"] = rho
+            end
+        end
+        verbose && println("    gf_$(ts[i]) is done ", " | duration:", Dates.canonicalize(now() - evolve_finish))
+        evolve_start = now()
+    end
+
+    verbose && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+    gfs = gf[1:length(H),:,:] + RetardedGF(R)*gf[(length(H)+1):end,:,:]
+    jldopen(filename, "a") do f
+        f["gfs"] = gfs
+    end
+    return gfs
 end
 
 """
