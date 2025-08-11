@@ -11,11 +11,12 @@ RetardedGF(::Type{RetardedGF{:b}}) = -1
     GreaterLessGF
 """
 struct GreaterLessGF end
+
 """
-    expiHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
+    expiHt(H::MPOHamiltonian, ts::AbstractVector, rho::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
 """
-function expiHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
-    rho_mps = convert(FiniteMPS, initMPO)
+function expiHt(H::MPOHamiltonian, ts::AbstractVector, rho::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
+    rho_mps = convert(FiniteMPS, rho)
     start_time, record_start = now(), now()
     verbose && println("[1/$(length(ts))] t = $(ts[1]) ", " | Started:", Dates.format(start_time, "d.u yyyy HH:MM"))
     flush(stdout)
@@ -42,7 +43,7 @@ function expiHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identi
     return convert(FiniteMPO, rho_mps)
 end
 
-function A_expiHt_B(::Type{R}, H::MPOHamiltonian, gs::AbstractFiniteMPS, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H);
+function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, ts::AbstractVector, rho::FiniteMPO=identityMPO(H);
                     verbose=true, 
                     filename::String="default_gfs.jld2", 
                     save_all=false,  
@@ -51,7 +52,7 @@ function A_expiHt_B(::Type{R}, H::MPOHamiltonian, gs::AbstractFiniteMPS, ops::Tu
                     trscheme=truncerr(1e-3)) where R<:RetardedGF
     gsenergy = expectation_value(gs, H)
     gf = zeros(ComplexF64, (2*length(H)), length(H), length(ts))
-    rho_mps = convert(FiniteMPS, initMPO)
+    rho_mps = convert(FiniteMPS, rho)
     evolve_start, evolve_finish, record_start = now(), now(), now()
     verbose && println("[1/$(length(ts))] t = $(ts[1]) ", " | Started:", Dates.format(record_start, "d.u yyyy HH:MM"))
     flush(stdout)
@@ -62,7 +63,7 @@ function A_expiHt_B(::Type{R}, H::MPOHamiltonian, gs::AbstractFiniteMPS, ops::Tu
     for i in eachindex(ts)
         if i > 1
             alg = i > n ? DefaultTDVP : DefaultTDVP2(trscheme)
-            rho_mps, envs = timestep!(rho_mps, H, 0, ts[i]-ts[i-1], alg, envs)
+            rho_mps, envs = timestep(rho_mps, H, 0, ts[i]-ts[i-1], alg, envs)
             rho = convert(FiniteMPO, rho_mps)
             evolve_finish = now()
             verbose && println("[$i/$(length(ts))] t = $(ts[i]) ", " | duration:", Dates.canonicalize(evolve_finish-evolve_start))
@@ -76,10 +77,10 @@ function A_expiHt_B(::Type{R}, H::MPOHamiltonian, gs::AbstractFiniteMPS, ops::Tu
                 j = Threads.atomic_add!(idx, 1) 
                 j > length(indices) && break  
                 b, a = indices[j].I
-                if a <= length(H)
+                if b <= length(H)
                     gf[b,a,i] = dot(chargedMPS(ops[1], gs, a), rho, chargedMPS(ops[1], gs, b))
                 else
-                    gf[b,a,i] = conj(dot(chargedMPS(ops[2], gs, a), rho, chargedMPS(ops[2], gs, b)))
+                    gf[b,a,i] = conj(dot(chargedMPS(ops[2], gs, a), rho, chargedMPS(ops[2], gs, b-length(H))))
                 end
             end
         end
@@ -98,7 +99,7 @@ function A_expiHt_B(::Type{R}, H::MPOHamiltonian, gs::AbstractFiniteMPS, ops::Tu
         evolve_start = now()
     end
 
-    verbose && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+    verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     gfs = gf[1:length(H),:,:] + RetardedGF(R)*gf[(length(H)+1):end,:,:]
     jldopen(filename, "a") do f
         f["gfs"] = gfs
