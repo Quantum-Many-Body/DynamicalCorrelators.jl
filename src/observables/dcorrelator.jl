@@ -1,4 +1,17 @@
 """
+    RetardedGF{K}
+    RetardedGF(::Type{RetardedGF{:f}}) = 1
+    RetardedGF(::Type{RetardedGF{:b}}) = -1
+"""
+struct RetardedGF{K} end
+RetardedGF(::Type{RetardedGF{:f}}) = 1
+RetardedGF(::Type{RetardedGF{:b}}) = -1
+
+"""
+    GreaterLessGF
+"""
+struct GreaterLessGF end
+"""
     expiHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
 """
 function expiHt(H::MPOHamiltonian, ts::AbstractVector, initMPO::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
@@ -199,14 +212,7 @@ function propagator(H::MPOHamiltonian, bras::Vector{<:FiniteMPS}, ket::FiniteMPS
     return propagators
 end
 
-"""
-    RetardedGF{K}
-    RetardedGF(::Type{RetardedGF{:f}}) = 1
-    RetardedGF(::Type{RetardedGF{:b}}) = -1
-"""
-struct RetardedGF{K} end
-RetardedGF(::Type{RetardedGF{:f}}) = 1
-RetardedGF(::Type{RetardedGF{:b}}) = -1
+
 
 """
     dcorrelator(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap})
@@ -375,7 +381,6 @@ function dcorrelator(::Type{R}, gf_slices::AbstractArray{<:AbstractMatrix}, gsen
     return gf[1:half,:,:] + RetardedGF(R)*gf[(half+1):end,:,:]
 end
 
-struct GreaterLessGF end
 
 """
     dcorrelator(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap})
