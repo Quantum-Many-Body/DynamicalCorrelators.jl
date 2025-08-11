@@ -1,9 +1,9 @@
 
-function S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}; side=:L)
-    pspace = SU2Space(1//2 => 1)
+function S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}; spin=1//2, side=:L)
+    pspace = SU2Space(spin => 1)
     vspace = SU2Space(1 => 1)
     if side == :L
-        sp = TensorMap(ones, elt, pspace, pspace ⊗ vspace) * sqrt(3) / 2
+        sp = TensorMap(ones, elt, pspace, pspace ⊗ vspace) * sqrt(spin^2+spin)
     end
     return sp
 end
