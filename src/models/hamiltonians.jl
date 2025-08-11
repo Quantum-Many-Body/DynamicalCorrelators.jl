@@ -254,8 +254,8 @@ end
 """
     heisenberg(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteChain(1); J=1.0)
 """
-function heisenberg(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteChain(1); J=1.0)
-    hei = heisenberg(elt, SU2Irrep)
+function heisenberg(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteChain(1); J=1.0,  spin=1//2)
+    hei = heisenberg(elt, SU2Irrep; spin=spin)
     return @mpoham begin
         sum(nearest_neighbours(lattice)) do (i, j)
             return -J * hei{i, j}
