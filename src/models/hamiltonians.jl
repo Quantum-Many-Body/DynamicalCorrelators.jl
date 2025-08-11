@@ -250,3 +250,15 @@ function kitaev_hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, l
         end
     end
 end
+
+"""
+    heisenberg(elt::Type{<:Number}=ComplexF64, ::Type{SU2Irrep}, lattice::AbstractLattice=FiniteChain(1); J=1.0)
+"""
+function heisenberg(elt::Type{<:Number}=ComplexF64, ::Type{SU2Irrep}, lattice::AbstractLattice=FiniteChain(1); J=1.0)
+    hei = heisenberg(elt, SU2Irrep)
+    return @mpoham begin
+        sum(nearest_neighbours(lattice)) do (i, j)
+            return -J * hei{i, j}
+        end
+    end
+end
