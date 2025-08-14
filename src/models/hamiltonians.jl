@@ -252,9 +252,9 @@ function kitaev_hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, l
 end
 
 """
-    heisenberg(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteChain(1); J=1.0)
+    heisenberg_model(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteChain(1); J=1.0)
 """
-function heisenberg(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteChain(1); J=1.0,  spin=1//2)
+function heisenberg_model(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteChain(1); J=1.0,  spin=1//2)
     hei = heisenberg(elt, SU2Irrep; spin=spin)
     return @mpoham begin
         sum(nearest_neighbours(lattice)) do (i, j)
