@@ -17,6 +17,7 @@ using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadd
 using MPSKitModels: AbstractLattice as MLattice
 using Distributed: @sync, @distributed, workers, addprocs
 using SharedArrays: SharedArray
+using NumericalIntegration: integrate
 using JLD2: save, load, jldopen, write, close
 using Printf: @printf, @sprintf
 using Dates
@@ -29,7 +30,7 @@ include("models/lattices.jl")
 export CustomLattice, BilayerSquare, Square, twosite_bonds, onesite_bonds, find_position
 
 include("models/hamiltonians.jl")
-export hubbard, hubbard_bilayer_2band, kitaev_hubbard
+export hubbard, hubbard_bilayer_2band, kitaev_hubbard, heisenberg_model
 
 include("operators/fermions.jl")
 include("operators/spin.jl")
