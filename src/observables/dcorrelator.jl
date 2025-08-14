@@ -22,7 +22,7 @@ function expiHt(H::MPOHamiltonian, ts::AbstractVector, rho::FiniteMPO=identityMP
     flush(stdout)
     envs = environments(rho_mps, H)
     jldopen(filename, "w") do f
-        f["t=$(ts[i])"] = rho
+        f["t=$(ts[1])"] = rho
     end
     for i in 2:length(ts)
         alg = i > n ? DefaultTDVP : DefaultTDVP2(trscheme)
@@ -44,21 +44,21 @@ end
 
 function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, ts::AbstractVector, rho::FiniteMPO=identityMPO(H);
                     verbose=true, 
+                    parallel::String="np",
                     filename::String="default_gfs.jld2", 
                     save_all=false,  
-                    parallel::Union{String, Integer}=Threads.nthreads(), 
                     n::Integer=3, 
                     trscheme=truncerr(1e-3)) where R<:RetardedGF
     gsenergy = expectation_value(gs, H)
     mps = [[chargedMPS(ops[1], gs, j) for j in 1:length(gs)]; [chargedMPS(ops[2], gs, j) for j in 1:length(gs)]]
-    gf = zeros(ComplexF64, (2*length(H)), length(H), length(ts))
+    gf = parallel=="np" ? SharedArray{ComplexF64, 3}(2*length(H), length(H), length(ts)) : zeros(ComplexF64, 2*length(H), length(H), length(ts))
     rho_mps = convert(FiniteMPS, rho)
     evolve_start, evolve_finish, record_start = now(), now(), now()
     verbose && println("[1/$(length(ts))] t = $(ts[1]) ", " | Started:", Dates.format(record_start, "d.u yyyy HH:MM"))
     flush(stdout)
     envs = environments(rho_mps, H)
     jldopen(filename, "w") do f
-        f["ts"] = ts
+        f["t=$(ts[1])"] = rho
     end
     for i in eachindex(ts)
         if i > 1
@@ -69,28 +69,32 @@ function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tu
             verbose && println("[$i/$(length(ts))] t = $(ts[i]) ", " | duration:", Dates.canonicalize(evolve_finish-evolve_start))
             flush(stdout)
         end
-
-        idx = Threads.Atomic{Int}(1)
-        indices = CartesianIndices((2*length(H), length(H)))
-        m = length(indices)
-        Threads.@sync for _ in 1:parallel
-            Threads.@spawn while true
-                j = Threads.atomic_add!(idx, 1) 
-                j > m && break  
-                a, b = indices[j].I
-                if a <= length(H)
-                    gf[a,b,i] = dot(mps[b], rho, mps[a])
+        if parallel == "np"
+            indices = CartesianIndices((2*length(H), length(H)))
+            @sync @distributed for idx in 1:length(indices)
+                j, k = indices[idx].I
+                if j <= length(H)
+                    gf[j,k,i] = dot(mps[k], rho, mps[j])
                 else
-                    gf[a,b,i] = conj(dot(mps[b], rho, mps[a-length(H)]))
+                    gf[j,k,i] = conj(dot(mps[k], rho, mps[j-length(H)]))
+                end
+            end
+            GC.gc()
+        else
+            for j in 1:length(H)
+                for k in eachindex(H)
+                    if j <= length(H)
+                        gf[j,k,i] = dot(mps[k], rho, mps[j])
+                    else
+                        gf[j,k,i] = conj(dot(mps[k], rho, mps[j-length(H)]))
+                    end
                 end
             end
         end
         factor₁, factor₂ = -im*exp(im*gsenergy*ts[i]), -im*exp(-im*gsenergy*ts[i])
         gf[1:length(H),:,i] = factor₁*gf[1:length(H),:,i]
         gf[(length(H)+1):end,:,i] = factor₂*gf[(length(H)+1):end,:,i]
-        GC.gc()
         jldopen(filename, "a") do f
-            f["gf_$(ts[i])"] = gf[:,:,i]
             if save_all || i == length(ts)
                 f["rho_$(ts[i])"] = rho
             end
@@ -98,7 +102,6 @@ function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tu
         verbose && println("    gf_$(ts[i]) is done ", " | duration:", Dates.canonicalize(now() - evolve_finish))
         evolve_start = now()
     end
-
     verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     gfs = gf[1:length(H),:,:] + RetardedGF(R)*gf[(length(H)+1):end,:,:]
     jldopen(filename, "a") do f
@@ -112,11 +115,11 @@ function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamilton
                     which=:greater,
                     filename::String="default_gfs.jld2", 
                     save_all=false,  
-                    parallel::Union{String, Integer}=Threads.nthreads(), 
+                    parallel::String="np",
                     n::Integer=3, 
                     trscheme=truncerr(1e-3))
     gsenergy = expectation_value(gs, H) 
-    gf = zeros(ComplexF64, (length(H)), length(H), length(ts))
+    gf = parallel=="np" ? SharedArray{ComplexF64, 3}(length(H), length(H), length(ts)) : zeros(ComplexF64, length(H), length(H), length(ts))
     rho_mps = convert(FiniteMPS, rho)
     mps = which==:greater ? [chargedMPS(ops[1], gs, j) for j in 1:length(gs)] : [chargedMPS(ops[2], gs, j) for j in 1:length(gs)]
     evolve_start, evolve_finish, record_start = now(), now(), now()
@@ -124,7 +127,7 @@ function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamilton
     flush(stdout)
     envs = environments(rho_mps, H)
     jldopen(filename, "w") do f
-        f["ts"] = ts
+        f["t=$(ts[1])"] = rho
     end
     for i in eachindex(ts)
         if i > 1
@@ -135,31 +138,22 @@ function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamilton
             verbose && println("[$i/$(length(ts))] t = $(ts[i]) ", " | duration:", Dates.canonicalize(evolve_finish-evolve_start))
             flush(stdout)
         end
-
-        if parallel == 1
-            for j in axes(gf, 1)
-                for k in axes(gf, 2)
-                    gf[j,k,i] = which==:greater ? -im*exp(im*gsenergy*ts[i])*dot(mps[k], rho, mps[j]) : -im*exp(-im*gsenergy*ts[i])*conj(dot(mps[k], rho, mps[j]))
-                end
+        if parallel == "np"
+            indices = CartesianIndices((length(H), length(H)))
+            @sync @distributed for idx in 1:length(indices)
+                j, k = indices[idx].I
+                gf[j,k,i] = dot(mps[k], rho, mps[j])
             end
             GC.gc()
         else
-            idx = Threads.Atomic{Int}(1)
-            indices = CartesianIndices((length(H), length(H)))
-            m = length(indices)
-            Threads.@sync for _ in 1:parallel
-                Threads.@spawn while true
-                    j = Threads.atomic_add!(idx, 1) 
-                    j > m && break  
-                    a, b = indices[j].I
-                    gf[a,b,i] = which==:greater ? -im*exp(im*gsenergy*ts[i])*dot(mps[b], rho, mps[a]) : -im*exp(-im*gsenergy*ts[i])*conj(dot(mps[b], rho, mps[a]))
+            for j in 1:length(H)
+                for k in eachindex(H)
+                    gf[j,k,i] = dot(mps[k], rho, mps[j])
                 end
             end
-            GC.gc()
         end
-
+        gf[:,:,i] = which==:greater ? -im*exp(im*gsenergy*ts[i])*gf[:,:,i] : -im*exp(-im*gsenergy*ts[i])*conj.(gf[:,:,i])
         jldopen(filename, "a") do f
-            f["gf_$(ts[i])"] = gf[:,:,i]
             if save_all || i == length(ts)
                 f["rho_$(ts[i])"] = rho
             end
@@ -167,13 +161,100 @@ function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamilton
         verbose && println("    gf_$(ts[i]) is done ", " | duration:", Dates.canonicalize(now() - evolve_finish))
         evolve_start = now()
     end
-
     verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     jldopen(filename, "a") do f
         f["gfs"] = gf
     end
     return gf
 end
+
+function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, ts::AbstractVector, expiht_data;
+                    verbose=true, 
+                    parallel::String="np",
+                    filename::String="default_gfs.jld2") where R<:RetardedGF
+    gsenergy = expectation_value(gs, H)
+    mps = [[chargedMPS(ops[1], gs, j) for j in 1:length(gs)]; [chargedMPS(ops[2], gs, j) for j in 1:length(gs)]]
+    gf = parallel=="np" ? SharedArray{ComplexF64, 3}(2*length(H), length(H), length(ts)) : zeros(ComplexF64, 2*length(H), length(H), length(ts))
+    start_time, record_start = now(), now()
+    verbose && println("Started:", Dates.format(record_start, "d.u yyyy HH:MM"))
+    flush(stdout)
+    for i in eachindex(ts)
+        rho = expiht_data["t=$(ts[i])"]
+        if parallel == "np"
+            indices = CartesianIndices((2*length(H), length(H)))
+            @sync @distributed for idx in 1:length(indices)
+                j, k = indices[idx].I
+                if j <= length(H)
+                    gf[j,k,i] = dot(mps[k], rho, mps[j])
+                else
+                    gf[j,k,i] = conj(dot(mps[k], rho, mps[j-length(H)]))
+                end
+            end
+            GC.gc()
+        else
+            for j in 1:length(H)
+                for k in eachindex(H)
+                    if j <= length(H)
+                        gf[j,k,i] = dot(mps[k], rho, mps[j])
+                    else
+                        gf[j,k,i] = conj(dot(mps[k], rho, mps[j-length(H)]))
+                    end
+                end
+            end
+        end
+        factor₁, factor₂ = -im*exp(im*gsenergy*ts[i]), -im*exp(-im*gsenergy*ts[i])
+        gf[1:length(H),:,i] = factor₁*gf[1:length(H),:,i]
+        gf[(length(H)+1):end,:,i] = factor₂*gf[(length(H)+1):end,:,i]
+        verbose && println("[$i/$(length(ts))] gf_$(ts[i]) is done ", " | duration:", Dates.canonicalize(now()  - start_time))
+        start_time = now()
+    end
+    verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+    gfs = gf[1:length(H),:,:] + RetardedGF(R)*gf[(length(H)+1):end,:,:]
+    jldopen(filename, "w") do f
+        f["gfs"] = gfs
+    end
+    return gfs
+end
+
+function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, ts::AbstractVector, expiht_data;
+                    verbose=true, 
+                    which=:greater,
+                    parallel::String="np",
+                    filename::String="default_gfs.jld2")
+    gsenergy = expectation_value(gs, H) 
+    gf = parallel=="np" ? SharedArray{ComplexF64, 3}(length(H), length(H), length(ts)) : zeros(ComplexF64, length(H), length(H), length(ts))
+    mps = which==:greater ? [chargedMPS(ops[1], gs, j) for j in 1:length(gs)] : [chargedMPS(ops[2], gs, j) for j in 1:length(gs)]
+    start_time, record_start = now(), now()
+    verbose && println("Started:", Dates.format(record_start, "d.u yyyy HH:MM"))
+    flush(stdout)
+    for i in eachindex(ts)
+        rho = expiht_data["t=$(ts[i])"]
+        if parallel == "np"
+            indices = CartesianIndices((length(H), length(H)))
+            @sync @distributed for idx in 1:length(indices)
+                j, k = indices[idx].I
+                gf[j,k,i] = dot(mps[k], rho, mps[j])
+            end
+            GC.gc()
+        else
+            for j in 1:length(H)
+                for k in eachindex(H)
+                    gf[j,k,i] = dot(mps[k], rho, mps[j])
+                end
+            end
+        end
+        gf[:,:,i] = which==:greater ? -im*exp(im*gsenergy*ts[i])*gf[:,:,i] : -im*exp(-im*gsenergy*ts[i])*conj.(gf[:,:,i])
+        verbose && println("[$i/$(length(ts))] gf_$(ts[i]) is done ", " | duration:", Dates.canonicalize(now() - start_time))
+        flush(stdout)
+        start_time = now()
+    end
+    verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+    jldopen(filename, "w") do f
+        f["gfs"] = gf
+    end
+    return gf
+end
+
 
 """
     propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool=false, imag::Bool=false, dt::Number=0.05, ft::Number=5.0, n::Integer=3, trscheme=truncerr(1e-3))
