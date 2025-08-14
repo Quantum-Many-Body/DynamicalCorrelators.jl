@@ -1,64 +1,90 @@
-function broaden_gauss(eta::Real, t::Real)
+# t = 0:Δt:T, w_max < π/Δt, Δw < 2π/T (Δw≈π/2T)
+
+function broaden_gauss(t::Real, eta::Real)
     return exp(-(eta*t)^2)
 end
 
-function broaden_lorentz(eta::Real, t::Real)
+function broaden_lorentz(t::Real, eta::Real)
     return exp(-eta*abs(t))/π
 end
 
-function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts::AbstractRange, k::AbstractArray{<:Number}, w::Number; broadentype::String="G", eta::Real=0.05, regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),])
-    @assert size(gf_rt, 1) == length(rs) "Dimension mismatch: the length of site positions 'rs' must equal to the size of green function matrix 'gf_rt'!"
-    if broadentype == "G"
+function blackman_window(t::Real, T::Real)
+    return 0.42 - 0.5*cos(2π*t/T) + 0.08*cos(4π*t/T)
+end
+
+function parzen_window(t::Real, T::Real)
+	if abs(t/T) < 1/2
+		return 6*abs(t/T)^3 - 6*(t/T)^2 + 1
+	elseif abs(t/T) < 1
+		return 2*(1 - abs(t/T))^3
+	else
+		return 0.0
+	end
+end
+
+function damping(t, broadentype)
+    if broadentype[2] == "G"
         broaden = broaden_gauss
-    elseif broadentype == "L"
+    elseif broadentype[2] == "L"
         broaden = broaden_lorentz
+    elseif broadentype[2] == "B"
+        broaden = blackman_window
+    elseif broadentype[2] == "P"
+        broaden = parzen_window
     else
         throw(ArgumentError("Invalid broadening type: $broadentype"))
     end
-    dest = zeros(ComplexF64, length(regroup), length(regroup))
-    for x in eachindex(regroup), y in eachindex(regroup), l in eachindex(ts)
-        for j in eachindex(regroup[x]), i in eachindex(regroup[y])
-            dest[x, y] += gf_rt[regroup[x][j], regroup[y][i], l]*cis(-dot(k, rs[regroup[y][i]]-rs[regroup[x][j]])+w*ts[l])*broaden(eta, ts[l])
-        end
-    end
-    return dest*(ts.step.hi)/length(regroup[1])/4π^2
+    return broaden(t, broadentype[1])
 end
 
-function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts::AbstractRange, ks::AbstractArray{<:AbstractArray}, ws::AbstractArray{<:Number}; mthreads::Integer=Threads.nthreads(), kwargs...)
-    gf_kw = Matrix(undef, length(ws), length(ks))
-    if mthreads == 1
-        for k in eachindex(ks), w in eachindex(ws)
-            gf_kw[w, k] = fourier_kw(gf_rt, rs, ts, ks[k], ws[w]; kwargs...)
+function fourier_kt(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, k::AbstractArray{<:Number}; regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),])
+    dest = zeros(ComplexF64, length(regroup), length(regroup), size(gf_rt, 3))
+    for x in eachindex(regroup), y in eachindex(regroup), l in axes(gf_rt, 3)
+        for j in eachindex(regroup[x]), i in eachindex(regroup[y])
+            dest[x, y, l] += gf_rt[regroup[x][j], regroup[y][i], l]*cis(-dot(k, rs[regroup[y][i]]-rs[regroup[x][j]]))
         end
-    else
+    end
+    return dest
+end
+
+function fourier_kw(gf_kt::AbstractArray, ts::AbstractRange, w::Number, dampings::AbstractArray)
+    dest = zeros(ComplexF64, size(gf_kt, 1), size(gf_kt, 2))
+    for x in axes(gf_kt, 1), y in axes(gf_kt, 2)
+        temp = gf_kt[x, y, :] .* cis.(w*ts) .* dampings
+        dest[x, y] = integrate(ts, real.(temp)) + im*integrate(ts, imag.(temp))
+    end
+    return dest_re + im*dest_im
+end
+
+function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts::AbstractRange, ks::AbstractArray{<:AbstractArray}, ws::AbstractArray{<:Number}; 
+                    mthreads::Integer=Threads.nthreads(), broadentype=(0.05, "G"), regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),])
+    @assert size(gf_rt, 1) == length(rs) "Dimension mismatch: the length of site positions 'rs' must equal to the size of green function matrix 'gf_rt'!"
+    dampings = [damping(t, broadentype) for t in ts] 
+    gf_kw = Matrix(undef, length(ws), length(ks))
+    for k in eachindex(ks)
+        gf_kt = fourier_kt(gf_rt, rs, ks[k]; regroup=regroup)
         idx = Threads.Atomic{Int}(1)
-        indices = CartesianIndices((length(ks), length(ws)))
-        n = length(indices)
         Threads.@sync for _ in 1:mthreads
             Threads.@spawn while true
-                i = Threads.atomic_add!(idx, 1)  
-                i > n && break  
-                k, w = indices[i].I
-                gf_kw[w, k] = fourier_kw(gf_rt, rs, ts, ks[k], ws[w]; kwargs...)
+                w = Threads.atomic_add!(idx, 1)  
+                w > length(ws) && break  
+                gf_kw[w, k] = fourier_kw(gf_kt, ts, ws[w], dampings)
             end
         end
     end
-    return gf_kw
+    return gf_kw/(4π^2)
 end
 
-function fourier_rw(gf_rt::AbstractArray, ts::AbstractRange, ws::AbstractArray{<:Number}; broadentype::String="G", eta::Real=0.05, mthreads::Integer=Threads.nthreads())
-    if broadentype == "G"
-        broaden = broaden_gauss
-    elseif broadentype == "L"
-        broaden = broaden_lorentz
-    else
-        throw(ArgumentError("Invalid broadening type: $broadentype"))
-    end
+function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; broadentype=(0.05, "G"), eta::Real=0.05, mthreads::Integer=Threads.nthreads())
+    dampings = [damping(t, broadentype) for t in ts] 
     gf_rw = zeros(ComplexF64, size(gf_rt, 1), size(gf_rt, 1), length(ws))
     if mthreads == 1
         for i in eachindex(ws)
-            for j in eachindex(ts)
-                gf_rw[:,:,i] .+= gf_rt[:,:,j]*exp(im*ws[i]*ts[j])*broaden(eta, ts[j])
+            for a in axes(gf_rt, 1)
+                for b in axes(gf_rt, 2)
+                    temp = gf_rt[a,b,:] .* cis.(ws[i]*ts).* dampings
+                    gf_rw[a,b,i] = integrate(ts, real.(temp)) + im*integrate(ts, imag.(temp))
+                end
             end
         end
     else
@@ -68,8 +94,11 @@ function fourier_rw(gf_rt::AbstractArray, ts::AbstractRange, ws::AbstractArray{<
             Threads.@spawn while true
                 i = Threads.atomic_add!(idx, 1)  
                 i > n && break  
-                for j in eachindex(ts)
-                    gf_rw[:,:,i] .+= gf_rt[:,:,j]*exp(im*ws[i]*ts[j])*broaden(eta, ts[j])
+                for a in axes(gf_rt, 1)
+                    for b in axes(gf_rt, 2)
+                        temp = gf_rt[a,b,:] .* cis.(ws[i]*ts).* dampings
+                        gf_rw[a,b,i] = integrate(ts, real.(temp)) + im*integrate(ts, imag.(temp))
+                    end
                 end
             end
         end
