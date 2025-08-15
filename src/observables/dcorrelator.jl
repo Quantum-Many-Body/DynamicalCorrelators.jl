@@ -42,7 +42,7 @@ function expiHt(H::MPOHamiltonian, ts::AbstractVector, rho::FiniteMPO=identityMP
     return convert(FiniteMPO, rho_mps)
 end
 
-function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, ts::AbstractVector, rho::FiniteMPO=identityMPO(H);
+function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops, ts::AbstractVector, rho::FiniteMPO=identityMPO(H);
                     verbose=true, 
                     parallel::String="np",
                     filename::String="default_gfs.jld2", 
@@ -110,7 +110,7 @@ function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tu
     return gfs
 end
 
-function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, ts::AbstractVector, rho::FiniteMPO=identityMPO(H);
+function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops, ts::AbstractVector, rho::FiniteMPO=identityMPO(H);
                     verbose=true, 
                     which=:greater,
                     filename::String="default_gfs.jld2", 
@@ -168,7 +168,7 @@ function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamilton
     return gf
 end
 
-function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, ts::AbstractVector, expiht_data;
+function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops, ts::AbstractVector, expiht_data;
                     verbose=true, 
                     parallel::String="np",
                     filename::String="default_gfs.jld2") where R<:RetardedGF
@@ -185,9 +185,17 @@ function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tu
             @sync @distributed for idx in 1:length(indices)
                 j, k = indices[idx].I
                 if j <= length(H)
-                    gf[j,k,i] = dot(mps[k], rho, mps[j])
+                    if (j+k) <= length(H)
+                        gf[j,k,i] = dot(chargedMPS(op[1](:R),gs,k), rho, chargedMPS(op[1](:R),gs,j))
+                    else
+                        gf[j,k,i] = dot(chargedMPS(op[1](:L),gs,k), rho, chargedMPS(op[1](:L),gs,j))
+                    end
                 else
-                    gf[j,k,i] = conj(dot(mps[k], rho, mps[j-length(H)]))
+                    if (j+k-length(H)) <= length(H)
+                        gf[j,k,i] = conj(dot(chargedMPS(op[2](:R),gs,k), rho, chargedMPS(op[2](:R),gs,j-length(H))))
+                    else
+                        gf[j,k,i] = conj(dot(chargedMPS(op[2](:L),gs,k), rho, chargedMPS(op[2](:L),gs,j-length(H))))
+                    end
                 end
             end
             GC.gc()
@@ -195,9 +203,17 @@ function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tu
             for j in 1:length(H)
                 for k in eachindex(H)
                     if j <= length(H)
-                        gf[j,k,i] = dot(mps[k], rho, mps[j])
+                        if (j+k) <= length(H)
+                            gf[j,k,i] = dot(chargedMPS(op[1](:R),gs,k), rho, chargedMPS(op[1](:R),gs,j))
+                        else
+                            gf[j,k,i] = dot(chargedMPS(op[1](:L),gs,k), rho, chargedMPS(op[1](:L),gs,j))
+                        end
                     else
-                        gf[j,k,i] = conj(dot(mps[k], rho, mps[j-length(H)]))
+                        if (j+k-length(H)) <= length(H)
+                            gf[j,k,i] = conj(dot(chargedMPS(op[2](:R),gs,k), rho, chargedMPS(op[2](:R),gs,j-length(H))))
+                        else
+                            gf[j,k,i] = conj(dot(chargedMPS(op[2](:L),gs,k), rho, chargedMPS(op[2](:L),gs,j-length(H))))
+                        end
                     end
                 end
             end
@@ -216,14 +232,13 @@ function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tu
     return gfs
 end
 
-function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, ts::AbstractVector, expiht_data;
+function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamiltonian, op, ts::AbstractVector, expiht_data;
                     verbose=true, 
                     which=:greater,
                     parallel::String="np",
                     filename::String="default_gfs.jld2")
     gsenergy = expectation_value(gs, H) 
     gf = parallel=="np" ? SharedArray{ComplexF64, 3}(length(H), length(H), length(ts)) : zeros(ComplexF64, length(H), length(H), length(ts))
-    mps = which==:greater ? [chargedMPS(ops[1], gs, j) for j in 1:length(gs)] : [chargedMPS(ops[2], gs, j) for j in 1:length(gs)]
     start_time, record_start = now(), now()
     verbose && println("Started:", Dates.format(record_start, "d.u yyyy HH:MM"))
     flush(stdout)
@@ -233,13 +248,21 @@ function A_expiHt_B(::Type{GreaterLessGF}, gs::AbstractFiniteMPS, H::MPOHamilton
             indices = CartesianIndices((length(H), length(H)))
             @sync @distributed for idx in 1:length(indices)
                 j, k = indices[idx].I
-                gf[j,k,i] = dot(mps[k], rho, mps[j])
+                if (j+k) <= length(H)
+                    gf[j,k,i] = dot(chargedMPS(op(:R),gs,k), rho, chargedMPS(op(:R),gs,j))
+                else
+                    gf[j,k,i] = dot(chargedMPS(op(:L),gs,k), rho, chargedMPS(op(:L),gs,j))
+                end
             end
             GC.gc()
         else
             for j in 1:length(H)
                 for k in eachindex(H)
-                    gf[j,k,i] = dot(mps[k], rho, mps[j])
+                    if (j+k) <= length(H)
+                        gf[j,k,i] = dot(chargedMPS(op(:R),gs,k), rho, chargedMPS(op(:R),gs,j))
+                    else
+                        gf[j,k,i] = dot(chargedMPS(op(:L),gs,k), rho, chargedMPS(op(:L),gs,j))
+                    end
                 end
             end
         end
