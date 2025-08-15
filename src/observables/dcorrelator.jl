@@ -38,7 +38,6 @@ function expiHt(H::MPOHamiltonian, ts::AbstractVector, rho::FiniteMPO=identityMP
         start_time = current_time
     end
     verbose && println("Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
-
     return convert(FiniteMPO, rho_mps)
 end
 
@@ -173,7 +172,6 @@ function A_expiHt_B(::Type{R}, gs::AbstractFiniteMPS, H::MPOHamiltonian, ops, ts
                     parallel::String="np",
                     filename::String="default_gfs.jld2") where R<:RetardedGF
     gsenergy = expectation_value(gs, H)
-    mps = [[chargedMPS(ops[1], gs, j) for j in 1:length(gs)]; [chargedMPS(ops[2], gs, j) for j in 1:length(gs)]]
     gf = parallel=="np" ? SharedArray{ComplexF64, 3}(2*length(H), length(H), length(ts)) : zeros(ComplexF64, 2*length(H), length(H), length(ts))
     start_time, record_start = now(), now()
     verbose && println("Started:", Dates.format(record_start, "d.u yyyy HH:MM"))
