@@ -262,6 +262,8 @@ function e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; side=:L,
         E = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
         F = isomorphism(storagetype(E), vspace, flip(vspace))
         @planar e⁺[-1 -2; -3] := E[-2; 1 2] * τ[1 2; 3 -3] * F[3; -1]
+    else
+        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
     end
     return e⁺
 end
