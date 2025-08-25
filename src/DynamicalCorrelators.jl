@@ -59,7 +59,7 @@ export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorr
 
 include("observables/dcorrelator.jl")
 export expiHt, A_expiHt_B, propagator, dcorrelator
-export RetardedGF, GreaterLessGF
+
 
 include("observables/fourier.jl")
 export fourier_kw, fourier_rw

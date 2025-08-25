@@ -75,7 +75,7 @@ function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts
     return gf_kw/(4π^2)
 end
 
-function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; broadentype=(0.05, "G"), eta::Real=0.05, mthreads::Integer=Threads.nthreads())
+function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; broadentype=(0.05, "G"), mthreads::Integer=Threads.nthreads())
     dampings = [damping(t, broadentype) for t in ts] 
     gf_rw = zeros(ComplexF64, size(gf_rt, 1), size(gf_rt, 1), length(ws))
     if mthreads == 1
@@ -103,5 +103,5 @@ function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; 
             end
         end
     end
-    return permutedims(gf_rw, (2,1,3))*(ts.step.hi)
+    return permutedims(gf_rw, (2,1,3))
 end
