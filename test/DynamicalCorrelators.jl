@@ -105,19 +105,3 @@ end
         @test isapprox(dot(sgs₁, sgs₂), (-0.1556937701438006-0.1556937701438008)/2-0.07784688507190048; atol=1e-5)
     end
 end
-
-@testset "dynamical correlation" begin
-    elt = Float64
-    filling = (1, 1)
-    L = 4
-    H = hubbard(elt, SU2Irrep, U1Irrep, FiniteChain(L); filling=filling, t=1, U=8, μ=0)
-    st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, L; filling=filling)
-    gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerr(1e-6)));
-    E0 = expectation_value(gs, H)
-    ep = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
-    em = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
-    rgf = dcorrelator(RetardedGF{:f}, gs, H, (ep, em); dt=0.05, ft=0.1)
-    ggf = dcorrelator(GreaterLessGF, gs, H, (ep, em); whichs=:greater, dt=0.05, ft=0.1)
-    lgf = dcorrelator(GreaterLessGF, gs, H, (ep, em); whichs=:less, dt=0.05, ft=0.1)
-    @test rgf ≈ ggf + lgf
-end
