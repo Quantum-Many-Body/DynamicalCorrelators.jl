@@ -53,7 +53,7 @@ function fourier_kw(gf_kt::AbstractArray, ts::AbstractRange, w::Number, dampings
         temp = gf_kt[x, y, :] .* cis.(w*ts) .* dampings
         dest[x, y] = integrate(ts, real.(temp)) + im*integrate(ts, imag.(temp))
     end
-    return dest_re + im*dest_im
+    return dest
 end
 
 function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts::AbstractRange, ks::AbstractArray{<:AbstractArray}, ws::AbstractArray{<:Number}; 
