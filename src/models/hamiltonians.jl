@@ -262,3 +262,32 @@ function heisenberg_model(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteC
         end
     end
 end
+
+function JKGGp_model(L, x_indices, y_indices, z_indices; spin=1//2, J=1, K=0, G=0, Gp=0)
+    Sx = S_x(ComplexF64, Trivial; spin=spin)
+    Sy = S_y(ComplexF64, Trivial; spin=spin)
+    Sz = S_z(ComplexF64, Trivial; spin=spin)
+    S11 = contract_twosite(Sx, Sx)
+    S12 = contract_twosite(Sx, Sy)
+    S13 = contract_twosite(Sx, Sz)
+    S21 = contract_twosite(Sy, Sx)
+    S22 = contract_twosite(Sy, Sy)
+    S23 = contract_twosite(Sy, Sz)
+    S31 = contract_twosite(Sz, Sx)
+    S32 = contract_twosite(Sz, Sy)
+    S33 = contract_twosite(Sz, Sz)
+    x_exchanges = (J+K)*S11 + Gp*(S12+S13+S21+S31) + J*(S22+S33) + G*(S23+S32)
+    y_exchanges = (J+K)*S22 + Gp*(S12+S21+S23+S32) + J*(S11+S33) + G*(S13+S31)
+    z_exchanges = (J+K)*S33 + Gp*(S13+S23+S31+S32) + J*(S11+S22) + G*(S12+S21)
+    terms = []
+    for i in x_indices
+        push!(terms, i=>x_exchanges)
+    end
+    for i in y_indices
+        push!(terms, i=>y_exchanges)
+    end
+    for i in z_indices
+        push!(terms, i=>z_exchanges)
+    end
+    return FiniteMPOHamiltonian(fill(domain(Sz,1), L), terms...)
+end
