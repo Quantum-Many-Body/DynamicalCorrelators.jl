@@ -3,8 +3,9 @@ module DynamicalCorrelators
 using LinearAlgebra: norm
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice
-using TensorKit: FermionParity, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, Bosonic
-using TensorKit: truncdim, truncerr, truncspace, TruncationScheme, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit, notrunc
+using TensorOperations: promote_contract
+using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, Bosonic
+using TensorKit: truncdim, truncerr, truncspace, TruncationScheme, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit, notrunc, similarstoragetype
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum
 using MPSKit: FiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
 using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, timestep!, environments, expectation_value, max_virtualspaces, physicalspace
@@ -14,7 +15,7 @@ using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, _trans
 using KrylovKit: exponentiate, eigsolve, Lanczos, ModifiedGramSchmidt
 using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, next_nearest_neighbours
 using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadder, FiniteChain, FiniteCylinder, FiniteStrip, FiniteHelix, FiniteLadder
-using MPSKitModels: AbstractLattice as MLattice
+using MPSKitModels: AbstractLattice as MLattice, S_x, S_y
 using Distributed: @sync, @distributed, workers, addprocs
 using SharedArrays: SharedArray
 using NumericalIntegration: integrate
@@ -24,13 +25,13 @@ using Dates
 
 import QuantumLattices: expand
 import MPSKit: propagator, dot, correlator, transfer_left
-
+import MPSKitModels: S_plus, S_min, S_z
 
 include("models/lattices.jl")
-export CustomLattice, BilayerSquare, Square, twosite_bonds, onesite_bonds, find_position
+export CustomLattice, BilayerSquare, Square, Custom, twosite_bonds, onesite_bonds, find_position, snake_2D, kitaev_bonds
 
 include("models/hamiltonians.jl")
-export hubbard, hubbard_bilayer_2band, kitaev_hubbard, heisenberg_model
+export hubbard, hubbard_bilayer_2band, kitaev_hubbard, heisenberg_model, JKGGp_model
 
 include("operators/fermions.jl")
 include("operators/spin.jl")
@@ -43,7 +44,7 @@ export chargedMPO, identityMPO, hamiltonian
 
 include("states/chargedmps.jl")
 include("states/randmps.jl")
-export chargedMPS, randFiniteMPS
+export FiniteSuperMPS, chargedMPS, randFiniteMPS
 
 include("utility/tools.jl")
 export add_single_util_leg, cart2polar, phase_by_polar, sort_by_distance, transfer_left, contract_MPO
@@ -58,11 +59,11 @@ include("observables/correlator.jl")
 export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorrelation, OneSiteCorrelation, site_indices, correlator
 
 include("observables/dcorrelator.jl")
-export expiHt, A_expiHt_B, propagator, dcorrelator
+export evolve_mps, propagator, dcorrelator
 
 
 include("observables/fourier.jl")
-export fourier_kw, fourier_rw
+export fourier_kw, fourier_rw, static_structure_factor
 
 
 
