@@ -1,19 +1,20 @@
+const FiniteNormalMPS{C} = FiniteMPS{<:AbstractTensorMap{N,C,2,1}} where {N}
+const FiniteSuperMPS{C} = FiniteMPS{<:AbstractTensorMap{N,C,3,1}} where {N}
+
 """
-    chargedMPS(operator::AbstractTensorMap, state::FiniteMPS, site::Integer)
+    chargedMPS(operator::AbstractTensorMap, state::FiniteNormalMPS, site::Integer)
 """
-function chargedMPS(operator::AbstractTensorMap, state::FiniteMPS, site::Integer)
+function chargedMPS(operator::AbstractTensorMap, state::FiniteNormalMPS, site::Integer)
     return chargedMPO(operator, site, length(state))*state
 end
 
-function chargedMPS(operator::AbstractTensorMap, state::FiniteMPS, site₁::Integer, site₂::Integer)
+function chargedMPS(operator::AbstractTensorMap, state::FiniteNormalMPS, site₁::Integer, site₂::Integer)
     return chargedMPO(operator, site₁, site₂, length(state))*state
 end
 
 """
-    charged super MPS
+    chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::Integer) where {B, S}
 """
-const FiniteSuperMPS{C} = FiniteMPS{<:AbstractTensorMap{N,C,3,1}} where {N}
-
 function chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::Integer) where {B, S}
     T = promote_contract(scalartype(op), scalartype(mps))
     A = similarstoragetype(eltype(mps), T)
@@ -36,6 +37,9 @@ function chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::I
     return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
 end
 
+"""
+chargedMPS(op::AbstractTensorMap{S,B,2,1}, mps::FiniteSuperMPS, site::Integer) where {B, S}
+"""
 function chargedMPS(op::AbstractTensorMap{S,B,2,1}, mps::FiniteSuperMPS, site::Integer) where {B, S}
     T = promote_contract(scalartype(op), scalartype(mps))
     A = similarstoragetype(eltype(mps), T)
@@ -58,6 +62,9 @@ function chargedMPS(op::AbstractTensorMap{S,B,2,1}, mps::FiniteSuperMPS, site::I
     return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
 end
 
+"""
+    chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::Integer) where {B, S}
+"""
 function chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::Integer) where {B, S}
     T = promote_contract(scalartype(op), scalartype(mps))
     A2 = map(1:length(mps)) do i
