@@ -1,14 +1,13 @@
 """
-    expiHt(H::MPOHamiltonian, ts::AbstractVector, rho::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
+    evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H)); filename::String="default_expiHt_ψ.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
 """
-function expiHt(H::MPOHamiltonian, ts::AbstractVector, rho::FiniteMPO=identityMPO(H); filename::String="default_expHt.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
-    rho_mps = convert(FiniteMPS, rho)
+function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H)); filename::String="default_expiHt_ψ.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
     start_time, record_start = now(), now()
     verbose && println("[1/$(length(ts))] t = $(ts[1]) ", " | Started:", Dates.format(start_time, "d.u yyyy HH:MM"))
     flush(stdout)
     envs = environments(rho_mps, H)
     jldopen(filename, "w") do f
-        f["t=$(ts[1])"] = rho
+        f["t=$(ts[1])"] = rho_mps
     end
     for i in 2:length(ts)
         alg = i > n ? DefaultTDVP : DefaultTDVP2(trscheme)
@@ -18,86 +17,59 @@ function expiHt(H::MPOHamiltonian, ts::AbstractVector, rho::FiniteMPO=identityMP
         flush(stdout)
         jldopen(filename, "a") do f
             if save_all || i == length(ts)
-                f["t=$(ts[i])"] = convert(FiniteMPO, rho_mps)
+                f["t=$(ts[i])"] = rho_mps
             end
         end
         start_time = current_time
     end
     verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
-    return convert(FiniteMPO, rho_mps)
+    return rho_mps
 end
 
 
-function A_expiHt_B(gs::AbstractFiniteMPS, H::MPOHamiltonian, expiht_data, op, indices::AbstractArray;
+function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
                     verbose=true, 
-                    rev::Bool=false,
-                    times::AbstractArray,
-                    filename::String="default_gf.jld2")
-    gsenergy = expectation_value(gs, H)
-    gf = SharedArray{ComplexF64, 3}(length(indices), length(H), length(times))
-    start_time, record_start = now(), now()
-    verbose && println("Started:", Dates.format(record_start, "d.u yyyy HH:MM"))
-    flush(stdout)
-    jldopen(filename, "w") do f
-        f["times"] = times
-    end
-    for i in eachindex(times)
-        rho = expiht_data["t=$(times[i])"]
-        indices2 = CartesianIndices((length(indices), length(H)))
-        @sync @distributed for idx in 1:length(indices2)
-            j, k = indices2[idx].I
-            if isa(op, Function)
-                if (j+k) <= length(H)
-                    gf[j,k,i] = dot(chargedMPS(op(:R),gs,k), rho, chargedMPS(op(:R),gs,j))
-                else
-                    gf[j,k,i] = dot(chargedMPS(op(:L),gs,k), rho, chargedMPS(op(:L),gs,j))
-                end
-            else
-                gf[j,k,i] = dot(chargedMPS(op,gs,k), rho, chargedMPS(op,gs,j))
-            end
-        end
-        GC.gc()
-        factor₁, factor₂ = -im*exp(im*gsenergy*times[i]), -im*exp(-im*gsenergy*times[i])
-        gf[:,:,i] = rev ? factor₂*conj.(gf[:,:,i]) : factor₁*gf[:,:,i]
-        jldopen(filename, "a") do f
-            f["gf_$(times[i])"] = gf[:,:,i]
-        end
-        verbose && println("[$i/$(length(times))] gf_$(times[i]) is done ", " | duration:", Dates.canonicalize(now()  - start_time))
-        start_time = now()
-    end
-    verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
-    jldopen(filename, "a") do f
-        f["gfs_rev=$(rev)"] = gf
-    end
-    return gf
-end
-
-
-function propagator(H::MPOHamiltonian, bra::FiniteMPS, ket::FiniteMPS; rev::Bool=false, imag::Bool=false,
+                    path::String="./",   
                     times::AbstractRange=0:0.05:5.0, 
-                    dt=round(times.step.hi, digits=2), 
+                    beta::Union{Number, Missing}=missing,
                     n::Integer=3, 
                     trscheme=truncerr(1e-3))
-    propagators = zeros(ComplexF64, length(times))
-    propagators[1] = dot(bra, ket)
-    envs = environments(ket, H)
-    if imag
-        for (i, t) in enumerate(times[2:end])
-            alg = t > n * dt ? DefaultTDVP : DefaultTDVP2(trscheme)
-            ket, envs = timestep(ket, H, 0, -1im*dt, alg, envs)
-            propagators[i+1] = dot(bra, ket)
+    gf = SharedArray{ComplexF64, 3}(length(indices), length(H), length(times))
+    Z = dot(rho, rho)
+    @sync @distributed for id in indices
+        start_time, record_start = now(), now()
+        idx = id <= length(H) ? id : (id - length(H))
+        ket = chargedMPS(op, rho, idx)
+        gf[id,:,1] = [dot(chargedMPS(op, rho, i),chargedMPS(op, rho, idx))/Z for i in 1:length(H)]
+        flush(stdout)
+        filename = joinpath(path, "gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2")
+        jldopen(filename, "w") do f
+        f["pro_1"] = gf[id,:,1]
         end
-    else
-        for (i, t) in enumerate(times[2:end])
-            alg = t > n * dt ? DefaultTDVP : DefaultTDVP2(trscheme)
-            ket, envs = timestep(ket, H, 0, dt, alg, envs)
-            propagators[i+1] = dot(bra, ket)
+        verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
+        envs = environments(ket, H)
+        envs2 = environments(rho, H)
+        for i in 2:length(times)
+            alg = i > n ? DefaultTDVP : DefaultTDVP2(trscheme)
+            ket, envs = timestep(ket, H, 0, times[i]-times[i-1], alg, envs)
+            rho, = timestep(rho, H, 0, times[i]-times[i-1], alg, envs2)
+            for j in 1:length(H)
+                gf[id,j,i] = (id <= length(H)) ? dot(chargedMPS(op, rho, j), ket)/Z : conj(dot(chargedMPS(op, rho, j), ket))/Z
+            end
+            current_time = now()
+            verbose && println("[$(i)/$(length(times))] time evolves $(times[i]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
+            flush(stdout)
+            jldopen(filename, "a") do f
+                f["pro_$(i)"] = gf[id,:,i]
+            end
+            start_time = current_time
         end
+        verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
-    rev ? propagators = conj.(propagators) : propagators = propagators
-    return propagators
+    gfs = zeros(ComplexF64, length(indices), length(H), length(times))
+    gfs .= gf
+    return gfs
 end
-
 
 function propagator(gs::AbstractFiniteMPS, H::MPOHamiltonian, op::AbstractTensorMap, id::Integer; 
                 savekets::Bool=false, 
