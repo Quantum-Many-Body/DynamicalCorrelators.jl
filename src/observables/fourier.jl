@@ -105,3 +105,13 @@ function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; 
     end
     return permutedims(gf_rw, (2,1,3))
 end
+
+function static_structure_factor(ss, rs, ks)
+    sf = zeros(ComplexF64, length(ks))
+    for i in eachindex(ks)
+        for a in eachindex(rs), b in eachindex(rs)
+            sf[i] += ss[a, b]*cis(dot(ks[i], rs[a]-rs[b]))
+        end
+    end
+    return sf/length(rs)
+end
