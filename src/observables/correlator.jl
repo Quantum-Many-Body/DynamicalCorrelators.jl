@@ -186,6 +186,22 @@ function correlator(correlation::OneSiteCorrelation, gs::AbstractFiniteMPS;
     return Fr
 end
 
+function correlator(gs::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap; is=1:length(gs), js=1:length(gs), parallel=Threads.nthreads())
+    Fr = zeros(ComplexF64, length(is), length(js))
+    idx = Threads.Atomic{Int}(1)
+    indices = CartesianIndices((length(is), length(js)))
+    n = length(indices)
+    Threads.@sync for _ in 1:parallel
+        Threads.@spawn while true
+            i = Threads.atomic_add!(idx, 1) 
+            i > n && break  
+            a, b = indices[i].I
+            Fr[a, b] = correlator(gs, O₁, O₂, (is[a],), (js[b],))
+        end
+    end
+    return Fr
+end
+
 """
     correlator(state::AbstractFiniteMPS, O::AbstractTensorMap, i::Integer)
 """
@@ -219,12 +235,24 @@ function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::Abs
             G = @plansor Vₗ[1 2; 3] * state.AR[i][3 4; 8] * τ[2 5; 4 6] * O₁[7; 5 6] * conj(state.AR[i][1 7; 8])
         end
     elseif (length(domain(O₁)) == 1)&&(length(codomain(O₂)) == 1)
-        @plansor Vₗ[-1; -3] := state.AC[i][3 4; -3] * O₁[2; 4] * conj(state.AC[i][3 2; -1])
-        ctr = i + 1
-        if j > ctr
-            Vₗ = Vₗ * TransferMatrix(state.AR[ctr:(j - 1)])
+        if i == j 
+        O = contract_onesite(O₁, O₂)
+        G = @plansor state.AC[i][1 2; 3] * O[4; 2] * conj(state.AC[i][1 4; 3])
+        elseif i < j
+            @plansor Vₗ[-1; -3] := state.AC[i][3 4; -3] * O₁[2; 4] * conj(state.AC[i][3 2; -1])
+            ctr = i + 1
+            if j > ctr
+                Vₗ = Vₗ * TransferMatrix(state.AR[ctr:(j - 1)])
+            end
+            G = @plansor Vₗ[2; 5] * state.AR[j][5 6; 7] * O₂[4; 6] * conj(state.AR[j][2 4; 7])
+        else
+            @plansor Vⱼ[-1; -3] := state.AC[j][3 4; -3] * O₂[2; 4] * conj(state.AC[j][3 2; -1])
+            ctr = j + 1
+            if i > ctr
+                Vⱼ = Vⱼ * TransferMatrix(state.AR[ctr:(i - 1)])
+            end
+            G = @plansor Vⱼ[2; 5] * state.AR[i][5 6; 7] * O₁[4; 6] * conj(state.AR[i][2 4; 7])
         end
-        G = @plansor Vₗ[2; 5] * state.AR[j][5 6; 7] * O₂[4; 6] * conj(state.AR[j][2 4; 7])
     else
         throw(ArgumentError("invalid legs of O₁ and O₂!"))
     end
