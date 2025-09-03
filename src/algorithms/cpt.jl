@@ -34,11 +34,12 @@ end
 
 CPT method for a quantum lattice system.
 """
-struct CPT{L<:QtLattice, C<:QLattice, G<:AbstractArray, P<:Perioder}
+struct CPT{L<:QLattice, C<:QLattice, G<:AbstractArray, P<:Perioder}
     unitcell::L
     cluster::C
     origigenerator::OperatorGenerator
     refergenerator::OperatorGenerator
+    table::Table
     gfrw::G
     perioder::P
 end
@@ -58,7 +59,7 @@ function CPT(
     referbonds = filter(bond -> isintracell(bond), origibonds)
     perioder = Perioder(unitcell, cluster, table) 
     origigenerator, refergenerator = OperatorGenerator(origibonds, hilbert, origiterms), OperatorGenerator(referbonds, hilbert, referterms)
-    return CPT(unitcell, cluster, origigenerator, refergenerator, gfrw, perioder, nothing)
+    return CPT(unitcell, cluster, origigenerator, refergenerator, table, gfrw, perioder)
 end
 
 """
@@ -205,11 +206,11 @@ The single particle Green function in k-ω space.
 """
 function singleParticleGreenFunction(cpt::CPT, k_path::Union{AbstractVector, ReciprocalSpace}; mthreads::Integer=Threads.nthreads(), loc::Union{Nothing, AbstractVector}=nothing)
     oops, rops = filter(op -> length(op) == 2, collect(expand(cpt.origigenerator))), filter(op -> length(op) == 2, collect(expand(cpt.refergenerator)))
-    R, N = isempty(filter(op -> op.id[1].index.internal.nambu==op.id[2].index.internal.nambu, collect(rops))), length(cpt.refergenerator.table)
+    R, N = isempty(filter(op -> op.id[1].index.internal.nambu==op.id[2].index.internal.nambu, collect(rops))), length(cpt.table)
     R ? N=N : N=2*N
-    oopsseqs = seqs(oops, cpt.origigenerator.table)
-    rm = referQuadraticTerms(R, rops, zeros(ComplexF64, N, N), cpt.refergenerator.table)
-    gfpv = Vector(undef, length(ω_range))
+    oopsseqs = seqs(oops, cpt.table)
+    rm = referQuadraticTerms(R, rops, zeros(ComplexF64, N, N), cpt.table)
+    gfpv = Vector(undef, size(cpt.gfrw, 3))
     if mthreads == 1
         for i in 1:size(cpt.gfrw, 3)
             gfpv[i] = GreenFunctionPath(R, zeros(ComplexF64, N, N), oops, oopsseqs, rm, cpt.perioder, cpt.cluster, k_path, cpt.gfrw[:,:,i]; loc=loc)
@@ -228,12 +229,12 @@ function singleParticleGreenFunction(cpt::CPT, k_path::Union{AbstractVector, Rec
     return gfpv
 end
 
-function singleParticleGreenFunction(cpt::CPT, k_path::Union{AbstractVector, ReciprocalSpace}; fsid::Int, loc::Union{Nothing, AbstractVector}=nothing)
+function singleParticleGreenFunction(cpt::CPT, k_path::Union{AbstractVector, ReciprocalSpace}, fsid::Int; loc::Union{Nothing, AbstractVector}=nothing)
     oops, rops = filter(op -> length(op) == 2, collect(expand(cpt.origigenerator))), filter(op -> length(op) == 2, collect(expand(cpt.refergenerator)))
-    R, N = isempty(filter(op -> op.id[1].index.internal.nambu==op.id[2].index.internal.nambu, collect(rops))), length(cpt.refergenerator.table)
+    R, N = isempty(filter(op -> op.id[1].index.internal.nambu==op.id[2].index.internal.nambu, collect(rops))), length(cpt.table)
     R ? N=N : N=2*N
-    oopsseqs = seqs(oops, cpt.origigenerator.table)
-    rm = referQuadraticTerms(R, rops, zeros(ComplexF64, N, N), cpt.refergenerator.table)
+    oopsseqs = seqs(oops, cpt.table)
+    rm = referQuadraticTerms(R, rops, zeros(ComplexF64, N, N), cpt.table)
     gfpv = Vector(undef, 1)
     gfpv[1] = GreenFunctionPath(R, zeros(ComplexF64, N, N), oops, oopsseqs, rm, cpt.perioder, cpt.cluster, k_path, cpt.gfrw[:,:,fsid]; loc=loc)
     return gfpv
