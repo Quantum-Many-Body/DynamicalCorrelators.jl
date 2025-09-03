@@ -2,7 +2,7 @@
 
 julia_version = "1.11.1"
 manifest_format = "2.0"
-project_hash = "080e06595a899e0dc80840e86a20025d378e820c"
+project_hash = "7b5c51df88862f0b4752dba40eb6c0aefee7d88b"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
@@ -703,9 +703,9 @@ version = "0.1.4"
 
 [[deps.TensorOperations]]
 deps = ["LRUCache", "LinearAlgebra", "PackageExtensionCompat", "PrecompileTools", "Preferences", "PtrArrays", "Strided", "StridedViews", "TupleTools", "VectorInterface"]
-git-tree-sha1 = "c7458aad3d855e892e2cae208a793a5fceee2406"
+git-tree-sha1 = "3310043173822e3d868262c2b3005a856fcc587f"
 uuid = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
-version = "5.2.0"
+version = "5.3.0"
 
     [deps.TensorOperations.extensions]
     TensorOperationsBumperExt = "Bumper"
