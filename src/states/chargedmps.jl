@@ -79,3 +79,14 @@ function chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::I
     trscheme = truncbelow(eps(real(T)))
     return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
 end
+
+"""
+    identityMPS(H::FiniteMPOHamiltonian)
+"""
+function identityMPS(H::FiniteMPOHamiltonian)
+    V = oneunit(spacetype(H))
+    W = map(1:length(H)) do site
+        return BraidingTensor{scalartype(H)}(physicalspace(H, site), V)
+    end
+    return convert(FiniteMPS, FiniteMPO(W))
+end

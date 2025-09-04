@@ -44,7 +44,7 @@ export chargedMPO, identityMPO, hamiltonian
 
 include("states/chargedmps.jl")
 include("states/randmps.jl")
-export FiniteNormalMPS, FiniteSuperMPS, chargedMPS, randFiniteMPS
+export FiniteNormalMPS, FiniteSuperMPS, chargedMPS, identityMPS, randFiniteMPS
 
 include("utility/tools.jl")
 export add_single_util_leg, cart2polar, phase_by_polar, sort_by_distance, transfer_left, contract_MPO
