@@ -1,22 +1,41 @@
 """
-    evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H)); filename::String="default_expiHt_ψ.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
+    evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H)); 
+                        filename::String="default_expiHt_ψ.jld2", 
+                    save_id::AbstractArray=[length(ts),], 
+                    verbose::Bool=true, 
+                    n::Integer=3, 
+                    trscheme=truncerr(1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
 """
-function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H)); filename::String="default_expiHt_ψ.jld2", save_all::Bool=false, verbose::Bool=true, n::Integer=3, trscheme=truncerr(1e-3))
+function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H)); 
+                    filename::String="default_expiHt_ψ.jld2", 
+                    save_id::AbstractArray=[length(ts),], 
+                    verbose::Bool=true, 
+                    n::Integer=3, 
+                    trscheme=truncerr(1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
     start_time, record_start = now(), now()
     verbose && println("[1/$(length(ts))] t = $(ts[1]) ", " | Started:", Dates.format(start_time, "d.u yyyy HH:MM"))
     flush(stdout)
     envs = environments(rho_mps, H)
     jldopen(filename, "w") do f
-        f["t=$(ts[1])"] = rho_mps
+        f["ts"] = ts
+        if 1 in save_id
+            f["t=$(ts[1])"] = rho_mps
+        end
     end
     for i in 2:length(ts)
-        alg = i > n ? DefaultTDVP : DefaultTDVP2(trscheme)
+        alg = i > n ? tdvp1 : tdvp2
         rho_mps, envs = timestep(rho_mps, H, 0, ts[i]-ts[i-1], alg, envs)
         current_time = now()
         verbose && println("[$i/$(length(ts))] t = $(ts[i]) ", " | duration:", Dates.canonicalize(current_time-start_time))
         flush(stdout)
         jldopen(filename, "a") do f
-            if save_all || i == length(ts)
+            if i in save_id
                 f["t=$(ts[i])"] = rho_mps
             end
         end
@@ -28,11 +47,14 @@ end
 
 """
     dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
-                        verbose=true, 
-                        path::String="./", 
-                        times::AbstractRange=0:0.05:5.0, 
-                        n::Integer=3, 
-                        trscheme=truncerr(1e-3))
+                    verbose=true, 
+                    path::String="./", 
+                    times::AbstractRange=0:0.05:5.0, 
+                    n::Integer=3, 
+                    trscheme=truncerr(1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
     Dynamical correlations in zero temperature
 """
 function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
@@ -40,7 +62,10 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                     path::String="./", 
                     times::AbstractRange=0:0.05:5.0, 
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3))
+                    trscheme=truncerr(1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
     gsenergy = expectation_value(gs, H)
     gf = SharedArray{ComplexF64, 3}(length(indices), length(H), length(times))
     @sync @distributed for id in indices
@@ -56,7 +81,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
         envs = environments(ket, H)
         for i in 2:length(times)
-            alg = i > n ? DefaultTDVP : DefaultTDVP2(trscheme)
+            alg = i > n ? tdvp1 : tdvp2
             ket, envs = timestep(ket, H, 0, times[i]-times[i-1], alg, envs)
             for j in 1:length(H)
                 gf[id,j,i] = (id <= length(H)) ? -im*exp(im*gsenergy*times[i])*dot(chargedMPS(op, gs, j), ket) : -im*exp(-im*gsenergy*times[i])*conj(dot(chargedMPS(op, gs, j), ket))
@@ -83,7 +108,10 @@ end
                     times::AbstractRange=0:0.05:5.0, 
                     beta::Union{Number, Missing}=missing,
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3))
+                    trscheme=truncerr(1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
     Dynamical correlations in finite temperature
 """
 function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
@@ -92,7 +120,10 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
                     times::AbstractRange=0:0.05:5.0, 
                     beta::Union{Number, Missing}=missing,
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3))
+                    trscheme=truncerr(1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
     gf = SharedArray{ComplexF64, 3}(length(indices), length(H), length(times))
     Z = dot(rho, rho)
     @sync @distributed for id in indices
@@ -109,7 +140,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
         envs = environments(ket, H)
         envs2 = environments(rho, H)
         for i in 2:length(times)
-            alg = i > n ? DefaultTDVP : DefaultTDVP2(trscheme)
+            alg = i > n ? tdvp1 : tdvp2
             ket, envs = timestep(ket, H, 0, times[i]-times[i-1], alg, envs)
             rho, = timestep(rho, H, 0, times[i]-times[i-1], alg, envs2)
             for j in 1:length(H)
