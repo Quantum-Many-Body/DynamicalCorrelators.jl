@@ -95,6 +95,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             start_time = current_time
         end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+        GC.gc()
     end
     gfs = zeros(ComplexF64, length(indices), length(H), length(times))
     gfs .= gf
@@ -155,6 +156,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
             start_time = current_time
         end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+        GC.gc()
     end
     gfs = zeros(ComplexF64, length(indices), length(H), length(times))
     gfs .= gf
