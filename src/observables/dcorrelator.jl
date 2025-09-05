@@ -66,6 +66,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
+    !isdir(path)&& mkdir(path)
     gsenergy = expectation_value(gs, H)
     gf = SharedArray{ComplexF64, 3}(length(indices), length(H), length(times))
     @sync @distributed for id in indices
@@ -125,6 +126,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
+    !isdir(path)&& mkdir(path)
     gf = SharedArray{ComplexF64, 3}(length(indices), length(H), length(times))
     Z = dot(rho, rho)
     @sync @distributed for id in indices
@@ -138,12 +140,12 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
         f["pro_1"] = gf[id,:,1]
         end
         verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
+        env = environments(rho, H)
         envs = environments(ket, H)
-        envs2 = environments(rho, H)
         for i in 2:length(times)
             alg = i > n ? tdvp1 : tdvp2
+            rho, env = timestep(rho, H, 0, times[i]-times[i-1], alg, env)
             ket, envs = timestep(ket, H, 0, times[i]-times[i-1], alg, envs)
-            rho, = timestep(rho, H, 0, times[i]-times[i-1], alg, envs2)
             for j in 1:length(H)
                 gf[id,j,i] = (id <= length(H)) ? dot(chargedMPS(op, rho, j), ket)/Z : conj(dot(chargedMPS(op, rho, j), ket))/Z
             end
@@ -159,6 +161,124 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
         GC.gc()
     end
     gfs = zeros(ComplexF64, length(indices), length(H), length(times))
+    gfs .= gf
+    return gfs
+end
+
+"""
+    dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, mps::AbstractVector{<:FiniteNormalMPS};
+                    verbose=true, 
+                    path::String="./", 
+                    times::AbstractRange=0:0.05:5.0, 
+                    n::Integer=3, 
+                    trscheme=truncerr(1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
+    Dynamical correlations in zero temperature
+"""
+function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, mps::AbstractVector{<:FiniteNormalMPS};
+                    verbose=true, 
+                    path::String="./", 
+                    times::AbstractRange=0:0.05:5.0, 
+                    n::Integer=3, 
+                    trscheme=truncerr(1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
+    !isdir(path)&& mkdir(path)
+    gsenergy = expectation_value(gs, H)
+    gf = SharedArray{ComplexF64, 3}(length(mps), length(mps)÷2, length(times))
+    @sync @distributed for id in 1:length(mps)
+        start_time, record_start = now(), now()
+        ket = mps[id]
+        gf[id,:,1] = id <= length(H) ? [dot(bra, ket) for bra in mps[1:length(H)]] : [conj(dot(bra, ket)) for bra in mps[(length(H)+1):end]]
+        flush(stdout)
+        filename = joinpath(path, "gf_tmax=$(times[end])_id=$(id).jld2")
+        jldopen(filename, "w") do f
+        f["pro_1"] = gf[id,:,1]
+        end
+        verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
+        envs = environments(ket, H)
+        for i in 2:length(times)
+            alg = i > n ? tdvp1 : tdvp2
+            ket, envs = timestep(ket, H, 0, times[i]-times[i-1], alg, envs)
+            for j in 1:(length(mps)÷2)
+                gf[id,j,i] = (id <= length(H)) ? -im*exp(im*gsenergy*times[i])*dot(mps[1:length(H)][j], ket) : -im*exp(-im*gsenergy*times[i])*conj(dot(mps[(length(H)+1):end][j], ket))
+            end
+            current_time = now()
+            verbose && println("[$(i)/$(length(times))] time evolves $(times[i]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
+            flush(stdout)
+            jldopen(filename, "a") do f
+                f["pro_$(i)"] = gf[id,:,i]
+            end
+            start_time = current_time
+        end
+        verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+        GC.gc()
+    end
+    gfs = zeros(ComplexF64, length(mps), length(mps)÷2, length(times))
+    gfs .= gf
+    return gf
+end
+
+"""
+    dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
+                    verbose=true, 
+                    path::String="./",   
+                    times::AbstractRange=0:0.05:5.0, 
+                    beta::Union{Number, Missing}=missing,
+                    n::Integer=3, 
+                    trscheme=truncerr(1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
+    Dynamical correlations in finite temperature
+"""
+function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap};
+                    verbose=true, 
+                    path::String="./",   
+                    times::AbstractRange=0:0.05:5.0, 
+                    beta::Union{Number, Missing}=missing,
+                    n::Integer=3, 
+                    trscheme=truncerr(1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
+    !isdir(path)&& mkdir(path)
+    gf = SharedArray{ComplexF64, 3}(2*length(H), length(H), length(times))
+    Z = dot(rho, rho)
+    @sync @distributed for id in 1:2*length(H)
+        start_time, record_start = now(), now()
+        ket = id <= length(H) ? chargedMPS(ops[1], rho, id) : chargedMPS(ops[2], rho, id-length(H))
+        gf[id,:,1] = (id <= length(H)) ? [dot(chargedMPS(ops[1], rho, i), ket)/Z for i in 1:length(H)] : [conj(dot(chargedMPS(ops[2], rho, i), ket))/Z for i in 1:length(H)]
+        flush(stdout)
+        filename = joinpath(path, "gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2")
+        jldopen(filename, "w") do f
+        f["pro_1"] = gf[id,:,1]
+        end
+        verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
+        env = environments(rho, H)
+        envs = environments(ket, H)
+        for i in 2:length(times)
+            alg = i > n ? tdvp1 : tdvp2
+            rho, env = timestep(rho, H, 0, times[i]-times[i-1], alg, env)
+            ket, envs = timestep(ket, H, 0, times[i]-times[i-1], alg, envs)
+            for j in 1:length(H)
+                gf[id,j,i] = (id <= length(H)) ? dot(chargedMPS(ops[1], rho, j), ket)/Z : conj(dot(chargedMPS(ops[2], rho, j), ket))/Z
+            end
+            current_time = now()
+            verbose && println("[$(i)/$(length(times))] time evolves $(times[i]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
+            flush(stdout)
+            jldopen(filename, "a") do f
+                f["pro_$(i)"] = gf[id,:,i]
+            end
+            start_time = current_time
+        end
+        verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+        GC.gc()
+    end
+    gfs = zeros(ComplexF64, 2*length(H), length(H), length(times))
     gfs .= gf
     return gfs
 end
