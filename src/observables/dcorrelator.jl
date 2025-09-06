@@ -95,9 +95,13 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             end
             start_time = current_time
         end
+        ket = nothing
+        envs = nothing
+        tensorfree!(ket)
+        tensorfree!(envs)
+        GC.gc()
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
-    GC.gc()
     gfs = zeros(ComplexF64, length(indices), length(H), length(times))
     gfs .= gf
     return gf
@@ -124,21 +128,31 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
                     n::Integer=3, 
                     trscheme=truncerr(1e-3),
                     tdvp1 = DefaultTDVP,
-                    tdvp2 = DefaultTDVP2(trscheme)
+                    tdvp2 = DefaultTDVP2(trscheme),
                     )
     !isdir(path)&& mkdir(path)
     gf = SharedArray{ComplexF64, 3}(length(indices), length(H), length(times))
     Z = dot(rho, rho)
-    rhos = Vector{FiniteSuperMPS}(undef, length(times))
-    rhos[1] = rho
-    env = environments(rho, H)
-    for i in 2:length(times)
-        alg = i > n ? tdvp1 : tdvp2
-        rho, env = timestep(rho, H, 0, times[i]-times[i-1], alg, env)
-        verbose && println("[$(i-1)/$(length(times)-1)] evolves t=$(times[i]) of rho ")
-        rhos[i] = rho
+    rho_filename = joinpath(path, "rho_β=$(beta)_tmax=$(times[end]).jld2")
+    if isfile(rhos_filename)
+        rhos = load(rho_filename, "rhos")
+        verbose && println("rhos is successfully loaded")
         flush(stdout)
+    else
+        rhos = Vector{FiniteSuperMPS}(undef, length(times))
+        rhos[1] = rho
+        env = environments(rho, H)
+        for i in 2:length(times)
+            alg = i > n ? tdvp1 : tdvp2
+            rho, env = timestep(rho, H, 0, times[i]-times[i-1], alg, env)
+            verbose && println("[$(i-1)/$(length(times)-1)] evolves t=$(times[i]) of rho ", Dates.format(now(), "d.u yyyy HH:MM"))
+            rhos[i] = rho
+            flush(stdout)
+        end
+        save(rho_filename, "rhos", rhos)
     end
+    env = nothing
+    tensorfree!(env)
     @sync @distributed for id in indices
         start_time, record_start = now(), now()
         idx = id <= length(H) ? id : (id - length(H))
@@ -165,9 +179,13 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
             end
             start_time = current_time
         end
+        ket = nothing
+        envs = nothing
+        tensorfree!(ket)
+        tensorfree!(envs)
+        GC.gc()
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
-    GC.gc()
     gfs = zeros(ComplexF64, length(indices), length(H), length(times))
     gfs .= gf
     return gfs
@@ -222,9 +240,13 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, mps::AbstractVector
             end
             start_time = current_time
         end
+        ket = nothing
+        envs = nothing
+        tensorfree!(ket)
+        tensorfree!(envs)
+        GC.gc()
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
-    GC.gc()
     gfs = zeros(ComplexF64, length(mps), length(mps)÷2, length(times))
     gfs .= gf
     return gf
@@ -256,16 +278,26 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
     !isdir(path)&& mkdir(path)
     gf = SharedArray{ComplexF64, 3}(2*length(H), length(H), length(times))
     Z = dot(rho, rho)
-    rhos = Vector{FiniteSuperMPS}(undef, length(times))
-    rhos[1] = rho
-    env = environments(rho, H)
-    for i in 2:length(times)
-        alg = i > n ? tdvp1 : tdvp2
-        rho, env = timestep(rho, H, 0, times[i]-times[i-1], alg, env)
-        verbose && println("[$(i-1)/$(length(times)-1)] evolves t=$(times[i]) of rho ")
-        rhos[i] = rho
+    rho_filename = joinpath(path, "rho_β=$(beta)_tmax=$(times[end]).jld2")
+    if isfile(rhos_filename)
+        rhos = load(rho_filename, "rhos")
+        verbose && println("rhos is successfully loaded")
         flush(stdout)
+    else
+        rhos = Vector{FiniteSuperMPS}(undef, length(times))
+        rhos[1] = rho
+        env = environments(rho, H)
+        for i in 2:length(times)
+            alg = i > n ? tdvp1 : tdvp2
+            rho, env = timestep(rho, H, 0, times[i]-times[i-1], alg, env)
+            verbose && println("[$(i-1)/$(length(times)-1)] evolves t=$(times[i]) of rho ")
+            rhos[i] = rho
+            flush(stdout)
+        end
+        save(rho_filename, "rhos", rhos)
     end
+    env = nothing
+    tensorfree!(env)
     @sync @distributed for id in 1:2*length(H)
         start_time, record_start = now(), now()
         ket = id <= length(H) ? chargedMPS(ops[1], rhos[1], id) : chargedMPS(ops[2], rhos[1], id-length(H))
@@ -273,7 +305,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         flush(stdout)
         filename = joinpath(path, "gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2")
         jldopen(filename, "w") do f
-        f["pro_1"] = gf[id,:,1]
+            f["pro_1"] = gf[id,:,1]
         end
         verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
         envs = environments(ket, H)
@@ -291,9 +323,13 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
             end
             start_time = current_time
         end
+        ket = nothing
+        envs = nothing
+        tensorfree!(ket)
+        tensorfree!(envs)
+        GC.gc()
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
-    GC.gc()
     gfs = zeros(ComplexF64, 2*length(H), length(H), length(times))
     gfs .= gf
     return gfs

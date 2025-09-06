@@ -3,7 +3,7 @@ module DynamicalCorrelators
 using LinearAlgebra: norm, inv, mul!, I, tr
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
-using TensorOperations: promote_contract
+using TensorOperations: promote_contract, tensorfree!
 using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, Bosonic
 using TensorKit: truncdim, truncerr, truncspace, TruncationScheme, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit, notrunc, similarstoragetype
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum
