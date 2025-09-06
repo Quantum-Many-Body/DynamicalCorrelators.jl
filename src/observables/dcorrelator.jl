@@ -133,7 +133,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
     !isdir(path)&& mkdir(path)
     gf = SharedArray{ComplexF64, 3}(length(indices), length(H), length(times))
     Z = dot(rho, rho)
-    rho_filename = joinpath(path, "rho_β=$(beta)_tmax=$(times[end]).jld2")
+    rho_filename = "rho_β=$(beta)_tmax=$(times[end]).jld2"
     if isfile(rho_filename)
         rhos = load(rho_filename, "rhos")
         verbose && println("rhos is successfully loaded")
@@ -278,7 +278,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
     !isdir(path)&& mkdir(path)
     gf = SharedArray{ComplexF64, 3}(2*length(H), length(H), length(times))
     Z = dot(rho, rho)
-    rho_filename = joinpath(path, "rho_β=$(beta)_tmax=$(times[end]).jld2")
+    rho_filename = "rho_β=$(beta)_tmax=$(times[end]).jld2"
     if isfile(rho_filename)
         rhos = load(rho_filename, "rhos")
         verbose && println("rhos is successfully loaded")
