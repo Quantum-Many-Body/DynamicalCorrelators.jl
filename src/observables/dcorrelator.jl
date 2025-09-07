@@ -48,7 +48,7 @@ end
 """
     dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
                     verbose=true, 
-                    path::String="./", 
+                    gf_path::String="./", 
                     times::AbstractRange=0:0.05:5.0, 
                     n::Integer=3, 
                     trscheme=truncerr(1e-3),
@@ -59,14 +59,14 @@ end
 """
 function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
                     verbose=true, 
-                    path::String="./", 
+                    gf_path::String="./", 
                     times::AbstractRange=0:0.05:5.0, 
                     n::Integer=3, 
                     trscheme=truncerr(1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
-    !isdir(path)&& mkdir(path)
+    !isdir(gf_path)&& mkdir(gf_path)
     gsenergy = expectation_value(gs, H)
     gf = SharedArray{ComplexF64, 3}(length(indices), length(H), length(times))
     @sync @distributed for id in indices
@@ -74,7 +74,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         idx = id <= length(H) ? id : (id - length(H))
         ket = chargedMPS(op, gs, idx)
         gf[id,:,1] = id <= length(H) ? [dot(chargedMPS(op, gs, i), ket) for i in 1:length(H)] : [conj(dot(chargedMPS(op, gs, i), ket)) for i in 1:length(H)]
-        filename = joinpath(path, "gf_tmax=$(times[end])_id=$(id).jld2")
+        filename = joinpath(gf_path, "gf_tmax=$(times[end])_id=$(id).jld2")
         jldopen(filename, "w") do f
         f["pro_1"] = gf[id,:,1]
         end
@@ -110,7 +110,7 @@ end
 """
     dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
                     verbose=true, 
-                    path::String="./",   
+                    gf_path::String="./",   
                     times::AbstractRange=0:0.05:5.0, 
                     beta::Union{Number, Missing}=missing,
                     n::Integer=3, 
@@ -122,18 +122,20 @@ end
 """
 function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
                     verbose=true, 
-                    path::String="./",   
+                    gf_path::String="./",   
                     times::AbstractRange=0:0.05:5.0, 
                     beta::Union{Number, Missing}=missing,
+                    rho_path::String="./beta=$(beta)",
                     n::Integer=3, 
                     trscheme=truncerr(1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme),
                     )
-    !isdir(path)&& mkdir(path)
+    !isdir(gf_path)&& mkdir(gf_path)
     gf = SharedArray{ComplexF64, 3}(length(indices), length(H), length(times))
     Z = dot(rho, rho)
-    rho_filename = "rho_β=$(beta)_tmax=$(times[end]).jld2"
+    !isdir(rho_path)&& mkdir(rho_path)
+    rho_filename = joinpath(rho_path, "rho_β=$(beta)_tmax=$(times[end]).jld2")
     if isfile(rho_filename)
         rhos = load(rho_filename, "rhos")
         verbose && println("rhos is successfully loaded")
@@ -159,7 +161,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
         ket = chargedMPS(op, rhos[1], idx)
         gf[id,:,1] = (id <= length(H)) ? [dot(chargedMPS(op, rhos[1], i), ket)/Z for i in 1:length(H)] : [conj(dot(chargedMPS(op, rhos[1], i), ket))/Z for i in 1:length(H)]
         flush(stdout)
-        filename = joinpath(path, "gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2")
+        filename = joinpath(gf_path, "gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2")
         jldopen(filename, "w") do f
         f["pro_1"] = gf[id,:,1]
         end
@@ -194,7 +196,7 @@ end
 """
     dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, mps::AbstractVector{<:FiniteNormalMPS};
                     verbose=true, 
-                    path::String="./", 
+                    gf_path::String="./", 
                     times::AbstractRange=0:0.05:5.0, 
                     n::Integer=3, 
                     trscheme=truncerr(1e-3),
@@ -205,14 +207,14 @@ end
 """
 function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, mps::AbstractVector{<:FiniteNormalMPS};
                     verbose=true, 
-                    path::String="./", 
+                    gf_path::String="./", 
                     times::AbstractRange=0:0.05:5.0, 
                     n::Integer=3, 
                     trscheme=truncerr(1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
-    !isdir(path)&& mkdir(path)
+    !isdir(gf_path)&& mkdir(gf_path)
     gsenergy = expectation_value(gs, H)
     gf = SharedArray{ComplexF64, 3}(length(mps), length(mps)÷2, length(times))
     @sync @distributed for id in 1:length(mps)
@@ -220,7 +222,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, mps::AbstractVector
         ket = mps[id]
         gf[id,:,1] = id <= length(H) ? [dot(bra, ket) for bra in mps[1:length(H)]] : [conj(dot(bra, ket)) for bra in mps[(length(H)+1):end]]
         flush(stdout)
-        filename = joinpath(path, "gf_tmax=$(times[end])_id=$(id).jld2")
+        filename = joinpath(gf_path, "gf_tmax=$(times[end])_id=$(id).jld2")
         jldopen(filename, "w") do f
         f["pro_1"] = gf[id,:,1]
         end
@@ -255,7 +257,7 @@ end
 """
     dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
                     verbose=true, 
-                    path::String="./",   
+                    gf_path::String="./",   
                     times::AbstractRange=0:0.05:5.0, 
                     beta::Union{Number, Missing}=missing,
                     n::Integer=3, 
@@ -267,18 +269,20 @@ end
 """
 function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap};
                     verbose=true, 
-                    path::String="./",   
+                    gf_path::String="./",   
                     times::AbstractRange=0:0.05:5.0, 
                     beta::Union{Number, Missing}=missing,
+                    rho_path::String="./beta=$(beta)",
                     n::Integer=3, 
                     trscheme=truncerr(1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
-    !isdir(path)&& mkdir(path)
+    !isdir(gf_path)&& mkdir(gf_path)
     gf = SharedArray{ComplexF64, 3}(2*length(H), length(H), length(times))
     Z = dot(rho, rho)
-    rho_filename = "rho_β=$(beta)_tmax=$(times[end]).jld2"
+    !isdir(rho_path)&& mkdir(rho_path)
+    rho_filename = joinpath(rho_path, "rho_β=$(beta)_tmax=$(times[end]).jld2")
     if isfile(rho_filename)
         rhos = load(rho_filename, "rhos")
         verbose && println("rhos is successfully loaded")
@@ -303,7 +307,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         ket = id <= length(H) ? chargedMPS(ops[1], rhos[1], id) : chargedMPS(ops[2], rhos[1], id-length(H))
         gf[id,:,1] = (id <= length(H)) ? [dot(chargedMPS(ops[1], rhos[1], i), ket)/Z for i in 1:length(H)] : [conj(dot(chargedMPS(ops[2], rhos[1], i), ket))/Z for i in 1:length(H)]
         flush(stdout)
-        filename = joinpath(path, "gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2")
+        filename = joinpath(gf_path, "gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2")
         jldopen(filename, "w") do f
             f["pro_1"] = gf[id,:,1]
         end
