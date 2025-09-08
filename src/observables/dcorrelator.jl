@@ -95,11 +95,13 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             end
             start_time = current_time
         end
-        ket = nothing
-        envs = nothing
-        tensorfree!(ket)
-        tensorfree!(envs)
-        GC.gc()
+        @everywhere begin
+            ket = nothing
+            envs = nothing
+            tensorfree!(ket)
+            tensorfree!(envs)
+            GC.gc()
+        end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
     gfs = zeros(ComplexF64, length(indices), length(H), length(times))
@@ -181,11 +183,13 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
             end
             start_time = current_time
         end
-        ket = nothing
-        envs = nothing
-        tensorfree!(ket)
-        tensorfree!(envs)
-        GC.gc()
+        @everywhere begin
+            ket = nothing
+            envs = nothing
+            tensorfree!(ket)
+            tensorfree!(envs)
+            GC.gc()
+        end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
     gfs = zeros(ComplexF64, length(indices), length(H), length(times))
@@ -242,11 +246,13 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, mps::AbstractVector
             end
             start_time = current_time
         end
-        ket = nothing
-        envs = nothing
-        tensorfree!(ket)
-        tensorfree!(envs)
-        GC.gc()
+        @everywhere begin
+            ket = nothing
+            envs = nothing
+            tensorfree!(ket)
+            tensorfree!(envs)
+            GC.gc()
+        end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
     gfs = zeros(ComplexF64, length(mps), length(mps)÷2, length(times))
@@ -327,11 +333,13 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
             end
             start_time = current_time
         end
-        ket = nothing
-        envs = nothing
-        tensorfree!(ket)
-        tensorfree!(envs)
-        GC.gc()
+        @everywhere begin
+            ket = nothing
+            envs = nothing
+            tensorfree!(ket)
+            tensorfree!(envs)
+            GC.gc()
+        end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
     gfs = zeros(ComplexF64, 2*length(H), length(H), length(times))
