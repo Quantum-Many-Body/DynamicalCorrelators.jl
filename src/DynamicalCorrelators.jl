@@ -16,7 +16,7 @@ using KrylovKit: exponentiate, eigsolve, Lanczos, ModifiedGramSchmidt
 using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, next_nearest_neighbours
 using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadder, FiniteChain, FiniteCylinder, FiniteStrip, FiniteHelix, FiniteLadder
 using MPSKitModels: AbstractLattice as MLattice, S_x, S_y
-using Distributed: @sync, @distributed, workers, addprocs
+using Distributed: @sync, @distributed, workers, addprocs, @everywhere
 using SharedArrays: SharedArray
 using NumericalIntegration: integrate
 using JLD2: save, load, jldopen, write, close
