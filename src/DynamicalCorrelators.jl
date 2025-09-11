@@ -60,10 +60,10 @@ export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates
 
 include("observables/correlator.jl")
 export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorrelation, OneSiteCorrelation, site_indices, correlator
-
 include("observables/dcorrelator.jl")
 export evolve_mps, dcorrelator
-
+include("observables/conductivity.jl")
+export conductivity
 
 include("observables/fourier.jl")
 export fourier_kw, fourier_rw, static_structure_factor
