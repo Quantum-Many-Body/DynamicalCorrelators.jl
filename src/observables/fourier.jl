@@ -51,7 +51,7 @@ function fourier_kw(gf_kt::AbstractArray, ts::AbstractRange, w::Number, dampings
     dest = zeros(ComplexF64, size(gf_kt, 1), size(gf_kt, 2))
     for x in axes(gf_kt, 1), y in axes(gf_kt, 2)
         temp = gf_kt[x, y, :] .* cis.(w*ts) .* dampings
-        dest[x, y] = integrate(ts, real.(temp)) + im*integrate(ts, imag.(temp))
+        dest[x, y] = integrate(ts, temp) 
     end
     return dest
 end
@@ -75,7 +75,7 @@ function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts
     return gf_kw/(4π^2)
 end
 
-function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; broadentype=(0.05, "G"), mthreads::Integer=Threads.nthreads())
+function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; broadentype=(0.05, "G"), mthreads::Integer=Threads.nthreads(), ifsum::Bool=true)
     dampings = [damping(t, broadentype) for t in ts] 
     gf_rw = zeros(ComplexF64, size(gf_rt, 1), size(gf_rt, 1), length(ws))
     if mthreads == 1
@@ -83,7 +83,7 @@ function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; 
             for a in axes(gf_rt, 1)
                 for b in axes(gf_rt, 2)
                     temp = gf_rt[a,b,:] .* cis.(ws[i]*ts).* dampings
-                    gf_rw[a,b,i] = integrate(ts, real.(temp)) + im*integrate(ts, imag.(temp))
+                    gf_rw[a,b,i] = ifsum ? sum(temp)*((ts[end]-ts[1])/length(ts)) : integrate(ts, temp)
                 end
             end
         end
@@ -97,13 +97,13 @@ function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; 
                 for a in axes(gf_rt, 1)
                     for b in axes(gf_rt, 2)
                         temp = gf_rt[a,b,:] .* cis.(ws[i]*ts).* dampings
-                        gf_rw[a,b,i] = integrate(ts, real.(temp)) + im*integrate(ts, imag.(temp))
+                        gf_rw[a,b,i] = ifsum ? sum(temp)*((ts[end]-ts[1])/length(ts)) : integrate(ts, temp)
                     end
                 end
             end
         end
     end
-    return permutedims(gf_rw, (2,1,3))
+    return gf_rw
 end
 
 function static_structure_factor(ss, rs, ks)
