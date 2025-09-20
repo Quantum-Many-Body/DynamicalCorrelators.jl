@@ -95,7 +95,6 @@ i, j = 1, 4
 cgs₁ = chargedMPS(ep, gs, i)
 cgs₂ = chargedMPS(ep, gs, j)
 
-```julia
 
 #give the creation and annihilation operators
 cp =  e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
