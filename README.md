@@ -95,16 +95,7 @@ i, j = 1, 4
 cgs₁ = chargedMPS(ep, gs, i)
 cgs₂ = chargedMPS(ep, gs, j)
 
-#calculate the propagator: <gs|c_1(t)c^†_4|gs> (i.e. <gs|c_1(0)e^{-iHt}c^†_4|gs>)
-dt = 0.05
-ft = 10
-pros = propagator(H, cgs₁, cgs₂; rev=false, dt=dt, ft=ft)
-```
-<img  src="./src/example/ImC1Cdagger4_step=0.05_finialtime=10.png"  width="600"  align="center" />
-
 ```julia
-#calculate ground state energy
-E0 = expectation_value(gs, H)
 
 #give the creation and annihilation operators
 cp =  e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
@@ -112,10 +103,10 @@ cm =  e_min(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
 sp =  S_plus(Float64, SU2Irrep, U1Irrep; filling=filling)
 
 #calculate the dynamical single-particle correlation function 
-edc = dcorrelator(RetardedGF{:f}, H, E0, [[chargedMPS(cp, gs, i) for i in 1:48]; [chargedMPS(cm, gs, i) for i in 1:48]]; trscheme=truncdim(200), n=n, dt=dt, ft=ft)
+edc = dcorrelator(gs, H, (cp, cm); trscheme=truncdim(200), n=n, dt=dt, ft=ft)
 
 #calculate the dynamical two-particle spin-spin correlation function 
-sdc = dcorrelator(GreaterLessGF, H, E0, [chargedMPS(sp, gs, i) for i in 1:48]; whichs=:greater, trscheme=truncdim(200), n=n, dt=dt, ft=ft)
+sdc = dcorrelator(gs, H, sp, 1:48; trscheme=truncdim(200), n=n, dt=dt, ft=ft)
 ```
 After Fourier transforms, we can obtain their spectral functions:
 
