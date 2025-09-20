@@ -107,7 +107,7 @@ edc = dcorrelator(gs, H, (cp, cm); trscheme=truncdim(200), n=n, dt=dt, ft=ft)
 #calculate the dynamical two-particle spin-spin correlation function 
 sdc = dcorrelator(gs, H, sp, 1:48; trscheme=truncdim(200), n=n, dt=dt, ft=ft)
 ```
-After Fourier transforms, we can obtain their spectral functions:
+After Fourier transform with `fourier_kw`, we can obtain their spectral functions:
 
 <img  src="./src/example/electron_spectrum_t=1_U=8_dt=0.05_ft=20_D=200_Gaussian_0.01.png"  width="600"  align="center" />
 
