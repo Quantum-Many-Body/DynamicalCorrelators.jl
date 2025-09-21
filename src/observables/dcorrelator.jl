@@ -75,8 +75,18 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         ket = chargedMPS(op, gs, idx)
         gf[:,idx,1] = id <= length(H) ? [-im*exp(im*gsenergy*times[1])*dot(chargedMPS(op, gs, i), ket) for i in 1:length(H)] : [-im*exp(-im*gsenergy*times[1])*dot(ket, chargedMPS(op, gs, i)) for i in 1:length(H)]
         filename = joinpath(gf_path, "gf_tmax=$(times[end])_id=$(id).jld2")
-        jldopen(filename, "w") do f
-        f["pro_1"] = gf[:,idx,1]
+        if isfile(filename)
+            gfb = load(filename)
+            for k in 2:length(times)
+                gf[:,id,k] = gfb["pro_$(k)"]
+            end
+            verbose && println("gf_tmax=$(times[end])_id=$(id).jld2 has existed!")
+            flush(stdout)
+            continue
+        else
+            jldopen(filename, "w") do f
+                f["pro_1"] = gf[:,idx,1]
+            end
         end
         verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
         flush(stdout)
@@ -164,8 +174,18 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
         gf[:,idx,1] = (id <= length(H)) ? [dot(chargedMPS(op, rhos[1], i), ket)/Z for i in 1:length(H)] : [conj(dot(chargedMPS(op, rhos[1], i), ket))/Z for i in 1:length(H)]
         flush(stdout)
         filename = joinpath(gf_path, "gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2")
-        jldopen(filename, "w") do f
-        f["pro_1"] = gf[:,idx,1]
+        if isfile(filename)
+            gfb = load(filename)
+            for k in 2:length(times)
+                gf[:,id,k] = gfb["pro_$(k)"]
+            end
+            verbose && println("gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2 has existed!")
+            flush(stdout)
+            continue
+        else
+            jldopen(filename, "w") do f
+                f["pro_1"] = gf[:,idx,1]
+            end
         end
         verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
         envs = environments(ket, H)
@@ -229,8 +249,18 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         gf[:,j,1] = j <= length(H) ? [-im*exp(im*gsenergy*times[1])*dot(bra, ket) for bra in mps[1:length(H)]] : [-im*exp(im*gsenergy*times[1])*dot(ket, bra) for bra in mps[(length(H)+1):end]]
         flush(stdout)
         filename = joinpath(gf_path, "gf_tmax=$(times[end])_id=$(j).jld2")
-        jldopen(filename, "w") do f
-        f["pro_1"] = gf[:,j,1]
+        if isfile(filename)
+            gfb = load(filename)
+            for k in 2:length(times)
+                gf[:,j,k] = gfb["pro_$(k)"]
+            end
+            verbose && println("gf_tmax=$(times[end])_id=$(j).jld2 has loaded!")
+            flush(stdout)
+            continue
+        else
+            jldopen(filename, "w") do f
+                f["pro_1"] = gf[:,j,1]
+            end
         end
         verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(j) ", Dates.format(start_time, "d.u yyyy HH:MM"))
         envs = environments(ket, H)
@@ -316,8 +346,18 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         gf[:,j,1] = (j <= length(H)) ? [dot(chargedMPS(ops[1], rhos[1], i), ket)/Z for i in 1:length(H)] : [conj(dot(chargedMPS(ops[2], rhos[1], i), ket))/Z for i in 1:length(H)]
         flush(stdout)
         filename = joinpath(gf_path, "gf_β=$(beta)_tmax=$(times[end])_id=$(j).jld2")
-        jldopen(filename, "w") do f
-            f["pro_1"] = gf[:,j,1]
+        if isfile(filename)
+            gfb = load(filename)
+            for k in 2:length(times)
+                gf[:,j,k] = gfb["pro_$(k)"]
+            end
+            verbose && println("gf_β=$(beta)_tmax=$(times[end])_id=$(j).jld2 has loaded!")
+            flush(stdout)
+            continue
+        else
+            jldopen(filename, "w") do f
+                f["pro_1"] = gf[:,j,1]
+            end
         end
         verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(j) ", Dates.format(start_time, "d.u yyyy HH:MM"))
         envs = environments(ket, H)
@@ -340,6 +380,13 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
                 f["pro_$(k)"] = gf[:,j,k]
             end
             start_time = current_time
+        end
+        @everywhere begin
+            ket = nothing
+            envs = nothing
+            tensorfree!(ket)
+            tensorfree!(envs)
+            GC.gc()
         end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
