@@ -78,7 +78,9 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         if isfile(filename)
             gfb = load(filename)
             for k in 2:length(times)
-                gf[:,id,k] = gfb["pro_$(k)"]
+                if "pro_$(k)" in collect(keys(gfb))
+                    gf[:,id,k] = gfb["pro_$(k)"]
+                end
             end
             verbose && println("gf_tmax=$(times[end])_id=$(id).jld2 has existed!")
             flush(stdout)
@@ -108,8 +110,6 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         @everywhere begin
             ket = nothing
             envs = nothing
-            tensorfree!(ket)
-            tensorfree!(envs)
             GC.gc()
         end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
@@ -166,7 +166,6 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
         save(rho_filename, "rhos", rhos)
     end
     env = nothing
-    tensorfree!(env)
     @sync @distributed for id in indices
         start_time, record_start = now(), now()
         idx = id <= length(H) ? id : (id - length(H))
@@ -177,7 +176,9 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
         if isfile(filename)
             gfb = load(filename)
             for k in 2:length(times)
-                gf[:,id,k] = gfb["pro_$(k)"]
+                if "pro_$(k)" in collect(keys(gfb))
+                    gf[:,id,k] = gfb["pro_$(k)"]
+                end
             end
             verbose && println("gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2 has existed!")
             flush(stdout)
@@ -206,8 +207,6 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
         @everywhere begin
             ket = nothing
             envs = nothing
-            tensorfree!(ket)
-            tensorfree!(envs)
             GC.gc()
         end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
@@ -252,7 +251,9 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         if isfile(filename)
             gfb = load(filename)
             for k in 2:length(times)
-                gf[:,j,k] = gfb["pro_$(k)"]
+                if "pro_$(k)" in collect(keys(gfb))
+                    gf[:,j,k] = gfb["pro_$(k)"]
+                end
             end
             verbose && println("gf_tmax=$(times[end])_id=$(j).jld2 has loaded!")
             flush(stdout)
@@ -281,8 +282,6 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         @everywhere begin
             ket = nothing
             envs = nothing
-            tensorfree!(ket)
-            tensorfree!(envs)
             GC.gc()
         end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
@@ -339,7 +338,6 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         save(rho_filename, "rhos", rhos)
     end
     env = nothing
-    tensorfree!(env)
     @sync @distributed for j in 1:2*length(H)
         start_time, record_start = now(), now()
         ket = j <= length(H) ? chargedMPS(ops[1], rhos[1], j) : chargedMPS(ops[2], rhos[1], j-length(H))
@@ -349,7 +347,9 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         if isfile(filename)
             gfb = load(filename)
             for k in 2:length(times)
-                gf[:,j,k] = gfb["pro_$(k)"]
+                if "pro_$(k)" in collect(keys(gfb))
+                    gf[:,j,k] = gfb["pro_$(k)"]
+                end
             end
             verbose && println("gf_β=$(beta)_tmax=$(times[end])_id=$(j).jld2 has loaded!")
             flush(stdout)
@@ -384,8 +384,6 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         @everywhere begin
             ket = nothing
             envs = nothing
-            tensorfree!(ket)
-            tensorfree!(envs)
             GC.gc()
         end
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
