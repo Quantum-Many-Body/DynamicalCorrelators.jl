@@ -19,7 +19,7 @@ using MPSKitModels: AbstractLattice as MLattice, S_x, S_y
 using Distributed: @sync, @distributed, workers, addprocs, @everywhere
 using SharedArrays: SharedArray
 using NumericalIntegration: integrate
-using JLD2: save, load, jldopen, write, close
+using JLD2: save, load, jldopen, write, close, keys
 using Printf: @printf, @sprintf
 using Dates
 
