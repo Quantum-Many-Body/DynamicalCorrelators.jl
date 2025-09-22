@@ -74,16 +74,17 @@ Next, let’s look at how to calculate correlation functions. Here, I consider S
 ```julia
 using TensorKit
 using MPSKit
+using MPSKitModels: FiniteChain
 using DynamicalCorrelators
 
 # give filling = (a,b), where a=b is half-filling, a<b is h-doping and a>b is e-doping
 filling = (1,1)
 
 # give a hamiltonian
-H = hubbard(Float64, SU2Irrep, U1Irrep; filling=filling, t=1, U=8, μ=0)
+N = 4
+H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N); filling=filling, t=1, U=8, μ=0)
 
 # give a N-site random initial state 
-N=4
 st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling=filling)
 
 #find the ground state |gs> 
