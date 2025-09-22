@@ -80,6 +80,8 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             for k in 2:length(times)
                 if "pro_$(k)" in collect(keys(gfb))
                     gf[:,id,k] = gfb["pro_$(k)"]
+                else
+                    @warn "Key 'pro_$(k)' not found in $(filename)"
                 end
             end
             verbose && println("gf_tmax=$(times[end])_id=$(id).jld2 has existed!")
@@ -178,6 +180,8 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
             for k in 2:length(times)
                 if "pro_$(k)" in collect(keys(gfb))
                     gf[:,id,k] = gfb["pro_$(k)"]
+                else
+                    @warn "Key 'pro_$(k)' not found in $(filename)"
                 end
             end
             verbose && println("gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2 has existed!")
@@ -253,6 +257,8 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
             for k in 2:length(times)
                 if "pro_$(k)" in collect(keys(gfb))
                     gf[:,j,k] = gfb["pro_$(k)"]
+                else
+                    @warn "Key 'pro_$(k)' not found in $(filename)"
                 end
             end
             verbose && println("gf_tmax=$(times[end])_id=$(j).jld2 has loaded!")
@@ -349,6 +355,8 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
             for k in 2:length(times)
                 if "pro_$(k)" in collect(keys(gfb))
                     gf[:,j,k] = gfb["pro_$(k)"]
+                else
+                    @warn "Key 'pro_$(k)' not found in $(filename)"
                 end
             end
             verbose && println("gf_β=$(beta)_tmax=$(times[end])_id=$(j).jld2 has loaded!")
