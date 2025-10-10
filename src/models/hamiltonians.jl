@@ -206,18 +206,28 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
     a = onesite_bonds(lattice, 1)
     for i in eachindex(a)
         push!(terms, a[i]=>muz*num) 
-        push!(terms, a[i]=>U*onc)
+        if U !== 0
+            push!(terms, a[i]=>U*onc)
+        end
     end
     b = onesite_bonds(lattice, 2)
     for i in eachindex(b)
         push!(terms, b[i]=>mux*num)
-        push!(terms, b[i]=>U*onc)
+        if U !== 0
+            push!(terms, b[i]=>U*onc)
+        end
     end
     ab = onesite_bonds(lattice, 1, 2)
     for i in eachindex(ab)
-        push!(terms, ab[i]=>UpJ2*nbc)
-        push!(terms, ab[i]=>J*sf)
-        push!(terms, ab[i]=>J2*ph)
+        if UpJ2 !== 0
+            push!(terms, ab[i]=>UpJ2*nbc)
+        end
+        if J !== 0
+            push!(terms, ab[i]=>J*sf)
+        end
+        if J2 !== 0
+            push!(terms, ab[i]=>J2*ph)
+        end
     end
     if !isnothing(pinning)
         for i in eachindex(pinning[1])
