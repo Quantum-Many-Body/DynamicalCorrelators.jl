@@ -177,7 +177,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
             gfb = load(filename)
             for k in 2:length(times)
                 if "pro_$(k)" in collect(keys(gfb))
-                    gf[:,id,k] = gfb["pro_$(k)"]
+                    gf[:,idx,k] = gfb["pro_$(k)"]
                 else
                     @warn "Key 'pro_$(k)' not found in $(filename)"
                 end
