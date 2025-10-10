@@ -109,11 +109,9 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             end
             start_time = current_time
         end
-        @everywhere begin
-            ket = nothing
-            envs = nothing
-            GC.gc()
-        end
+        ket = nothing
+        envs = nothing
+        GC.gc()
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
     gfs = zeros(ComplexF64, length(H), length(indices), length(times))
@@ -208,11 +206,9 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
             end
             start_time = current_time
         end
-        @everywhere begin
-            ket = nothing
-            envs = nothing
-            GC.gc()
-        end
+        ket = nothing
+        envs = nothing
+        GC.gc()
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
     gfs = zeros(ComplexF64, length(H), length(indices), length(times))
@@ -285,11 +281,9 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
             end
             start_time = current_time
         end
-        @everywhere begin
-            ket = nothing
-            envs = nothing
-            GC.gc()
-        end
+        ket = nothing
+        envs = nothing
+        GC.gc()
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
     gfs = isfermion ? (gf[:,1:length(H),:] .+ gf[:,(length(H)+1):2*length(H),:]) : (gf[:,1:length(H),:] .- gf[:,(length(H)+1):2*length(H),:])
@@ -389,11 +383,9 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
             end
             start_time = current_time
         end
-        @everywhere begin
-            ket = nothing
-            envs = nothing
-            GC.gc()
-        end
+        ket = nothing
+        envs = nothing
+        GC.gc()
         verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
     end
     gfs = isfermion ? (gf[:,1:length(H),:] .+ gf[:,(length(H)+1):2*length(H),:]) : (gf[:,1:length(H),:] .- gf[:,(length(H)+1):2*length(H),:])
