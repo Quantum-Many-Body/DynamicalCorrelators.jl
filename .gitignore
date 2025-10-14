@@ -12,3 +12,4 @@ test/*.png
 desktop.ini
 .DS_Store
 task/
+Manifest.toml
