@@ -69,11 +69,12 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     !isdir(gf_path)&& mkdir(gf_path)
     gsenergy = expectation_value(gs, H)
     gf = SharedArray{ComplexF64, 3}(length(H), length(indices), length(times))
+    mps = [chargedMPS(op, gs, i) for i in 1:length(H)]
     @sync @distributed for id in indices
         start_time, record_start = now(), now()
         idx = id <= length(H) ? id : (id - length(H))
         ket = chargedMPS(op, gs, idx)
-        gf[:,idx,1] = id <= length(H) ? [-im*exp(im*gsenergy*times[1])*dot(chargedMPS(op, gs, i), ket) for i in 1:length(H)] : [-im*exp(-im*gsenergy*times[1])*dot(ket, chargedMPS(op, gs, i)) for i in 1:length(H)]
+        gf[:,idx,1] = id <= length(H) ? [-im*exp(im*gsenergy*times[1])*dot(mps[i], ket) for i in 1:length(H)] : [-im*exp(-im*gsenergy*times[1])*dot(ket, mps[i]) for i in 1:length(H)]
         filename = joinpath(gf_path, "gf_tmax=$(times[end])_id=$(id).jld2")
         if isfile(filename)
             gfb = load(filename)
@@ -99,7 +100,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             alg = k > n ? tdvp1 : tdvp2
             ket, envs = timestep(ket, H, 0, times[k]-times[k-1], alg, envs)
             for i in 1:length(H)
-                gf[i,idx,k] = (id <= length(H)) ? -im*exp(im*gsenergy*times[k])*dot(chargedMPS(op, gs, i), ket) : -im*exp(-im*gsenergy*times[k])*dot(ket, chargedMPS(op, gs, i))
+                gf[i,idx,k] = (id <= length(H)) ? -im*exp(im*gsenergy*times[k])*dot(mps[i], ket) : -im*exp(-im*gsenergy*times[k])*dot(ket, mps[i])
             end
             current_time = now()
             verbose && println("[$(k)/$(length(times))] time evolves $(times[k]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
@@ -166,11 +167,12 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
         save(rho_filename, "rhos", rhos)
     end
     env = nothing
+    mps = [chargedMPS(op, rhos[k], i) for k in 1:length(times) for i in 1:length(H)]
     @sync @distributed for id in indices
         start_time, record_start = now(), now()
         idx = id <= length(H) ? id : (id - length(H))
         ket = chargedMPS(op, rhos[1], idx)
-        gf[:,idx,1] = (id <= length(H)) ? [dot(chargedMPS(op, rhos[1], i), ket)/Z for i in 1:length(H)] : [conj(dot(chargedMPS(op, rhos[1], i), ket))/Z for i in 1:length(H)]
+        gf[:,idx,1] = (id <= length(H)) ? [dot(mps[1,i], ket)/Z for i in 1:length(H)] : [conj(dot(mps[1,i], ket))/Z for i in 1:length(H)]
         flush(stdout)
         filename = joinpath(gf_path, "gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2")
         if isfile(filename)
@@ -196,7 +198,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
             alg = k > n ? tdvp1 : tdvp2
             ket, envs = timestep(ket, H, 0, times[k]-times[k-1], alg, envs)
             for i in 1:length(H)
-                gf[i,idx,k] = (id <= length(H)) ? dot(chargedMPS(op, rhos[k], i), ket)/Z : dot(ket, chargedMPS(op, rhos[k], i))/Z
+                gf[i,idx,k] = (id <= length(H)) ? dot(mps[k,i], ket)/Z : dot(ket, mps[k,i])/Z
             end
             current_time = now()
             verbose && println("[$(k)/$(length(times))] time evolves $(times[k]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
@@ -338,10 +340,12 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         save(rho_filename, "rhos", rhos)
     end
     env = nothing
+    mps₁ = [chargedMPS(ops[1], rhos[k], i) for k in 1:length(times) for i in 1:length(H)]
+    mps₂ = [chargedMPS(ops[2], rhos[k], i) for k in 1:length(times) for i in 1:length(H)]
     @sync @distributed for j in 1:2*length(H)
         start_time, record_start = now(), now()
         ket = j <= length(H) ? chargedMPS(ops[1], rhos[1], j) : chargedMPS(ops[2], rhos[1], j-length(H))
-        gf[:,j,1] = (j <= length(H)) ? [dot(chargedMPS(ops[1], rhos[1], i), ket)/Z for i in 1:length(H)] : [conj(dot(chargedMPS(ops[2], rhos[1], i), ket))/Z for i in 1:length(H)]
+        gf[:,j,1] = (j <= length(H)) ? [dot(mps₁[1, i], ket)/Z for i in 1:length(H)] : [conj(dot(mps₂[1, i], ket))/Z for i in 1:length(H)]
         flush(stdout)
         filename = joinpath(gf_path, "gf_β=$(beta)_tmax=$(times[end])_id=$(j).jld2")
         if isfile(filename)
@@ -368,11 +372,11 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
             ket, envs = timestep(ket, H, 0, times[k]-times[k-1], alg, envs)
             if j <= length(H)
                 for i in 1:length(H)
-                    gf[i,j,k] = dot(chargedMPS(ops[1], rhos[k], i), ket)/Z
+                    gf[i,j,k] = dot(mps₁[k,i], ket)/Z
                 end
             else
                 for i in 1:length(H)
-                    gf[i,j,k] = dot(ket, chargedMPS(ops[2], rhos[k], i))/Z
+                    gf[i,j,k] = dot(ket, mps₂[k,i])/Z
                 end
             end
             current_time = now()
