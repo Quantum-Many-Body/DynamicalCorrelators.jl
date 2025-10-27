@@ -70,17 +70,18 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     gsenergy = expectation_value(gs, H)
     gf = SharedArray{ComplexF64, 3}(length(H), length(indices), length(times))
     mps = [chargedMPS(op, gs, i) for i in 1:length(H)]
-    @sync @distributed for id in indices
+    @sync @distributed for d in eachindex(indices)
+        id = indices[d] 
         start_time, record_start = now(), now()
         idx = id <= length(H) ? id : (id - length(H))
         ket = chargedMPS(op, gs, idx)
-        gf[:,idx,1] = id <= length(H) ? [-im*exp(im*gsenergy*times[1])*dot(mps[i], ket) for i in 1:length(H)] : [-im*exp(-im*gsenergy*times[1])*dot(ket, mps[i]) for i in 1:length(H)]
+        gf[:,d,1] = id <= length(H) ? [-im*exp(im*gsenergy*times[1])*dot(mps[i], ket) for i in 1:length(H)] : [-im*exp(-im*gsenergy*times[1])*dot(ket, mps[i]) for i in 1:length(H)]
         filename = joinpath(gf_path, "gf_tmax=$(times[end])_id=$(id).jld2")
         if isfile(filename)
             gfb = load(filename)
             for k in 2:length(times)
                 if "pro_$(k)" in collect(keys(gfb))
-                    gf[:,idx,k] = gfb["pro_$(k)"]
+                    gf[:,d,k] = gfb["pro_$(k)"]
                 else
                     @warn "Key 'pro_$(k)' not found in $(filename)"
                 end
@@ -90,7 +91,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             continue
         else
             jldopen(filename, "w") do f
-                f["pro_1"] = gf[:,idx,1]
+                f["pro_1"] = gf[:,d,1]
             end
         end
         verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
@@ -100,13 +101,13 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             alg = k > n ? tdvp1 : tdvp2
             ket, envs = timestep(ket, H, 0, times[k]-times[k-1], alg, envs)
             for i in 1:length(H)
-                gf[i,idx,k] = (id <= length(H)) ? -im*exp(im*gsenergy*times[k])*dot(mps[i], ket) : -im*exp(-im*gsenergy*times[k])*dot(ket, mps[i])
+                gf[i,d,k] = (id <= length(H)) ? -im*exp(im*gsenergy*times[k])*dot(mps[i], ket) : -im*exp(-im*gsenergy*times[k])*dot(ket, mps[i])
             end
             current_time = now()
             verbose && println("[$(k)/$(length(times))] time evolves $(times[k]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
             flush(stdout)
             jldopen(filename, "a") do f
-                f["pro_$(k)"] = gf[:,idx,k]
+                f["pro_$(k)"] = gf[:,d,k]
             end
             start_time = current_time
         end
@@ -168,18 +169,19 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
     end
     env = nothing
     mps = [chargedMPS(op, rhos[k], i) for k in 1:length(times) for i in 1:length(H)]
-    @sync @distributed for id in indices
+    @sync @distributed for d in eachindex(indices)
+        id = indices[d]
         start_time, record_start = now(), now()
         idx = id <= length(H) ? id : (id - length(H))
         ket = chargedMPS(op, rhos[1], idx)
-        gf[:,idx,1] = (id <= length(H)) ? [dot(mps[1,i], ket)/Z for i in 1:length(H)] : [conj(dot(mps[1,i], ket))/Z for i in 1:length(H)]
+        gf[:,d,1] = (id <= length(H)) ? [dot(mps[1,i], ket)/Z for i in 1:length(H)] : [conj(dot(mps[1,i], ket))/Z for i in 1:length(H)]
         flush(stdout)
         filename = joinpath(gf_path, "gf_β=$(beta)_tmax=$(times[end])_id=$(id).jld2")
         if isfile(filename)
             gfb = load(filename)
             for k in 2:length(times)
                 if "pro_$(k)" in collect(keys(gfb))
-                    gf[:,idx,k] = gfb["pro_$(k)"]
+                    gf[:,d,k] = gfb["pro_$(k)"]
                 else
                     @warn "Key 'pro_$(k)' not found in $(filename)"
                 end
@@ -189,7 +191,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
             continue
         else
             jldopen(filename, "w") do f
-                f["pro_1"] = gf[:,idx,1]
+                f["pro_1"] = gf[:,d,1]
             end
         end
         verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
@@ -198,13 +200,13 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
             alg = k > n ? tdvp1 : tdvp2
             ket, envs = timestep(ket, H, 0, times[k]-times[k-1], alg, envs)
             for i in 1:length(H)
-                gf[i,idx,k] = (id <= length(H)) ? dot(mps[k,i], ket)/Z : dot(ket, mps[k,i])/Z
+                gf[i,d,k] = (id <= length(H)) ? dot(mps[k,i], ket)/Z : dot(ket, mps[k,i])/Z
             end
             current_time = now()
             verbose && println("[$(k)/$(length(times))] time evolves $(times[k]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
             flush(stdout)
             jldopen(filename, "a") do f
-                f["pro_$(k)"] = gf[:,idx,k]
+                f["pro_$(k)"] = gf[:,d,k]
             end
             start_time = current_time
         end
