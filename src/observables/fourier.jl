@@ -5,7 +5,7 @@ function broaden_gauss(t::Real, eta::Real)
 end
 
 function broaden_lorentz(t::Real, eta::Real)
-    return exp(-eta*abs(t))/π
+    return exp(-eta*abs(t))
 end
 
 function blackman_window(t::Real, T::Real)
