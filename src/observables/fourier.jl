@@ -13,9 +13,9 @@ function blackman_window(t::Real, T::Real)
 end
 
 function parzen_window(t::Real, T::Real)
-	if abs(t/T) < 1/2
+	if abs(t/T) <= 1/2
 		return 6*abs(t/T)^3 - 6*(t/T)^2 + 1
-	elseif abs(t/T) < 1
+	elseif abs(t/T) <= 1
 		return 2*(1 - abs(t/T))^3
 	else
 		return 0.0
