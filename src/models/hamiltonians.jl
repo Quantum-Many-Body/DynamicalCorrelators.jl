@@ -44,6 +44,8 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
                         lattice::CustomLattice;
                         t = 1.0, 
                         t2 = 0.0, 
+                        th = 1.0, 
+                        th2 = 0.0, 
                         U = 6.0, 
                         μ = 0.0, 
                         pinning = nothing,
@@ -64,10 +66,10 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
         tf = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
         tf2 = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
         for i in eachindex(tf)
-            push!(terms, tf[i]=>-t*hop)
+            push!(terms, tf[i]=>-th*hop)
         end
         for i in eachindex(tf2)
-            push!(terms, tf2[i]=>-t2*hop)
+            push!(terms, tf2[i]=>-th2*hop)
         end
     elseif length(lattice.lattice[1]) == 2
         tb = twosite_bonds(lattice, 1, 1; neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
