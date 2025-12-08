@@ -80,6 +80,36 @@ function chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::I
     return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
 end
 
+function chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS; tol=1e-6, maxiter=30, krylovdim=8, trscheme=truncdim(dims(domain(gs[length(gs)÷2]))[1]), cgs_path::String="./")
+    !isdir(cgs_path)&& mkdir(cgs_path)
+    filename = joinpath(gf_path, "chargedMPS_N=$(length(gs)).jld2")
+    jldopen(filename, "w") do f
+        f["gs"] = gs
+    end
+    alg = DMRG2(; tol=tol, maxiter=maxiter, verbosity=3,
+            alg_eigsolve= Lanczos(;
+                krylovdim = krylovdim,
+                maxiter = 1,
+                tol = 1e-8,
+                orth = ModifiedGramSchmidt(),
+                eager = false,
+                verbosity = 0), 
+            alg_svd= SDD(), 
+            trscheme=trscheme)
+    record_start = now()
+    println("chargedMPS start", Dates.format(start_time, "d.u yyyy HH:MM"))
+    @sync @distributed for i in 1:length(gs)
+        ags, _, ϵ = approximate(cgs[i], (chargedMPO(op, i, length(gs)), gs), alg)
+        jldopen(filename, "a") do f
+            f["cgs_$(i)"] = ags
+            f["eps_$(i)"] = ϵ
+        end
+        println("chargedMPS_$(i) is finished, ϵ=$(ϵ)", Dates.canonicalize(now()-record_start))
+    end
+    GC.gc()
+    return nothing
+end
+
 """
     identityMPS(H::FiniteMPOHamiltonian)
 """
