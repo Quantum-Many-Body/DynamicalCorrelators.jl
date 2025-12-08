@@ -9,7 +9,7 @@ using TensorKit: truncdim, truncerr, truncspace, TruncationScheme, truncbelow, �
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum
 using MPSKit: FiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
 using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, timestep!, environments, expectation_value, max_virtualspaces, physicalspace
-using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor
+using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor, approximate
 using MPSKit.Defaults: _finalize
 using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, _transpose_front, MPSTensor, check_unambiguous_braiding, scalartype
 using KrylovKit: exponentiate, eigsolve, Lanczos, ModifiedGramSchmidt
