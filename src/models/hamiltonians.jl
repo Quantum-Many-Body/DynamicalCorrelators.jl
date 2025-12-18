@@ -120,7 +120,7 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
                         Up = 2.5,
                         J = -0.6*2,
                         J2 = 0.6,
-                        UpJ2 = Up - 1.2/2,
+                        UpJ2 = Up - J2/2,
                         filling=(1,1))
     hop = hopping(elt, SU2Irrep, U1Irrep; filling=filling)
     onc = onsiteCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
