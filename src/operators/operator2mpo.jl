@@ -50,7 +50,7 @@ function _convert_operator(op::Operator{<:Number, <:NTuple{4, CoordinatedIndex}}
     end
 end
 
-function _index2tensor(elt::Type{<:Number}, ids::Index{FockIndex{:f, Int64, Rational{Int64}}, Int64}, side::Symbol, filling::NTuple{2, Integer})
+function _index2tensor(elt::Type{<:Number}, ids::Index, side::Symbol, filling::NTuple{2, Integer})
     ids.internal.nambu == 2 ? ten = e_plus : ten = e_min
     ids.internal.spin == 1//2 ? spin = :up : spin = :down
     return ten(elt, U1Irrep, U1Irrep; side=side, spin=spin, filling=filling)
