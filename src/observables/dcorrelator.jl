@@ -113,7 +113,6 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::Union{AbstractT
                     f["pro_$(k)"] = gf[:,d,k]
                 end
             else
-                @assert
                 current_time = now()
                 verbose && println("[$(k)/$(length(times))] time evolves $(times[k]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
                 flush(stdout)

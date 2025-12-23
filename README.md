@@ -8,7 +8,7 @@
 
 - The symbolic operator representation of a quantum lattice system in condensed matter physics is based on the package [`QuantumLattices`](https://github.com/Quantum-Many-Body/QuantumLattices.jl.git)
 
-- The  energy-minimization algorithms like DMRG and the time evolution methods such as MPO $W^{II}$ and TDVP are based on package [`MPSKit`](https://github.com/QuantumKitHub/MPSKit.jl.git)
+- The  energy-minimization algorithms like DMRG and the time evolution methods such as TDVP are based on package [`MPSKit`](https://github.com/QuantumKitHub/MPSKit.jl.git)
 
 - The bechmark of dynamical correlation functions and related observables is the result from exact diagonalization method based on the packages [`ExactDiagonalization`](https://github.com/Quantum-Many-Body/ExactDiagonalization.jl.git)
 
@@ -185,9 +185,8 @@ Due to the fast development of this package, releases with different minor versi
 
 ## Contact
 
-Y.-Y.Zong: zongyongyue@gmail.com;
-Jason: wavefuncion@gmail.com
+Y.-Y.Zong: zongyongyue@gmail.com
 
 ## Acknowledgments
 
-We thank Maartenvd, lkdvos for help discussions in https://github.com/QuantumKitHub/MPSKit.jl/issues/160#issue-2430771115, and thank Zhao-Long Gu for great help.
+We thank Maartenvd, lkdvos for help discussions, and thank Zhao-Long Gu for great help.
