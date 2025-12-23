@@ -105,8 +105,8 @@ function chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS; tol=1e-6, maxi
             f["eps_$(i)"] = ϵ
         end
         println("chargedMPS_$(i) is finished, ϵ=$(ϵ)", Dates.canonicalize(now()-record_start))
+        GC.gc()
     end
-    GC.gc()
     return nothing
 end
 
