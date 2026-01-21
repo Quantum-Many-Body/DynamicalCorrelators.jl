@@ -31,7 +31,7 @@ include("models/lattices.jl")
 export CustomLattice, BilayerSquare, Square, Custom, twosite_bonds, onesite_bonds, find_position, snake_2D, kitaev_bonds
 
 include("models/hamiltonians.jl")
-export hubbard, hubbard_bilayer_2band, kitaev_hubbard, heisenberg_model, JKGGp_model
+export hubbard, extended_hubbard, hubbard_bilayer_2band, kitaev_hubbard, heisenberg_model, JKGGp_model
 
 include("operators/fermions.jl")
 include("operators/spin.jl")
