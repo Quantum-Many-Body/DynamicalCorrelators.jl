@@ -36,6 +36,25 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, lattice
 end
 
 """
+    extended_hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, lattice=InfiniteChain(1); t=1.0, U=1.0, μ=0.0, filling=(1,1))
+    fℤ₂ × SU(2) × U(1) single-band Hubbard model
+"""
+function extended_hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, lattice::MLattice; t=1.0, U=1.0, V=0.5, μ=0.0, filling=(1,1))
+    hoppings = hopping(elt, SU2Irrep, U1Irrep; filling=filling)
+    interaction = onsiteCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
+    interaction2 = neiborCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
+    numbers = number(elt, SU2Irrep, U1Irrep; filling=filling)
+    return @mpoham begin
+        sum(nearest_neighbours(lattice)) do (i, j)
+            return -t*hoppings{i,j} + V*interaction2{i,j}
+        end +
+        sum(vertices(lattice)) do i
+            return U*interaction{i} - μ*numbers{i}
+        end
+    end
+end
+
+"""
     hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
                     lattice::CustomLattice; kwargs...)
     fℤ₂ × SU(2) × U(1)  Hubbard model
