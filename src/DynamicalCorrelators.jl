@@ -7,7 +7,7 @@ using TensorOperations: promote_contract, tensorfree!
 using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, Bosonic
 using TensorKit: truncdim, truncerr, truncspace, TruncationScheme, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit, notrunc, similarstoragetype
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum
-using MPSKit: FiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
+using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
 using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, timestep!, environments, expectation_value, max_virtualspaces, physicalspace
 using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor, approximate
 using MPSKit.Defaults: _finalize
@@ -44,7 +44,7 @@ export chargedMPO, identityMPO, hamiltonian
 
 include("states/chargedmps.jl")
 include("states/randmps.jl")
-export FiniteNormalMPS, FiniteSuperMPS, chargedMPS, identityMPS, randFiniteMPS
+export FiniteNormalMPS, FiniteSuperMPS, chargedMPS, identityMPS, randFiniteMPS, randInfiniteMPS
 
 include("utility/tools.jl")
 export add_single_util_leg, cart2polar, phase_by_polar, sort_by_distance, transfer_left, contract_MPO
