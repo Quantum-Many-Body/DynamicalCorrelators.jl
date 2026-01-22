@@ -13,7 +13,7 @@ N=4
 st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling=filling)
 
 #find the ground state |gs> 
-gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme= truncbelow(1e-6)));
+gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme= trunctol(1e-6)));
 
 #obtain c^†_1|gs> and c^†_4|gs> 
 ep =  e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
@@ -35,7 +35,7 @@ cm =  e_min(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
 sp =  S_plus(Float64, SU2Irrep, U1Irrep; filling=filling)
 
 #calculate the dynamical single-particle correlation function 
-edc = dcorrelator(RetardedGF{:f}, H, E0, [[chargedMPS(cp, gs, i) for i in 1:48]; [chargedMPS(cm, gs, i) for i in 1:48]]; trscheme=truncdim(200), n=n, dt=dt, ft=ft)
+edc = dcorrelator(RetardedGF{:f}, H, E0, [[chargedMPS(cp, gs, i) for i in 1:48]; [chargedMPS(cm, gs, i) for i in 1:48]]; trscheme=truncrank(200), n=n, dt=dt, ft=ft)
 
 #calculate the dynamical two-particle spin-spin correlation function 
-sdc = dcorrelator(GreaterLessGF, H, E0, [chargedMPS(sp, gs, i) for i in 1:48]; whichs=:greater, trscheme=truncdim(200), n=n, dt=dt, ft=ft)
+sdc = dcorrelator(GreaterLessGF, H, E0, [chargedMPS(sp, gs, i) for i in 1:48]; whichs=:greater, trscheme=truncrank(200), n=n, dt=dt, ft=ft)

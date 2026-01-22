@@ -33,7 +33,7 @@ function chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::I
         end
         return a
     end
-    trscheme = truncbelow(eps(real(T)))
+    trscheme = trunctol(eps(real(T)))
     return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
 end
 
@@ -58,7 +58,7 @@ function chargedMPS(op::AbstractTensorMap{S,B,2,1}, mps::FiniteSuperMPS, site::I
         end
         return a
     end
-    trscheme = truncbelow(eps(real(T)))
+    trscheme = trunctol(eps(real(T)))
     return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
 end
 
@@ -76,11 +76,11 @@ function chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::I
         end
         return a
     end
-    trscheme = truncbelow(eps(real(T)))
+    trscheme = trunctol(eps(real(T)))
     return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
 end
 
-function chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS; tol=1e-6, maxiter=30, krylovdim=8, trscheme=truncdim(dims(domain(gs[length(gs)÷2]))[1]), cgs_path::String="./")
+function chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS; tol=1e-6, maxiter=30, krylovdim=8, trscheme=truncrank(dims(domain(gs[length(gs)÷2]))[1]), cgs_path::String="./")
     !isdir(cgs_path)&& mkdir(cgs_path)
     filename = joinpath(gf_path, "chargedMPS_N=$(length(gs)).jld2")
     jldopen(filename, "w") do f
@@ -94,7 +94,7 @@ function chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS; tol=1e-6, maxi
                 orth = ModifiedGramSchmidt(),
                 eager = false,
                 verbosity = 0), 
-            alg_svd= SDD(), 
+            alg_svd= LAPACK_DivideAndConquer(), 
             trscheme=trscheme)
     record_start = now()
     println("chargedMPS start", Dates.format(start_time, "d.u yyyy HH:MM"))

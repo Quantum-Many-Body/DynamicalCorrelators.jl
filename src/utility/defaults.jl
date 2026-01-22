@@ -7,8 +7,8 @@ DefaultDMRG = DMRG2(; tol=1e-8, maxiter=5, verbosity=0,
                 orth = ModifiedGramSchmidt(),
                 eager = true,
                 verbosity = 0), 
-            alg_svd= SDD(), 
-            trscheme=truncdim(4096))
+            alg_svd= LAPACK_DivideAndConquer(), 
+            trscheme=truncrank(4096))
 
 DefaultDMRG2(tol, krylovdim) = DMRG2(; tol=1e-8, maxiter=5, verbosity=0,
             alg_eigsolve= Lanczos(;
@@ -18,8 +18,8 @@ DefaultDMRG2(tol, krylovdim) = DMRG2(; tol=1e-8, maxiter=5, verbosity=0,
                 orth = ModifiedGramSchmidt(),
                 eager = true,
                 verbosity = 0), 
-            alg_svd= SDD(), 
-            trscheme=truncdim(4096))
+            alg_svd= LAPACK_DivideAndConquer(), 
+            trscheme=truncrank(4096))
 
 
 DefaultTDVP = TDVP(;
@@ -43,5 +43,5 @@ DefaultTDVP2(trscheme) = TDVP2(;
                 verbosity = 0),
             tolgauge =  1e-13,
             gaugemaxiter = 200,
-            alg_svd = SDD(),
+            alg_svd = LAPACK_DivideAndConquer(),
             trscheme=trscheme)

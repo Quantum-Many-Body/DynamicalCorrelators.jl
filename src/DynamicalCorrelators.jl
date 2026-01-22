@@ -5,13 +5,14 @@ using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, 
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
 using TensorOperations: promote_contract, tensorfree!
 using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, Bosonic
-using TensorKit: truncdim, truncerr, truncspace, TruncationScheme, truncbelow, ←, space, numout, numin, dual, fuse, tsvd!, normalize!, SDD, oneunit, notrunc, similarstoragetype
+using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dual, fuse, svd_trunc!, normalize!, oneunit, notrunc, similarstoragetype
 using TensorKit: ⊠, ⊗, permute, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum
-using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
+using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, IDMRG, IDMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
 using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, timestep!, environments, expectation_value, max_virtualspaces, physicalspace
-using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor, approximate
+using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor, approximate, LAPACK_DivideAndConquer
 using MPSKit.Defaults: _finalize
-using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, _transpose_front, MPSTensor, check_unambiguous_braiding, scalartype
+using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, _transpose_front, MPSTensor, check_unambiguous_braiding, scalartype, fixedpoint, transfer_leftenv!, transfer_rightenv!
+using MPSKit: _mul_tail, _mul_front, _transpose_tail, AC2, recalculate!, calc_galerkin, IDMRGState, IterativeSolver
 using KrylovKit: exponentiate, eigsolve, Lanczos, ModifiedGramSchmidt
 using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, next_nearest_neighbours
 using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadder, FiniteChain, FiniteCylinder, FiniteStrip, FiniteHelix, FiniteLadder
@@ -54,6 +55,10 @@ export DefaultDMRG, DefaultDMRG2, DefaultTDVP, DefaultTDVP2
 
 include("algorithms/dmrg2.jl")
 export dmrg2!, dmrg2, dmrg2_sweep!
+
+include("algorithms/idmrg2.jl")
+export idmrg2
+
 include("algorithms/cpt.jl")
 export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates
 

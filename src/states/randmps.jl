@@ -22,7 +22,7 @@ function randInfiniteMPS(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, 
     pspaces = repeat([Ps,], N)
     M = div(N, 2Q)
     M == 1 ? maxvspaces = Vs : maxvspaces = repeat(Vs, M)
-    return InfiniteMPS(elt, pspaces, Vs)
+    return InfiniteMPS(rand, elt, pspaces, Vs)
 end
 
 function _vspaces(::Type{U1Irrep}, ::Type{U1Irrep}, P, Q, k, Z, I, md)
@@ -73,7 +73,7 @@ function randInfiniteMPS(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
     pspaces = repeat([Ps,], N)
     M = div(N, length(Vs))
     M == 1 ? maxvspaces = Vs : maxvspaces = repeat(Vs, M)
-    return InfiniteMPS(elt, pspaces, Vs)
+    return InfiniteMPS(rand, elt, pspaces, Vs)
 end
 
 function _vspaces(::Type{SU2Irrep}, ::Type{U1Irrep}, P, Q, k, Z, N, I, md)
@@ -92,7 +92,7 @@ function randFiniteMPS(elt::Type{<:Number}, H::MPOHamiltonian; left=oneunit(phys
     Ps = physicalspace(H)
     temp = restrict_virtualspaces(Ps; left=left, right=right)
     st = FiniteMPS(rand, elt, Ps,temp[2:(end - 1)]; left=left, right=right)
-    changebonds!(st, SvdCut(;trscheme=truncdim(32)))
+    changebonds!(st, SvdCut(;trscheme=truncrank(32)))
     Vs = Vector{eltype(Ps)}(undef, length(temp))
     for i in 1:length(Ps)
         Vs[i] = left_virtualspace(st[i])

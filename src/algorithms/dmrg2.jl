@@ -1,11 +1,11 @@
 """
     dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true, envs=environments(ψ, H))
-    Add some auxiliary content to `find_groundstate` in MPSKit.jl and rename the function as `dmrg2`.
+    Add some auxiliary contents to `find_groundstate` in MPSKit.jl and rename the function as `dmrg2`.
 """
 function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true, envs=environments(ψ, H))
     ϵs = map(pos -> 1.0, 1:length(ψ))
     ϵ = maximum(ϵs)
-    trschemes =  map(d -> truncdim(d), truncdims)
+    trschemes =  map(d -> truncrank(d), truncdims)
     start_time, record_start = now(), now()
     Int(verbose) > 0 && println("Sweep Started: ", Dates.format(start_time, "d.u yyyy HH:MM"))
     Int(verbose) > 0 && flush(stdout)
@@ -18,7 +18,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
             @plansor ac2[-1 -2; -3 -4] := ψ.AC[pos][-1 -2; 1] * ψ.AR[pos + 1][1 -4; -3]
             Hac2 = AC2_hamiltonian(pos, ψ, H, ψ, envs)
             _, vecs, _ = eigsolve(Hac2, ac2, 1, :SR, alg_eigsolve)
-            al, c, ar, err = tsvd!(vecs[1]; p=2, trunc=trschemes[iter], alg=alg.alg_svd)
+            al, c, ar, err = svd_trunc!(vecs[1]; trunc=trschemes[iter], alg=alg.alg_svd)
             normalize!(c)
             v = @plansor ac2[1 2; 3 4] * conj(al[1 2; 5]) * conj(c[5; 6]) * conj(ar[6; 3 4])
             ϵs[pos] = abs(1 - abs(v))
@@ -34,7 +34,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
             @plansor ac2[-1 -2; -3 -4] := ψ.AL[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -4; -3]
             Hac2 = AC2_hamiltonian(pos, ψ, H, ψ, envs)
             _, vecs, _ = eigsolve(Hac2, ac2, 1, :SR, alg_eigsolve)
-            al, c, ar, err = tsvd!(vecs[1]; p=2, trunc=trschemes[iter], alg=alg.alg_svd)
+            al, c, ar, err = svd_trunc!(vecs[1]; trunc=trschemes[iter], alg=alg.alg_svd)
             normalize!(c)
             v = @plansor ac2[1 2; 3 4] * conj(al[1 2; 5]) * conj(c[5; 6]) * conj(ar[6; 3 4])
             ϵs[pos] = max(ϵs[pos], abs(1 - abs(v)))
@@ -73,7 +73,7 @@ function dmrg2(ψ, H, truncdims; kwargs...)
     return dmrg2!(copy(ψ), H, truncdims; kwargs...)
 end
 
-function dmrg2_sweep!(iter::Integer, ψ::AbstractFiniteMPS, H, trscheme::TruncationScheme, ϵs::AbstractArray; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true)
+function dmrg2_sweep!(iter::Integer, ψ::AbstractFiniteMPS, H, trscheme, ϵs::AbstractArray; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true)
     start_time = now()
     ϵ = maximum(ϵs)
     if iter == 1
@@ -89,7 +89,7 @@ function dmrg2_sweep!(iter::Integer, ψ::AbstractFiniteMPS, H, trscheme::Truncat
         @plansor ac2[-1 -2; -3 -4] := ψ.AC[pos][-1 -2; 1] * ψ.AR[pos + 1][1 -4; -3]
         Hac2 = AC2_hamiltonian(pos, ψ, H, ψ, envs)
         _, vecs, _ = eigsolve(Hac2, ac2, 1, :SR, alg_eigsolve)
-        al, c, ar, err = tsvd!(vecs[1]; p=2, trunc=trscheme, alg=alg.alg_svd)
+        al, c, ar, err = svd_trunc!(vecs[1];  trunc=trscheme, alg=alg.alg_svd)
         normalize!(c)
         v = @plansor ac2[1 2; 3 4] * conj(al[1 2; 5]) * conj(c[5; 6]) * conj(ar[6; 3 4])
         ϵs[pos] = abs(1 - abs(v))
@@ -105,7 +105,7 @@ function dmrg2_sweep!(iter::Integer, ψ::AbstractFiniteMPS, H, trscheme::Truncat
         @plansor ac2[-1 -2; -3 -4] := ψ.AL[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -4; -3]
         Hac2 = AC2_hamiltonian(pos, ψ, H, ψ, envs)
         _, vecs, _ = eigsolve(Hac2, ac2, 1, :SR, alg_eigsolve)
-        al, c, ar, err = tsvd!(vecs[1]; p=2, trunc=trscheme, alg=alg.alg_svd)
+        al, c, ar, err = svd_trunc!(vecs[1]; trunc=trscheme, alg=alg.alg_svd)
         normalize!(c)
         v = @plansor ac2[1 2; 3 4] * conj(al[1 2; 5]) * conj(c[5; 6]) * conj(ar[6; 3 4])
         ϵs[pos] = max(ϵs[pos], abs(1 - abs(v)))

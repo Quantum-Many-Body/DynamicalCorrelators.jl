@@ -63,7 +63,7 @@ filling = (1, 1)
 
 #find the ground state and ground energy
 st = randFiniteMPS(Float64, U1Irrep, U1Irrep, length(lattice); filling=filling)
-gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme= truncbelow(1e-9)));
+gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme= trunctol(1e-9)));
 E0 = expectation_value(gs, H)
 ```
 
@@ -88,7 +88,7 @@ H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N); filling=filling, t=1, U=
 st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling=filling)
 
 #find the ground state |gs> 
-gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme= truncbelow(1e-6)));
+gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme= trunctol(1e-6)));
 
 #obtain c^†_1|gs> and c^†_4|gs> 
 ep =  e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
@@ -103,10 +103,10 @@ cm =  e_min(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
 sp =  S_plus(Float64, SU2Irrep, U1Irrep; filling=filling)
 
 #calculate the dynamical single-particle correlation function 
-edc = dcorrelator(gs, H, (cp, cm); trscheme=truncdim(200), n=n, dt=dt, ft=ft)
+edc = dcorrelator(gs, H, (cp, cm); trscheme=truncrank(200), n=n, dt=dt, ft=ft)
 
 #calculate the dynamical two-particle spin-spin correlation function 
-sdc = dcorrelator(gs, H, sp, 1:48; trscheme=truncdim(200), n=n, dt=dt, ft=ft)
+sdc = dcorrelator(gs, H, sp, 1:48; trscheme=truncrank(200), n=n, dt=dt, ft=ft)
 ```
 After Fourier transform with `fourier_kw`, we can obtain their spectral functions:
 
