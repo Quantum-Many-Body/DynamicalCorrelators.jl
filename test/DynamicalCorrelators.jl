@@ -75,7 +75,7 @@ end
     @testset "U1" begin
         H = hubbard(elt, U1Irrep, U1Irrep, FiniteChain(L); filling=filling, t=1, U=8, μ=0)
         st = randFiniteMPS(elt, U1Irrep, U1Irrep, L; filling=filling)
-        gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerror(1e-12)));
+        gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerror(; rtol=1e-10)));
         ep =  e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
         sp = S_plus(elt, U1Irrep, U1Irrep; side=:L, filling=filling)
         sz = S_z(elt, U1Irrep, U1Irrep; filling=filling)
@@ -93,7 +93,7 @@ end
     @testset "SU2" begin
         H = hubbard(elt, SU2Irrep, U1Irrep, FiniteChain(4); filling=filling, t=1, U=8, μ=0)
         st = randFiniteMPS(elt, SU2Irrep, U1Irrep, 4; filling=filling)
-        gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerror(1e-6)));
+        gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerror(; rtol=1e-6)));
         ep = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
         sp = S_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
         i, j = 1, 4
