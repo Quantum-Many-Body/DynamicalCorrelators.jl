@@ -20,6 +20,7 @@ function idmrg2(mps, operator, alg::alg_type; verbose::Union{Bool, Integer}=true
     for (mps, envs, ϵ, ΔE) in it
         current_time = now()
         Int(verbose) > 0 && println(log, " sweep[$(it.iter)]", " ΔE = $(ΔE), ϵ = $(ϵ) | duration:", Dates.canonicalize(current_time-start_time))
+        Int(verbose) > 0 && flush(stdout)
         jldopen(filename, "w") do f
             f["state"] = it.state
         end
