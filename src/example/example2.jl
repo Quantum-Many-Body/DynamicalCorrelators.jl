@@ -22,7 +22,7 @@ TensorKit.with_blockscheduler(DynamicScheduler()) do
     filling=filling)
     st = randFiniteMPS(elt, SU2Irrep, U1Irrep, L; md=50, filling=filling)
     D = 2048
-    gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncrank(D) & truncerr(1e-6), maxiter=3, verbosity=4));
+    gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncrank(D) & truncerror(;rtol=1e-6), maxiter=3, verbosity=4));
     println(expectation_value(gs, H))
     println(delta)
     save("...jld2", "gs", gs, "delta", delta, "dim", D)
@@ -51,7 +51,7 @@ dt = 0.06
 ft = 24
 n = 2
 err = 1e-3
-trscheme=truncerr(err)
+trscheme=truncerror(;rtol=err)
 
 half = length(mps)÷2
 
@@ -75,7 +75,7 @@ TensorKit.with_blockscheduler(DynamicScheduler()) do
     tzz20 = 0, txx20 = 0, tzz2z = 0, txx1z = 0, txx2z = 0, txz2z = 0,
     filling=filling)
     D = 4096
-    gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncrank(D) & truncerr(1e-8), maxiter=5, verbosity=4));
+    gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncrank(D) & truncerror(;rtol=1e-8), maxiter=5, verbosity=4));
     println(expectation_value(gs, H))
     println(delta)
     save("...jld2", "gs", gs, "delta", delta, "dim", D)
