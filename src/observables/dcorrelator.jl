@@ -4,7 +4,7 @@
                     save_id::AbstractArray=[length(ts),], 
                     verbose::Bool=true, 
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3),
+                    trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
@@ -14,7 +14,7 @@ function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=co
                     save_id::AbstractArray=[length(ts),], 
                     verbose::Bool=true, 
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3),
+                    trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
@@ -46,13 +46,62 @@ function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=co
 end
 
 """
+    evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H)); 
+                        filename::String="default_expiHt_ψ.jld2", 
+                    save_id::AbstractArray=[length(ts),], 
+                    verbose::Bool=true, 
+                    n::Integer=3, 
+                    trscheme=truncerr(;rtol=1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
+"""
+function evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H(mus[1]))); 
+                    filename::String="default_expiHt_ψ.jld2", 
+                    save_id::AbstractArray=[length(ts),], 
+                    verbose::Bool=true, 
+                    n::Integer=3, 
+                    trscheme=truncerr(;rtol=1e-3),
+                    tdvp1 = DefaultTDVP,
+                    tdvp2 = DefaultTDVP2(trscheme)
+                    )
+    start_time, record_start = now(), now()
+    verbose && println("[1/$(length(ts))] t = $(ts[1]) ", " | Started:", Dates.format(start_time, "d.u yyyy HH:MM"))
+    flush(stdout)
+    envs = environments(rho_mps, H(mus[1]))
+    jldopen(filename, "w") do f
+        f["ts"] = ts
+        if 1 in save_id
+            f["t=$(ts[1])"] = rho_mps
+            f["mu_t=$(ts[1])"] = mus[1]
+        end
+    end
+    for i in 2:length(ts)
+        alg = i > n ? tdvp1 : tdvp2
+        rho_mps, envs = timestep(rho_mps, H(mus[i]), 0, ts[i]-ts[i-1], alg, envs)
+        current_time = now()
+        verbose && println("[$i/$(length(ts))] t = $(ts[i]) ", " | duration:", Dates.canonicalize(current_time-start_time))
+        flush(stdout)
+        jldopen(filename, "a") do f
+            if i in save_id
+                f["t=$(ts[i])"] = rho_mps
+                f["mu_t=$(ts[i])"] = mus[i]
+            end
+        end
+        start_time = current_time
+    end
+    verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+    return rho_mps
+end
+
+"""
     dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::Union{AbstractTensorMap, AbstractArray{<:FiniteNormalMPS}}, indices::AbstractArray;
                     verbose=true, 
                     gf_path::String="./", 
                     times::AbstractRange=0:0.05:5.0, 
                     record_indices::AbstractArray=1:length(times),
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3),
+                    trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
@@ -64,7 +113,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::Union{AbstractT
                     times::AbstractRange=0:0.05:5.0, 
                     record_indices::AbstractArray=1:length(times),
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3),
+                    trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
@@ -135,7 +184,7 @@ end
                     gf_path::String="./", 
                     times::AbstractRange=0:0.05:5.0, 
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3),
+                    trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
@@ -146,7 +195,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
                     gf_path::String="./", 
                     times::AbstractRange=0:0.05:5.0, 
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3),
+                    trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme),
                     isfermion::Bool = true
@@ -210,7 +259,7 @@ end
                     times::AbstractRange=0:0.05:5.0, 
                     beta::Union{Number, Missing}=missing,
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3),
+                    trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
@@ -223,7 +272,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, op::AbstractTensorM
                     beta::Union{Number, Missing}=missing,
                     rho_path::String="./beta=$(beta)",
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3),
+                    trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme),
                     )
@@ -309,7 +358,7 @@ end
                     times::AbstractRange=0:0.05:5.0, 
                     beta::Union{Number, Missing}=missing,
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3),
+                    trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
@@ -322,7 +371,7 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
                     beta::Union{Number, Missing}=missing,
                     rho_path::String="./beta=$(beta)",
                     n::Integer=3, 
-                    trscheme=truncerr(1e-3),
+                    trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme),
                     isfermion::Bool = true
