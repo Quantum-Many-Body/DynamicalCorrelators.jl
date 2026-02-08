@@ -1,4 +1,4 @@
-<img src="https://github.com/ZongYongyue/DynamicalCorrelators.jl/tree/main/docs/src/logo.png" width="200">
+<img src="./docs/src/logo.png" width="200">
 
 # DynamicalCorrelators.jl
 
@@ -35,7 +35,7 @@ f = plot(lattice,1; siteon=true)
 
 ```
 
-<img  src="https://github.com/ZongYongyue/DynamicalCorrelators.jl/tree/main/docs/src/triangularlattice.png"  width="400"  align="center" />
+<img  src="./docs/src/triangularlattice.png"  width="400"  align="center" />
 
 With the help of [`QuantumLattices`](https://github.com/Quantum-Many-Body/QuantumLattices.jl.git), constructing the lattice of a realistic system allows for the convenient inclusion of terms in the Hamiltonian for arbitrary neighbors, without the need to construct different types of lattices and define their neighbor relations case by case:
 
@@ -110,11 +110,11 @@ sdc = dcorrelator(gs, H, sp, 1:48; trscheme=truncrank(200), n=n, dt=dt, ft=ft)
 ```
 After Fourier transform with `fourier_kw`, we can obtain their spectral functions:
 
-<img  src="https://github.com/ZongYongyue/DynamicalCorrelators.jl/tree/main/docs/src/electron_spectrum.png"  width="600"  align="center" />
+<img  src="./docs/src/electron_spectrum.png"  width="600"  align="center" />
 
 for the electron spectrum, and
 
-<img  src="https://github.com/ZongYongyue/DynamicalCorrelators.jl/tree/main/docs/src/spin_spectrum.png"  width="600"  align="center" />
+<img  src="./docs/src/spin_spectrum.png"  width="600"  align="center" />
 
 for the spin-spin spectrum.
 
