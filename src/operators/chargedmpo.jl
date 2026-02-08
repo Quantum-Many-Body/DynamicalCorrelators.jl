@@ -1,5 +1,12 @@
 """
     chargedMPO(operator::AbstractTensorMap, site::Integer, nsites::Integer)
+
+Construct a `FiniteMPO` that applies a single-site operator at position `site` on a chain
+of `nsites` sites. A fermionic string operator `fZ` (Jordan-Wigner string) is inserted on
+sites to the left or right of `site` depending on the operator leg structure:
+- (1 codomain, 2 domain): creation-like → string on the left.
+- (2 codomain, 1 domain): annihilation-like → string on the right.
+- (1, 1): diagonal → identity everywhere else.
 """
 function chargedMPO(operator::AbstractTensorMap, site::Integer, nsites::Integer)
     pspace = domain(operator)[1]
@@ -20,6 +27,13 @@ function chargedMPO(operator::AbstractTensorMap, site::Integer, nsites::Integer)
     return mpo
 end
 
+"""
+    chargedMPO(operator₁, operator₂, site₁, site₂, nsites)
+
+Construct a `FiniteMPO` that applies two operators at positions `site₁ < site₂`.
+Requires `operator₁` to be creation-like (1,2) and `operator₂` to be annihilation-like (2,1).
+A Jordan-Wigner string is inserted between the two sites.
+"""
 function chargedMPO(operator₁::AbstractTensorMap, operator₂::AbstractTensorMap, site₁::Integer, site₂::Integer, nsites::Integer)
     pspace = domain(operator₁)[1]
     if (length(domain(operator₁)) == 2)&&(length(codomain(operator₁)) == 1)&&(length(codomain(operator₂)) == 2)&&(length(domain(operator₂)) == 1)&&(site₁ < site₂)
@@ -32,6 +46,13 @@ function chargedMPO(operator₁::AbstractTensorMap, operator₂::AbstractTensorM
     return mpo
 end
 
+"""
+    chargedMPO(operator::AbstractTensorMap, site₁, site₂, nsites)
+
+Construct a `FiniteMPO` for a two-site operator by decomposing it via SVD into
+local tensors at `site₁` and `site₂`, with appropriate string operators in between.
+The decomposition handles creation-like, annihilation-like, and diagonal operators.
+"""
 function chargedMPO(operator::AbstractTensorMap, site₁::Integer, site₂::Integer, nsites::Integer)
     pspace = domain(operator)[1]
     O₁, O₂ = decompose_localmpo(add_single_util_leg(operator))
@@ -55,6 +76,9 @@ end
 
 """
     identityMPO(H::FiniteMPOHamiltonian)
+
+Construct an identity `FiniteMPO` compatible with Hamiltonian `H`.
+Each site is a `BraidingTensor` acting as an identity on the physical space.
 """
 function identityMPO(H::FiniteMPOHamiltonian)
     V = oneunit(spacetype(H))

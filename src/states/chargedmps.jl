@@ -1,19 +1,44 @@
+"""
+    const FiniteNormalMPS{C}
+
+Type alias for a standard finite MPS with 2-leg physical tensors (virtual-physical; virtual).
+Used for zero-temperature ground states.
+"""
 const FiniteNormalMPS{C} = FiniteMPS{<:AbstractTensorMap{N,C,2,1}} where {N}
+
+"""
+    const FiniteSuperMPS{C}
+
+Type alias for a finite MPS with 3-leg physical tensors (virtual-physical-ancilla; virtual).
+Used for finite-temperature density matrix purification (thermofield double formalism).
+"""
 const FiniteSuperMPS{C} = FiniteMPS{<:AbstractTensorMap{N,C,3,1}} where {N}
 
 """
     chargedMPS(operator::AbstractTensorMap, state::FiniteNormalMPS, site::Integer)
+
+Apply a local operator at `site` to a normal MPS by constructing a charged MPO and
+contracting it with the state. Returns the resulting MPS (e.g., `c†ᵢ|ψ⟩`).
 """
 function chargedMPS(operator::AbstractTensorMap, state::FiniteNormalMPS, site::Integer)
     return chargedMPO(operator, site, length(state))*state
 end
 
+"""
+    chargedMPS(operator::AbstractTensorMap, state::FiniteNormalMPS, site₁::Integer, site₂::Integer)
+
+Apply a two-site operator at `site₁` and `site₂` to a normal MPS.
+"""
 function chargedMPS(operator::AbstractTensorMap, state::FiniteNormalMPS, site₁::Integer, site₂::Integer)
     return chargedMPO(operator, site₁, site₂, length(state))*state
 end
 
 """
-    chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::Integer) where {B, S}
+    chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::Integer)
+
+Apply a (1,2)-leg operator (1 codomain, 2 domain legs) to a super MPS at `site`.
+This inserts the operator into the physical-ancilla leg structure of the purified state.
+For sites after the operator site, the tensor legs are rearranged via braiding (τ).
 """
 function chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::Integer) where {B, S}
     T = promote_contract(scalartype(op), scalartype(mps))
@@ -38,7 +63,10 @@ function chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::I
 end
 
 """
-chargedMPS(op::AbstractTensorMap{S,B,2,1}, mps::FiniteSuperMPS, site::Integer) where {B, S}
+    chargedMPS(op::AbstractTensorMap{S,B,2,1}, mps::FiniteSuperMPS, site::Integer)
+
+Apply a (2,1)-leg operator (2 codomain, 1 domain legs) to a super MPS at `site`.
+For sites before the operator site, the tensor legs are rearranged via braiding (τ).
 """
 function chargedMPS(op::AbstractTensorMap{S,B,2,1}, mps::FiniteSuperMPS, site::Integer) where {B, S}
     T = promote_contract(scalartype(op), scalartype(mps))
@@ -63,7 +91,10 @@ function chargedMPS(op::AbstractTensorMap{S,B,2,1}, mps::FiniteSuperMPS, site::I
 end
 
 """
-    chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::Integer) where {B, S}
+    chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::Integer)
+
+Apply a (1,1)-leg operator (diagonal, charge-neutral) to a super MPS at `site`.
+Only the tensor at the operator site is modified; all other tensors remain unchanged.
 """
 function chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::Integer) where {B, S}
     T = promote_contract(scalartype(op), scalartype(mps))
@@ -112,6 +143,10 @@ end
 
 """
     identityMPS(H::FiniteMPOHamiltonian)
+
+Construct an identity MPS (purified infinite-temperature density matrix) from a Hamiltonian.
+Each site tensor is a `BraidingTensor` acting as an identity map on the physical space.
+This serves as the initial state for imaginary-time evolution to finite temperature.
 """
 function identityMPS(H::FiniteMPOHamiltonian)
     V = oneunit(spacetype(H))

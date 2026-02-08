@@ -262,10 +262,10 @@ end
 
 
 """
-    Kitaev_hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, lattice=FiniteChain(1); t=1.0, tz=0.0, U=1.0, μ=0.0, filling=(1,1))
-    fℤ₂ × U(1) × U(1) 1d-Chain Kitaev-Hubbard model without pairing terms
-"""
+    kitaev_hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, lattice=FiniteChain(1); t=1.0, tz=0.0, U=1.0, μ=0.0, filling=(1,1))
 
+Construct a fℤ₂ × U(1) × U(1) 1d-Chain Kitaev-Hubbard model without pairing terms.
+"""
 function kitaev_hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, lattice=FiniteChain(1); t=1.0, tz=0.0, U=1.0, μ=0.0, filling=(1,1))
     hoppings = hopping(elt, U1Irrep, U1Irrep;filling=filling)
     σz_hoppings = σz_hopping(elt, U1Irrep, U1Irrep;filling=filling)
@@ -293,6 +293,23 @@ function heisenberg_model(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteC
     end
 end
 
+"""
+    JKGGp_model(L, x_indices, y_indices, z_indices; spin=1//2, J=1, K=0, G=0, Gp=0)
+
+Construct a JKΓΓ' (Kitaev-Heisenberg-Gamma) spin model Hamiltonian without symmetry constraints.
+
+The Hamiltonian on each bond type (x, y, z) is:
+``H_\\gamma = (J+K) S^\\gamma_i S^\\gamma_j + J \\sum_{\\alpha \\neq \\gamma} S^\\alpha_i S^\\alpha_j + \\Gamma(\\ldots) + \\Gamma'(\\ldots)``
+
+# Arguments
+- `L`: total number of sites.
+- `x_indices`, `y_indices`, `z_indices`: arrays of `(site_i, site_j)` tuples for x-, y-, z-type bonds.
+- `spin`: spin quantum number (default: 1/2).
+- `J`: Heisenberg coupling.
+- `K`: Kitaev coupling.
+- `G` (`Γ`): off-diagonal symmetric exchange.
+- `Gp` (`Γ'`): off-diagonal symmetric exchange (primed).
+"""
 function JKGGp_model(L, x_indices, y_indices, z_indices; spin=1//2, J=1, K=0, G=0, Gp=0)
     Sx = S_x(ComplexF64, Trivial; spin=spin)
     Sy = S_y(ComplexF64, Trivial; spin=spin)

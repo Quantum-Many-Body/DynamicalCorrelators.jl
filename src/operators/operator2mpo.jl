@@ -1,3 +1,16 @@
+"""
+    hamiltonian(terms, lattice, hilbert; neighbors=nothing, filling=(1,1))
+
+Construct a `FiniteMPOHamiltonian` from QuantumLattices `Term`s on a given `lattice`
+with Hilbert space `hilbert`. Uses fℤ₂ × U(1) × U(1) symmetry.
+
+# Arguments
+- `terms`: tuple of `Term` objects (e.g., `Hopping`, `Hubbard`, `Onsite`).
+- `lattice`: a `Lattice` from QuantumLattices.
+- `hilbert`: the Hilbert space specification.
+- `neighbors`: neighbor order. If `nothing`, inferred from `terms`.
+- `filling`: tuple `(P, Q)` defining the filling fraction.
+"""
 function hamiltonian(terms::Tuple{Vararg{Term}}, lattice::Lattice, hilbert::Hilbert; neighbors::Union{Nothing, Int, Neighbors}=nothing, filling::NTuple{2, Integer}=(1,1))
     isnothing(neighbors) && (neighbors = maximum(term->term.bondkind, terms))
     bond = bonds(lattice, neighbors)
@@ -5,6 +18,12 @@ function hamiltonian(terms::Tuple{Vararg{Term}}, lattice::Lattice, hilbert::Hilb
     return hamiltonian(operators, length(lattice), filling)
 end
 
+"""
+    hamiltonian(operators::OperatorSet, len, filling)
+
+Convert a set of symbolic operators into a `FiniteMPOHamiltonian` with U(1)×U(1) symmetry.
+Each operator is converted to an MPO tensor via `_convert_operator`.
+"""
 function hamiltonian(operators::OperatorSet{<:Operator}, len::Integer, filling::NTuple{2, Integer})
     mpos = Vector(undef, length(operators))
     for (i, op) in enumerate(operators)
@@ -16,6 +35,9 @@ function hamiltonian(operators::OperatorSet{<:Operator}, len::Integer, filling::
     return FiniteMPOHamiltonian(fill(pspace, len), mpos...)
 end
 
+# Convert a 2-index symbolic operator to an MPO site term.
+# Handles both on-site (single-site) and two-site cases, determining the
+# tensor representation from the spin/nambu indices.
 function _convert_operator(op::Operator{<:Number, <:NTuple{2, CoordinatedIndex}}, filling::NTuple{2, Integer})
     value = op.value
     sites = unique([op.id[i].index.site for i in 1:2])
@@ -33,6 +55,9 @@ function _convert_operator(op::Operator{<:Number, <:NTuple{2, CoordinatedIndex}}
     end
 end
 
+# Convert a 4-index symbolic operator to an MPO site term.
+# Handles on-site (1 site) and two-site (2 sites) cases for 4-body terms
+# like pair hopping or Hund's coupling.
 function _convert_operator(op::Operator{<:Number, <:NTuple{4, CoordinatedIndex}}, filling::NTuple{2, Integer})
     value = op.value
     sites = unique([op.id[i].index.site for i in 1:4])
@@ -50,6 +75,8 @@ function _convert_operator(op::Operator{<:Number, <:NTuple{4, CoordinatedIndex}}
     end
 end
 
+# Map a QuantumLattices Index to the corresponding fermionic tensor operator.
+# Determines creation (nambu=2) vs annihilation, and spin-up (1/2) vs spin-down.
 function _index2tensor(elt::Type{<:Number}, ids::Index, side::Symbol, filling::NTuple{2, Integer})
     ids.internal.nambu == 2 ? ten = e_plus : ten = e_min
     ids.internal.spin == 1//2 ? spin = :up : spin = :down

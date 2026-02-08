@@ -69,10 +69,22 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=
     return ψ, envs, ϵ
 end
 
+"""
+    dmrg2(ψ, H, truncdims; kwargs...)
+
+Non-mutating version of [`dmrg2!`](@ref). Creates a copy of the MPS `ψ` before
+running the DMRG2 optimization.
+"""
 function dmrg2(ψ, H, truncdims; kwargs...)
     return dmrg2!(copy(ψ), H, truncdims; kwargs...)
 end
 
+"""
+    dmrg2_sweep!(iter, ψ, H, trscheme, ϵs; alg=DefaultDMRG, filename="default_dmrg2.jld2", verbose=true)
+
+Perform a single two-site DMRG sweep (left-to-right then right-to-left) on `ψ`.
+Wraps MPSKit's DMRG2 algorithm with progress logging, timing, and JLD2 checkpointing.
+"""
 function dmrg2_sweep!(iter::Integer, ψ::AbstractFiniteMPS, H, trscheme, ϵs::AbstractArray; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true)
     start_time = now()
     ϵ = maximum(ϵs)
