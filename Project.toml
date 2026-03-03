@@ -1,7 +1,7 @@
 name = "DynamicalCorrelators"
 uuid = "7abe38c7-550a-49b0-ba99-33d1b5164ede"
-authors = ["Y.-Y.Zong"]
 version = "0.6.0"
+authors = ["Y.-Y.Zong"]
 
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
@@ -12,6 +12,7 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MPSKit = "bb1c41ca-d63c-52ed-829e-0820dda26502"
 MPSKitModels = "ca635005-6f8c-4cd1-b51d-8491250ef2ab"
 NumericalIntegration = "e7bfaba1-d571-5449-8927-abc22e82249b"
+Preferences = "21216c6a-2e73-6563-6e65-726566657250"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 QuantumLattices = "78ae1a1f-1d5d-5174-b61c-66e31b2346dc"
 SharedArrays = "1a1011a3-84de-559e-8e89-a11a2f7dc383"
@@ -25,6 +26,7 @@ KrylovKit = "0.9, 0.10"
 MPSKit = "0.13.10"
 MPSKitModels = "0.4"
 NumericalIntegration = "0.3"
+Preferences = "1.5.2"
 Printf = "1.11"
 QuantumLattices = "0.11, 0.12, 0.13, 0.14"
 TensorKit = "0.16"
