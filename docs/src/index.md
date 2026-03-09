@@ -12,7 +12,7 @@
 
 - The bechmark of dynamical correlation functions and related observables is the result from exact diagonalization method based on the packages [`ExactDiagonalization`](https://github.com/Quantum-Many-Body/ExactDiagonalization.jl.git)
 
-See documents: https://zongyongyue.github.io/DynamicalCorrelators.jl
+See documents: https://Quantum-Many-Body.github.io/DynamicalCorrelators.jl
 
 ## Installation
 
