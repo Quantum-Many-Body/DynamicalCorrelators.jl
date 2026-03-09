@@ -4,11 +4,11 @@ using DynamicalCorrelators
 makedocs(;
     modules=[DynamicalCorrelators],
     authors="Y.-Y.Zong",
-    repo="https://github.com/ZongYongyue/DynamicalCorrelators.jl/blob/{commit}{path}#{line}",
+    repo="https://github.com/Quantum-Many-Body/DynamicalCorrelators.jl/blob/{commit}{path}#{line}",
     sitename="DynamicalCorrelators.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
-        canonical="https://ZongYongyue.github.io/DynamicalCorrelators.jl",
+        canonical="https://Quantum-Many-Body.github.io/DynamicalCorrelators.jl",
         edit_link="main",
         assets=String[],
     ),
@@ -35,7 +35,7 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/ZongYongyue/DynamicalCorrelators.jl",
+    repo="github.com/Quantum-Many-Body/DynamicalCorrelators.jl",
     devbranch="main",
     push_preview=true,
 )
