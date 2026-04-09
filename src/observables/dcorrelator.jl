@@ -95,38 +95,38 @@ function evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mp
 end
 
 """
-    dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::Union{AbstractTensorMap, AbstractArray{<:FiniteNormalMPS}}, indices::AbstractArray;
-                    verbose=true, 
-                    gf_path::String="./", 
-                    times::AbstractRange=0:0.05:5.0, 
+    dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
+                    verbose=true,
+                    gf_path::String="./",
+                    times::AbstractRange=0:0.05:5.0,
                     record_indices::AbstractArray=1:length(times),
-                    n::Integer=3, 
+                    n::Integer=3,
                     trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
-    Dynamical correlations in zero temperature
 """
-function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::Union{AbstractTensorMap, AbstractArray{<:FiniteNormalMPS}}, indices::AbstractArray;
-                    verbose=true, 
-                    gf_path::String="./", 
-                    times::AbstractRange=0:0.05:5.0, 
+function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
+                    verbose=true,
+                    gf_path::String="./",
+                    times::AbstractRange=0:0.05:5.0,
                     record_indices::AbstractArray=1:length(times),
-                    n::Integer=3, 
+                    n::Integer=3,
                     trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme)
                     )
-    !isdir(gf_path)&& mkdir(gf_path)
+    !isdir(gf_path) && mkdir(gf_path)
     gsenergy = expectation_value(gs, H)
     gf = SharedArray{ComplexF64, 3}(length(H), length(indices), length(record_indices))
-    mps = isa(op, AbstractTensorMap) ? [chargedMPS(op, gs, i) for i in 1:length(H)] : op
     @sync @distributed for d in eachindex(indices)
-        id = indices[d] 
+        id = indices[d]
         start_time, record_start = now(), now()
         idx = id <= length(H) ? id : (id - length(H))
-        ket = isa(op, AbstractTensorMap) ? chargedMPS(op, gs, idx) : op[id]
-        gf[:,d,1] = id <= length(H) ? [-im*exp(im*gsenergy*times[record_indices[1]])*dot(mps[i], ket) for i in 1:length(H)] : [-im*exp(-im*gsenergy*times[record_indices[1]])*dot(ket, mps[i]) for i in 1:length(H)]
+        ket = chargedMPS(op, gs, idx)
+        phase = id <= length(H) ? exp(im*gsenergy*times[record_indices[1]]) : exp(-im*gsenergy*times[record_indices[1]])
+        sd = sweep_dot(gs, op, ket)
+        gf[:,d,1] = id <= length(H) ? -im * phase .* sd : -im * phase .* conj.(sd)
         filename = joinpath(gf_path, "gf_start=$(times[record_indices[1]])_end=$(times[record_indices[end]])_id=$(id).jld2")
         if isfile(filename)
             gfb = load(filename)
@@ -152,9 +152,9 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::Union{AbstractT
             alg = k > n ? tdvp1 : tdvp2
             ket, envs = timestep(ket, H, 0, times[k]-times[k-1], alg, envs)
             if times[k-1] >= times[record_indices[1]]
-                for i in 1:length(H)
-                    gf[i,d,k] = (id <= length(H)) ? -im*exp(im*gsenergy*times[k])*dot(mps[i], ket) : -im*exp(-im*gsenergy*times[k])*dot(ket, mps[i])
-                end
+                phase = id <= length(H) ? exp(im*gsenergy*times[k]) : exp(-im*gsenergy*times[k])
+                sd = sweep_dot(gs, op, ket)
+                gf[:,d,k] = id <= length(H) ? -im * phase .* sd : -im * phase .* conj.(sd)
                 current_time = now()
                 verbose && println("[$(k)/$(length(times))] time evolves $(times[k]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
                 flush(stdout)
@@ -179,35 +179,37 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::Union{AbstractT
 end
 
 """
-    dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, mps::AbstractVector{<:FiniteNormalMPS};
-                    verbose=true, 
-                    gf_path::String="./", 
-                    times::AbstractRange=0:0.05:5.0, 
-                    n::Integer=3, 
-                    trscheme=truncerr(;rtol=1e-3),
-                    tdvp1 = DefaultTDVP,
-                    tdvp2 = DefaultTDVP2(trscheme)
-                    )
-    Dynamical correlations in zero temperature
+    dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap};
+            verbose=true,
+            gf_path::String="./",
+            times::AbstractRange=0:0.05:5.0,
+            n::Integer=3,
+            trscheme=truncerr(;rtol=1e-3),
+            tdvp1 = DefaultTDVP,
+            tdvp2 = DefaultTDVP2(trscheme),
+            isfermion::Bool = true
+            )
 """
 function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap};
-                    verbose=true, 
-                    gf_path::String="./", 
-                    times::AbstractRange=0:0.05:5.0, 
-                    n::Integer=3, 
+                    verbose=true,
+                    gf_path::String="./",
+                    times::AbstractRange=0:0.05:5.0,
+                    n::Integer=3,
                     trscheme=truncerr(;rtol=1e-3),
                     tdvp1 = DefaultTDVP,
                     tdvp2 = DefaultTDVP2(trscheme),
                     isfermion::Bool = true
                     )
-    !isdir(gf_path)&& mkdir(gf_path)
-    mps = [[chargedMPS(ops[1], gs, i) for i in 1:length(H)];[chargedMPS(ops[2], gs, i) for i in 1:length(H)]]
+    !isdir(gf_path) && mkdir(gf_path)
     gsenergy = expectation_value(gs, H)
     gf = SharedArray{ComplexF64, 3}(length(H), 2*length(H), length(times))
     @sync @distributed for j in 1:2*length(H)
         start_time, record_start = now(), now()
-        ket = mps[j]
-        gf[:,j,1] = j <= length(H) ? [-im*exp(im*gsenergy*times[1])*dot(bra, ket) for bra in mps[1:length(H)]] : [-im*exp(im*gsenergy*times[1])*dot(ket, bra) for bra in mps[(length(H)+1):end]]
+        cur_op = j <= length(H) ? ops[1] : ops[2]
+        idx = j <= length(H) ? j : j - length(H)
+        ket = chargedMPS(cur_op, gs, idx)
+        sd = sweep_dot(gs, cur_op, ket)
+        gf[:,j,1] = j <= length(H) ? -im * exp(im*gsenergy*times[1]) .* sd : -im * exp(-im*gsenergy*times[1]) .* conj.(sd)
         flush(stdout)
         filename = joinpath(gf_path, "gf_tmax=$(times[end])_id=$(j).jld2")
         if isfile(filename)
@@ -232,9 +234,8 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
         for k in 2:length(times)
             alg = k > n ? tdvp1 : tdvp2
             ket, envs = timestep(ket, H, 0, times[k]-times[k-1], alg, envs)
-            for i in 1:(length(mps)÷2)
-                gf[i,j,k] = (j <= length(H)) ? -im*exp(im*gsenergy*times[k])*dot(mps[1:length(H)][i], ket) : -im*exp(-im*gsenergy*times[k])*dot(ket, mps[(length(H)+1):end][i])
-            end
+            sd = sweep_dot(gs, cur_op, ket)
+            gf[:,j,k] = j <= length(H) ? -im * exp(im*gsenergy*times[k]) .* sd : -im * exp(-im*gsenergy*times[k]) .* conj.(sd)
             current_time = now()
             verbose && println("[$(k)/$(length(times))] time evolves $(times[k]) of ket$(j) ", " | duration:", Dates.canonicalize(current_time-start_time))
             flush(stdout)
@@ -453,4 +454,77 @@ function dcorrelator(rho::FiniteSuperMPS, H::MPOHamiltonian, ops::Tuple{<:Abstra
     end
     gfs = isfermion ? (gf[:,1:length(H),:] .+ gf[:,(length(H)+1):2*length(H),:]) : (gf[:,1:length(H),:] .- gf[:,(length(H)+1):2*length(H),:])
     return -im*gfs
+end
+
+"""
+    sweep_dot(gs::FiniteNormalMPS, op::AbstractTensorMap, ket::FiniteNormalMPS) -> Vector
+
+Compute `⟨gs|chargedMPO(op,i)†|ket⟩` for all sites `i=1..L` in a single sweep.
+
+# Arguments
+- `gs`: the ground state MPS.
+- `op`: the local operator. Allowed leg structures:
+  - `(1,2)`: `op[-1; -2 -3]` with MPO virtual leg on the right (side=:L convention).
+  - `(1,1)`: `op[-1; -2]` diagonal operator without virtual leg.
+  Operators with `(2,1)` legs (virtual leg on the left) are not supported.
+- `ket`: the time-evolved charged MPS, e.g. `ket = chargedMPS(op, gs, j)`.
+"""
+function sweep_dot(gs::FiniteNormalMPS, op::AbstractTensorMap, ket::FiniteNormalMPS)
+    L = length(gs)
+    S = promote_type(scalartype(gs), scalartype(ket))
+    ncodom = length(codomain(op))
+    ndom = length(domain(op))
+
+    if ncodom == 2 && ndom == 1
+        throw(ArgumentError("operator with virtual leg on the codomain is not supported; use side=:L convention"))
+    end
+
+    if ncodom == 1 && ndom == 2
+        # Non-trivial virtual leg: chargedMPO = [I..I | op | Z..Z]
+        # gr is MPSTensor (2 codomain, 1 domain), gl is MPSBondTensor (1,1)
+        Z = fZ(op)
+        gr = Vector{MPSTensor}(undef, L + 1)
+        gr[L + 1] = isomorphism(S, right_virtualspace(gs, L) ⊗ domain(Z, 2) ← right_virtualspace(ket, L))
+        for j in L:-1:1
+            gr[j] = transfer_right(gr[j + 1], Z, gs.AR[j], ket.AR[j])
+        end
+
+        gl = Vector{MPSBondTensor}(undef, L + 1)
+        gl[1] = isomorphism(S, left_virtualspace(ket, 1) ← left_virtualspace(gs, 1))
+        for j in 1:L
+            gl[j + 1] = transfer_left(gl[j], gs.AL[j], ket.AL[j])
+        end
+
+        G = zeros(S, L)
+        for i in 1:L
+            @plansor Gi = gl[i][1; 2] * gs.AC[i][2 3; 4] * gr[i+1][4 6; 7] * op[5; 3 6] * conj(ket.AC[i][1 5; 7])
+            G[i] = conj(Gi)
+        end
+
+    elseif ncodom == 1 && ndom == 1
+        # Diagonal operator: chargedMPO = [I..I | op | I..I], no Z string
+        # Both gl and gr are MPSBondTensor (1,1)
+        gr = Vector{MPSBondTensor}(undef, L + 1)
+        gr[L + 1] = isomorphism(S, right_virtualspace(gs, L) ← right_virtualspace(ket, L))
+        for j in L:-1:1
+            gr[j] = transfer_right(gr[j + 1], gs.AR[j], ket.AR[j])
+        end
+
+        gl = Vector{MPSBondTensor}(undef, L + 1)
+        gl[1] = isomorphism(S, left_virtualspace(ket, 1) ← left_virtualspace(gs, 1))
+        for j in 1:L
+            gl[j + 1] = transfer_left(gl[j], gs.AL[j], ket.AL[j])
+        end
+
+        G = zeros(S, L)
+        for i in 1:L
+            @plansor Gi = gl[i][1; 2] * gs.AC[i][2 3; 4] * gr[i+1][4; 7] * op[5; 3] * conj(ket.AC[i][1 5; 7])
+            G[i] = conj(Gi)
+        end
+
+    else
+        throw(ArgumentError("unsupported operator structure ($(ncodom),$(ndom))"))
+    end
+
+    return G
 end
