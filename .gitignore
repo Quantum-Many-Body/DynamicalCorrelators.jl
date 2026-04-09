@@ -13,3 +13,6 @@ desktop.ini
 .DS_Store
 task/
 Manifest.toml
+.claude
+src/draft
+RELEASE.md

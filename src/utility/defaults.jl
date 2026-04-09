@@ -2,11 +2,11 @@
     DefaultDMRG
 
 Default DMRG2 algorithm configuration for ground-state optimization.
-Uses Lanczos eigensolver with `krylovdim=3`, LAPACK SVD, and bond dimension truncation at 4096.
+Uses Lanczos eigensolver with `krylovdim=16`, LAPACK SVD, and bond dimension truncation at 4096.
 """
 DefaultDMRG = DMRG2(; tol=1e-8, maxiter=5, verbosity=0,
             alg_eigsolve= Lanczos(;
-                krylovdim = 3,
+                krylovdim = 16,
                 maxiter = 1,
                 tol = 1e-8,
                 orth = ModifiedGramSchmidt(),
@@ -68,3 +68,17 @@ DefaultTDVP2(trscheme) = TDVP2(;
             gaugemaxiter = 200,
             alg_svd = LAPACK_DivideAndConquer(),
             trscheme=trscheme)
+
+"""
+    DefaultDMRG1CBE_eigsolve
+
+Default eigensolver for CBE + 1-site DMRG. Uses larger krylovdim than 2-site DMRG
+because the 1-site effective Hamiltonian has less variational freedom.
+"""
+DefaultDMRG1CBE_eigsolve = Lanczos(;
+            krylovdim = 16,
+            maxiter = 1,
+            tol = 1e-8,
+            orth = ModifiedGramSchmidt(),
+            eager = true,
+            verbosity = 0)

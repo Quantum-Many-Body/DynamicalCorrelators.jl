@@ -1,7 +1,7 @@
 name = "DynamicalCorrelators"
 uuid = "7abe38c7-550a-49b0-ba99-33d1b5164ede"
 version = "0.6.0"
-authors = ["Y.-Y.Zong"]
+authors = ["Yong-Yue Zong"]
 
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
@@ -18,6 +18,7 @@ QuantumLattices = "78ae1a1f-1d5d-5174-b61c-66e31b2346dc"
 SharedArrays = "1a1011a3-84de-559e-8e89-a11a2f7dc383"
 TensorKit = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
 TensorOperations = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
+TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 
 [compat]
 Dates = "1.11"
@@ -31,4 +32,5 @@ Printf = "1.11"
 QuantumLattices = "0.11, 0.12, 0.13, 0.14"
 TensorKit = "0.16"
 TensorOperations = "5"
+TimerOutputs = "0.5.29"
 julia = "1.11 - 1.12"
