@@ -1,6 +1,6 @@
 name = "DynamicalCorrelators"
 uuid = "7abe38c7-550a-49b0-ba99-33d1b5164ede"
-version = "0.7.0"
+version = "0.8.0"
 authors = ["Yong-Yue Zong"]
 
 [deps]
