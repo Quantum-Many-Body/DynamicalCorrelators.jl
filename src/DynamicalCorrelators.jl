@@ -5,7 +5,7 @@ using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, 
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
 using TensorOperations: promote_contract, tensorfree!
 using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, Bosonic
-using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dual, fuse, svd_trunc!, normalize!, oneunit, notrunc, similarstoragetype, insertleftunit, insertrightunit, removeunit
+using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dual, fuse, svd_trunc!, svd_compact!, normalize!, oneunit, notrunc, similarstoragetype, insertleftunit, insertrightunit, removeunit
 using TensorKit: left_null, right_null!, catdomain, catcodomain, qr_compact!, left_orth, right_orth, rmul!
 using TensorKit: ⊠, ⊗, permute, repartition, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum, id
 using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, IDMRG, IDMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
