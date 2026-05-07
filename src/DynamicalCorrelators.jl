@@ -4,13 +4,13 @@ using LinearAlgebra: norm, inv, mul!, I, tr, dot, BLAS
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
 using TensorOperations: promote_contract, tensorfree!
-using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, Bosonic
-using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dual, fuse, svd_trunc!, svd_compact!, normalize!, oneunit, notrunc, similarstoragetype, insertleftunit, insertrightunit, removeunit
+using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, sectors, Bosonic
+using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dual, fuse, svd_trunc!, svd_compact!, normalize!,normalize, oneunit, notrunc, similarstoragetype, insertleftunit, insertrightunit, removeunit
 using TensorKit: left_null, right_null!, catdomain, catcodomain, qr_compact!, left_orth, right_orth, rmul!
 using TensorKit: ⊠, ⊗, permute, repartition, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum, id
 using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, IDMRG, IDMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
 using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, timestep!, environments, expectation_value, max_virtualspaces, physicalspace
-using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor, approximate, LAPACK_DivideAndConquer
+using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor, approximate, LAPACK_DivideAndConquer, left_orth!, right_orth!
 using MPSKit.Defaults: _finalize
 using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, AC_hamiltonian, _transpose_front, MPSTensor, MPSBondTensor, check_unambiguous_braiding, scalartype, fixedpoint, transfer_leftenv!, transfer_rightenv!, transfer_right
 using MPSKit: _mul_tail, _mul_front, _transpose_tail, AC2, recalculate!, calc_galerkin, IDMRGState, IterativeSolver
