@@ -4,10 +4,10 @@
 1-site DMRG with Controlled Bond Expansion (CBE) following Algorithm 1 of
 Gleis, Li, von Delft, PRL 130, 246402 (2023).
 
-At each bond, the kept space A_ℓ is expanded by a truncated orthogonal complement
-Â_ℓ^tr via shrewd selection (preselection + final selection), both at 1-site cost.
-Then 1-site eigsolve is performed in the enlarged space, followed by truncation
-back to the target bond dimension.
+By default this uses the shrewd CBE selection of the paper (preselection + final
+selection at 1-site cost). The alternative `cbe_method=:direct` directly
+contracts the projected two-site contribution `N_L† H|ψ⟩ N_R†` and SVDs that
+projected tensor.
 
 # Arguments
 - `ψ`: the MPS state (modified in-place)
@@ -17,14 +17,18 @@ back to the target bond dimension.
 # Keyword arguments
 - `alg_eigsolve`: eigensolver algorithm (default: `DefaultDMRG1CBE_eigsolve`)
 - `alg_svd`: SVD algorithm (default: `LAPACK_DivideAndConquer()`)
+- `cbe_method`: `:shrewd` for the standard Algorithm-1 flow, or `:direct` for
+  direct projected two-site expansion (default: `:shrewd`)
 - `cbe_tol`: absolute truncation tolerance used in CBE selection SVDs
   together with their rank cutoffs (default: `1e-10`)
 - `delta`: CBE working-space overexpansion. The bond is expanded from `D_i`
   to `D_f*(1+delta)` before the eigensolver, then truncated back to `D_f`
   when shifting the center (default: `0.1`)
-- `preselect_factor`: preselection factor. Use `:none` for `D′=D_f`, or a real
-  value for `D′=preselect_factor*D_f/w*`, where `w*` counts MPO-bond symmetry
-  multiplets (default: `1.0`, i.e. moderate preselection).
+- `preselect_factor`: preselection factor used only by `cbe_method=:shrewd`.
+  Use `:none` for `D′=D_f`, or a real value for
+  `D′=preselect_factor*D_f/w*`, where `w*` counts MPO-bond symmetry multiplets
+  (default: `1.0`, i.e. moderate preselection). It is ignored by
+  `cbe_method=:direct`, whose temporary expansion is controlled by `delta`.
 - `safety`: check step-c orthogonality and reorthogonalize only if needed
   (default: `false`)
 - `project_error`: explicitly compute the CBE projection error
@@ -41,6 +45,7 @@ back to the target bond dimension.
 function dmrg1_cbe!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector;
         alg_eigsolve=DefaultDMRG1CBE_eigsolve,
         alg_svd=LAPACK_DivideAndConquer(),
+        cbe_method::Symbol=:shrewd,
         cbe_tol::Real=1e-10,
         delta::Real=0.1,
         preselect_factor::Union{Symbol, Real}=1.0,
@@ -52,6 +57,7 @@ function dmrg1_cbe!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector;
         envs=environments(ψ, H))
 
     N = length(ψ)
+    cbe_method = _cbe_normalize_method(cbe_method)
     delta = _cbe_normalize_delta(delta)
     preselect_factor = _cbe_normalize_preselect_factor(preselect_factor)
     E_prev = real(expectation_value(ψ, H, envs))
@@ -72,86 +78,155 @@ function dmrg1_cbe!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector;
         cbe_nonorth_r2l = Int[]
         err² = zeros(Float64, N)
 
-        # ── left to right sweep ──
-        # Expand the left tensor on bond (pos,pos+1), optimize the enlarged
-        # center at pos+1, then push the center back to the left.
-        for pos in 1:(N - 1)
-            Dtrunc = _cbe_effective_target(ψ.AL[pos], ψ.AR[pos + 1], truncdims[iter])
-            @timeit timer "CBE expand" begin
-                ϵp, failed_nonorth = _cbe_expand_l2r!(ψ, H, pos, envs, alg_svd, truncdims[iter], cbe_tol, delta, preselect_factor, safety, project_error, timer)
-            end
-            cbe_ϵp[pos] = _cbe_nanmax(cbe_ϵp[pos], ϵp)
-            failed_nonorth && push!(cbe_nonorth_l2r, pos)
+        if cbe_method === :shrewd
+            # ── left to right sweep ──
+            # Expand the left tensor on bond (pos,pos+1), optimize the enlarged
+            # center at pos+1, then push the center back to the left.
+            for pos in 1:(N - 1)
+                Dtrunc = _cbe_effective_target(ψ.AL[pos], ψ.AR[pos + 1], truncdims[iter])
+                @timeit timer "CBE expand" begin
+                    ϵp, failed_nonorth = _cbe_expand_l2r!(ψ, H, pos, envs, alg_svd, truncdims[iter], cbe_tol, delta, preselect_factor, safety, project_error, timer)
+                end
+                cbe_ϵp[pos] = _cbe_nanmax(cbe_ϵp[pos], ϵp)
+                failed_nonorth && push!(cbe_nonorth_l2r, pos)
 
+                @timeit timer "eigsolve" begin
+                    h = AC_hamiltonian(pos + 1, ψ, H, ψ, envs)
+                    _, vecs, _ = eigsolve(h, ψ.AC[pos + 1], 1, :SR, alg_eigsolve_iter)
+                end
+                ac_new = vecs[1]
+
+                @timeit timer "SVD trunc" begin
+                    # move center left: AC[pos+1] → (U, S, ar), truncate bond back to target D
+                    U, S, ar_t, ϵ_tr = svd_trunc!(_transpose_tail(ac_new); trunc=truncrank(Dtrunc), alg=alg_svd)
+                    ar = _transpose_front(ar_t)
+                    # absorb U into AL: AL domain D+D̃ → D_f
+                    @plansor new_AL[-1 -2; -3] := ψ.AL[pos][-1 -2; 1] * U[1; -3]
+                    normalize!(S)
+                end
+                err²[pos] = ϵ_tr^2
+
+                ψ.AC[pos]     = (new_AL, S)
+                ψ.AC[pos + 1] = (S, ar)
+
+                Int(verbose) > 1 && println("  SweepL2R: site ", lpad(pos, wpos), " => site ", lpad(pos+1, wpos),
+                    " | D = ", lpad(dim(codomain(ψ.AC[pos+1])[1]), wD),
+                    " | ", Dates.format(now(), "d.u yyyy HH:MM"))
+                Int(verbose) > 1 && flush(stdout)
+            end
             @timeit timer "eigsolve" begin
-                h = AC_hamiltonian(pos + 1, ψ, H, ψ, envs)
-                _, vecs, _ = eigsolve(h, ψ.AC[pos + 1], 1, :SR, alg_eigsolve_iter)
+                h = AC_hamiltonian(N, ψ, H, ψ, envs)
+                _, vecs, _ = eigsolve(h, ψ.AC[N], 1, :SR, alg_eigsolve_iter)
             end
-            ac_new = vecs[1]
+            ψ.AC[N] = normalize!(vecs[1])
 
-            @timeit timer "SVD trunc" begin
-                # move center left: AC[pos+1] → (U, S, ar), truncate bond back to target D
-                U, S, ar_t, ϵ_tr = svd_trunc!(_transpose_tail(ac_new); trunc=truncrank(Dtrunc), alg=alg_svd)
-                ar = _transpose_front(ar_t)
-                # absorb U into AL: AL domain D+D̃ → D_f
-                @plansor new_AL[-1 -2; -3] := ψ.AL[pos][-1 -2; 1] * U[1; -3]
-                normalize!(S)
+            # ── right to left sweep ──
+            # Expand the right tensor on bond (pos,pos+1), optimize the enlarged
+            # center at pos, then push the center back to the right.
+            for pos in (N - 1):-1:1
+                Dtrunc = _cbe_effective_target(ψ.AL[pos], ψ.AR[pos + 1], truncdims[iter])
+                @timeit timer "CBE expand" begin
+                    ϵp, failed_nonorth = _cbe_expand_r2l!(ψ, H, pos, envs, alg_svd, truncdims[iter], cbe_tol, delta, preselect_factor, safety, project_error, timer)
+                end
+                cbe_ϵp[pos] = _cbe_nanmax(cbe_ϵp[pos], ϵp)
+                failed_nonorth && push!(cbe_nonorth_r2l, pos)
+
+                @timeit timer "eigsolve" begin
+                    h = AC_hamiltonian(pos, ψ, H, ψ, envs)
+                    _, vecs, _ = eigsolve(h, ψ.AC[pos], 1, :SR, alg_eigsolve_iter)
+                end
+                ac_new = vecs[1]
+
+                @timeit timer "SVD trunc" begin
+                    # move center right: AC[pos] → (al, S, Vᴴ), truncate bond back to target D
+                    al, S, Vᴴ, ϵ_tr = svd_trunc!(ac_new; trunc=truncrank(Dtrunc), alg=alg_svd)
+                    # absorb Vᴴ into AR: AR codomain D+D̃ → D_f
+                    @plansor new_AR[-1 -2; -3] := Vᴴ[-1; 1] * ψ.AR[pos + 1][1 -2; -3]
+                    normalize!(S)
+                end
+                err²[pos] = max(err²[pos], ϵ_tr^2)
+
+                ψ.AC[pos]     = (al, S)
+                ψ.AC[pos + 1] = (S, new_AR)
+
+                Int(verbose) > 1 && println("  SweepR2L: site ", lpad(pos, wpos), " <= site ", lpad(pos+1, wpos),
+                    " | D = ", lpad(dim(domain(ψ.AC[pos])[1]), wD),
+                    " | ", Dates.format(now(), "d.u yyyy HH:MM"))
+                Int(verbose) > 1 && flush(stdout)
             end
-            err²[pos] = ϵ_tr^2
-
-            ψ.AC[pos]     = (new_AL, S)
-            ψ.AC[pos + 1] = (S, ar)
-
-            Int(verbose) > 1 && println("  SweepL2R: site ", lpad(pos, wpos), " => site ", lpad(pos+1, wpos),
-                " | D = ", lpad(dim(codomain(ψ.AC[pos+1])[1]), wD),
-                " | ", Dates.format(now(), "d.u yyyy HH:MM"))
-            Int(verbose) > 1 && flush(stdout)
-        end
-        @timeit timer "eigsolve" begin
-            h = AC_hamiltonian(N, ψ, H, ψ, envs)
-            _, vecs, _ = eigsolve(h, ψ.AC[N], 1, :SR, alg_eigsolve_iter)
-        end
-        ψ.AC[N] = normalize!(vecs[1])
-
-        # ── right to left sweep ──
-        # Expand the right tensor on bond (pos,pos+1), optimize the enlarged
-        # center at pos, then push the center back to the right.
-        for pos in (N - 1):-1:1
-            Dtrunc = _cbe_effective_target(ψ.AL[pos], ψ.AR[pos + 1], truncdims[iter])
-            @timeit timer "CBE expand" begin
-                ϵp, failed_nonorth = _cbe_expand_r2l!(ψ, H, pos, envs, alg_svd, truncdims[iter], cbe_tol, delta, preselect_factor, safety, project_error, timer)
-            end
-            cbe_ϵp[pos] = _cbe_nanmax(cbe_ϵp[pos], ϵp)
-            failed_nonorth && push!(cbe_nonorth_r2l, pos)
-
             @timeit timer "eigsolve" begin
-                h = AC_hamiltonian(pos, ψ, H, ψ, envs)
-                _, vecs, _ = eigsolve(h, ψ.AC[pos], 1, :SR, alg_eigsolve_iter)
+                h = AC_hamiltonian(1, ψ, H, ψ, envs)
+                _, vecs, _ = eigsolve(h, ψ.AC[1], 1, :SR, alg_eigsolve_iter)
             end
-            ac_new = vecs[1]
+            ψ.AC[1] = normalize!(vecs[1])
+        else
+            # ── direct left to right sweep ──
+            # The direct expansion follows the v0.7.0 center flow: expand
+            # bond (pos,pos+1), optimize AC[pos], then move the center right.
+            for pos in 1:(N - 1)
+                Dtrunc = _cbe_effective_target(ψ.AC[pos], ψ.AR[pos + 1], truncdims[iter])
+                @timeit timer "CBE expand" begin
+                    ϵp, failed_nonorth = _cbe_expand_direct_l2r!(ψ, H, pos, envs, alg_svd, truncdims[iter], cbe_tol, delta, project_error, timer)
+                end
+                cbe_ϵp[pos] = _cbe_nanmax(cbe_ϵp[pos], ϵp)
+                failed_nonorth && push!(cbe_nonorth_l2r, pos)
 
-            @timeit timer "SVD trunc" begin
-                # move center right: AC[pos] → (al, S, Vᴴ), truncate bond back to target D
-                al, S, Vᴴ, ϵ_tr = svd_trunc!(ac_new; trunc=truncrank(Dtrunc), alg=alg_svd)
-                # absorb Vᴴ into AR: AR codomain D+D̃ → D_f
-                @plansor new_AR[-1 -2; -3] := Vᴴ[-1; 1] * ψ.AR[pos + 1][1 -2; -3]
-                normalize!(S)
+                @timeit timer "eigsolve" begin
+                    h = AC_hamiltonian(pos, ψ, H, ψ, envs; prepare=false)
+                    _, vecs, _ = eigsolve(h, ψ.AC[pos], 1, :SR, alg_eigsolve_iter)
+                end
+                ac_new = vecs[1]
+
+                @timeit timer "SVD trunc" begin
+                    al, S, Vᴴ, ϵ_tr = svd_trunc!(ac_new; trunc=truncrank(Dtrunc), alg=alg_svd)
+                    c = S * Vᴴ
+                    normalize!(c)
+                end
+                err²[pos] = ϵ_tr^2
+
+                ψ.AC[pos] = (al, c)
+                ψ.AC[pos + 1] = (c, ψ.AR[pos + 1])
+
+                Int(verbose) > 1 && println("  SweepL2R: site ", lpad(pos, wpos), " => site ", lpad(pos+1, wpos),
+                    " | D = ", lpad(dim(codomain(ψ.AC[pos+1])[1]), wD),
+                    " | ", Dates.format(now(), "d.u yyyy HH:MM"))
+                Int(verbose) > 1 && flush(stdout)
             end
-            err²[pos] = max(err²[pos], ϵ_tr^2)
 
-            ψ.AC[pos]     = (al, S)
-            ψ.AC[pos + 1] = (S, new_AR)
+            # ── direct right to left sweep ──
+            # Mirror flow: expand bond (pos,pos+1), optimize AC[pos+1],
+            # then move the center left.
+            for pos in (N - 1):-1:1
+                Dtrunc = _cbe_effective_target(ψ.AL[pos], ψ.AC[pos + 1], truncdims[iter])
+                @timeit timer "CBE expand" begin
+                    ϵp, failed_nonorth = _cbe_expand_direct_r2l!(ψ, H, pos, envs, alg_svd, truncdims[iter], cbe_tol, delta, project_error, timer)
+                end
+                cbe_ϵp[pos] = _cbe_nanmax(cbe_ϵp[pos], ϵp)
+                failed_nonorth && push!(cbe_nonorth_r2l, pos)
 
-            Int(verbose) > 1 && println("  SweepR2L: site ", lpad(pos, wpos), " <= site ", lpad(pos+1, wpos),
-                " | D = ", lpad(dim(domain(ψ.AC[pos])[1]), wD),
-                " | ", Dates.format(now(), "d.u yyyy HH:MM"))
-            Int(verbose) > 1 && flush(stdout)
+                @timeit timer "eigsolve" begin
+                    h = AC_hamiltonian(pos + 1, ψ, H, ψ, envs; prepare=false)
+                    _, vecs, _ = eigsolve(h, ψ.AC[pos + 1], 1, :SR, alg_eigsolve_iter)
+                end
+                ac_new = vecs[1]
+
+                @timeit timer "SVD trunc" begin
+                    U, S, ar_t, ϵ_tr = svd_trunc!(_transpose_tail(ac_new); trunc=truncrank(Dtrunc), alg=alg_svd)
+                    c = U * S
+                    ar = _transpose_front(ar_t)
+                    normalize!(c)
+                end
+                err²[pos] = max(err²[pos], ϵ_tr^2)
+
+                ψ.AC[pos + 1] = (c, ar)
+                ψ.AC[pos] = (ψ.AL[pos], c)
+
+                Int(verbose) > 1 && println("  SweepR2L: site ", lpad(pos, wpos), " <= site ", lpad(pos+1, wpos),
+                    " | D = ", lpad(dim(domain(ψ.AC[pos])[1]), wD),
+                    " | ", Dates.format(now(), "d.u yyyy HH:MM"))
+                Int(verbose) > 1 && flush(stdout)
+            end
         end
-        @timeit timer "eigsolve" begin
-            h = AC_hamiltonian(1, ψ, H, ψ, envs)
-            _, vecs, _ = eigsolve(h, ψ.AC[1], 1, :SR, alg_eigsolve_iter)
-        end
-        ψ.AC[1] = normalize!(vecs[1])
 
         D = _cbe_max_bond_dimension(ψ)
         E₀ = real(expectation_value(ψ, H, envs))
@@ -215,6 +290,11 @@ function _cbe_normalize_delta(delta::Real)
     throw(ArgumentError("delta must be a nonnegative real overexpansion factor"))
 end
 
+function _cbe_normalize_method(cbe_method::Symbol)
+    cbe_method in (:shrewd, :direct) && return cbe_method
+    throw(ArgumentError("cbe_method must be :shrewd or :direct"))
+end
+
 function _cbe_normalize_preselect_factor(preselect_factor::Union{Symbol, Real})
     preselect_factor === :none && return preselect_factor
     preselect_factor isa Real && preselect_factor >= 0 && return preselect_factor
@@ -242,6 +322,129 @@ _cbe_multipletdim(V) = sum(c -> dim(V, c), sectors(V); init=0)
 # ════════════════════════════════════════════════════════════════════════════
 #  CBE expansion
 # ════════════════════════════════════════════════════════════════════════════
+
+function _cbe_expand_direct_dim(current_D::Int, D_f::Integer, delta::Real, left_tensor, right_tensor)
+    D_eff = _cbe_effective_target(left_tensor, right_tensor, _cbe_work_target(D_f, delta))
+    D_add = D_eff - current_D
+    return D_add <= 0 ? nothing : D_add
+end
+
+function _cbe_direct_project(pos::Int, ψ::AbstractFiniteMPS, H, envs, left_tensor, right_tensor, NL, NR)
+    GL = leftenv(envs, pos, ψ)
+    GR = rightenv(envs, pos + 1, ψ)
+    W1 = H[pos]
+    W2 = H[pos + 1]
+    right_tail = _transpose_tail(right_tensor)
+
+    @plansor opt=true intermediate[-1; -2] := conj(NL[10 8; -1]) *
+        GL[10 7; 6] * left_tensor[6 5; 9] * right_tail[9; 1 3] *
+        W1[7 8; 5 4] * W2[4 11; 3 2] * GR[1 2; 12] *
+        conj(NR[-2; 12 11])
+    return intermediate
+end
+
+"""
+    _cbe_expand_direct_l2r!(ψ, H, pos, envs, alg_svd, D_f, cbe_tol, delta, project_error, timer)
+
+Direct CBE expansion for L→R sweeps. This directly contracts the projected
+two-site contribution used to select the expansion vectors.
+"""
+function _cbe_expand_direct_l2r!(ψ::AbstractFiniteMPS, H, pos::Int, envs, alg_svd, D_f, cbe_tol::Real, delta::Real, project_error::Bool, timer::TimerOutput)
+    D_add = _cbe_expand_direct_dim(dim(domain(ψ.AC[pos])), D_f, delta, ψ.AC[pos], ψ.AR[pos + 1])
+    isnothing(D_add) && return NaN, false
+    trunc = _cbe_preselect_trunc(D_add, cbe_tol)
+
+    NL, NR = @timeit timer "CBE nullspace" begin
+        (left_null(ψ.AC[pos]), right_null!(_transpose_tail(ψ.AR[pos + 1]; copy=true)))
+    end
+
+    intermediate = @timeit timer "CBE project" begin
+        _cbe_direct_project(pos, ψ, H, envs, ψ.AC[pos], ψ.AR[pos + 1], NL, NR)
+    end
+
+    V = @timeit timer "CBE SVD" begin
+        residual_norm = norm(intermediate)
+        if residual_norm < eps(real(scalartype(ψ)))^(3/4)
+            nothing
+        else
+            normalize!(intermediate)
+            _, _, V, _ = svd_trunc!(intermediate; trunc=trunc, alg=alg_svd)
+            V
+        end
+    end
+    isnothing(V) && return NaN, false
+
+    ϵp = NaN
+    @timeit timer "CBE concat" begin
+        if project_error
+            @plansor opt=true old_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * ψ.AR[pos + 1][1 -3; -4]
+        end
+        ar_re = V * NR
+        ar_le = zerovector!(similar(ar_re, codomain(ψ.AC[pos]) ← space(V, 1)))
+        nal, nc = qr_compact!(catdomain(ψ.AC[pos], ar_le))
+        nar = _transpose_front(catcodomain(_transpose_tail(ψ.AR[pos + 1]), ar_re))
+        ψ.AC[pos] = (nal, nc)
+        ψ.AC[pos + 1] = (nc, nar)
+        if project_error
+            @plansor opt=true new_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
+            ϵp = norm(old_two_site - new_two_site)
+        end
+    end
+
+    return ϵp, false
+end
+
+"""
+    _cbe_expand_direct_r2l!(ψ, H, pos, envs, alg_svd, D_f, cbe_tol, delta, project_error, timer)
+
+Direct/naive CBE expansion for R→L sweeps, mirrored from
+`_cbe_expand_direct_l2r!`.
+"""
+function _cbe_expand_direct_r2l!(ψ::AbstractFiniteMPS, H, pos::Int, envs, alg_svd, D_f, cbe_tol::Real, delta::Real, project_error::Bool, timer::TimerOutput)
+    D_add = _cbe_expand_direct_dim(dim(domain(ψ.AL[pos])), D_f, delta, ψ.AL[pos], ψ.AC[pos + 1])
+    isnothing(D_add) && return NaN, false
+    trunc = _cbe_preselect_trunc(D_add, cbe_tol)
+
+    NL, NR = @timeit timer "CBE nullspace" begin
+        (left_null(ψ.AL[pos]), right_null!(_transpose_tail(ψ.AC[pos + 1]; copy=true)))
+    end
+
+    intermediate = @timeit timer "CBE project" begin
+        _cbe_direct_project(pos, ψ, H, envs, ψ.AL[pos], ψ.AC[pos + 1], NL, NR)
+    end
+
+    U_exp = @timeit timer "CBE SVD" begin
+        residual_norm = norm(intermediate)
+        if residual_norm < eps(real(scalartype(ψ)))^(3/4)
+            nothing
+        else
+            normalize!(intermediate)
+            U_exp, _, _, _ = svd_trunc!(intermediate; trunc=trunc, alg=alg_svd)
+            U_exp
+        end
+    end
+    isnothing(U_exp) && return NaN, false
+
+    ϵp = NaN
+    @timeit timer "CBE concat" begin
+        if project_error
+            @plansor opt=true old_two_site[-1 -2 -3; -4] := ψ.AL[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
+        end
+        al_re = NL * U_exp
+        ac_tail = _transpose_tail(ψ.AC[pos + 1]; copy=true)
+        ac_zero = zerovector!(similar(ac_tail, _lastspace(al_re)' ← domain(ac_tail)))
+        nal, nc = qr_compact!(catdomain(ψ.AL[pos], al_re))
+        nar = _transpose_front(catcodomain(ac_tail, ac_zero))
+        ψ.AC[pos] = (nal, nc)
+        ψ.AC[pos + 1] = (nc, nar)
+        if project_error
+            @plansor opt=true new_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
+            ϵp = norm(old_two_site - new_two_site)
+        end
+    end
+
+    return ϵp, false
+end
 
 """
     _cbe_expand_l2r!(ψ, H, pos, envs, alg_svd, trscheme, delta) → ϵp
