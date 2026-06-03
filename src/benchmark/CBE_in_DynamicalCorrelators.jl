@@ -39,6 +39,7 @@ println("\n── CBE + 1-site DMRG ──")
 ψ1 = copy(ψ_init)
 
 ψ1, envs1, E1_final = dmrg1_cbe!(ψ1, H, truncdims;delta=0.1,
+                                    cbe_method = :direct,
     filename="draft_dmrg1_cbe_test.jld2", verbose=1);
 println("finished")
 

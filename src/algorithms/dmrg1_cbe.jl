@@ -45,7 +45,7 @@ projected tensor.
 function dmrg1_cbe!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector;
         alg_eigsolve=DefaultDMRG1CBE_eigsolve,
         alg_svd=LAPACK_DivideAndConquer(),
-        cbe_method::Symbol=:shrewd,
+        cbe_method::Symbol=:direct,
         cbe_tol::Real=1e-10,
         delta::Real=0.1,
         preselect_factor::Union{Symbol, Real}=1.0,
@@ -172,7 +172,7 @@ function dmrg1_cbe!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector;
                 failed_nonorth && push!(cbe_nonorth_l2r, pos)
 
                 @timeit timer "eigsolve" begin
-                    h = AC_hamiltonian(pos, ψ, H, ψ, envs; prepare=false)
+                    h = AC_hamiltonian(pos, ψ, H, ψ, envs)
                     _, vecs, _ = eigsolve(h, ψ.AC[pos], 1, :SR, alg_eigsolve_iter)
                 end
                 ac_new = vecs[1]
@@ -205,7 +205,7 @@ function dmrg1_cbe!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector;
                 failed_nonorth && push!(cbe_nonorth_r2l, pos)
 
                 @timeit timer "eigsolve" begin
-                    h = AC_hamiltonian(pos + 1, ψ, H, ψ, envs; prepare=false)
+                    h = AC_hamiltonian(pos + 1, ψ, H, ψ, envs)
                     _, vecs, _ = eigsolve(h, ψ.AC[pos + 1], 1, :SR, alg_eigsolve_iter)
                 end
                 ac_new = vecs[1]

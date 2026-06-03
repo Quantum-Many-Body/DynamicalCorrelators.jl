@@ -123,22 +123,31 @@ end
 function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
                         lattice=BilayerSquare(2, 2; norbit=2); 
                         pinning = nothing,
-                        tzz10 = -0.110,
-                        tzz20 = -0.017,
-                        txx10 = -0.483,
-                        txx20 = 0.069,
-                        tzz1z = -0.635,
-                        tzz2z = 0.0,
-                        txx1z = 0.005,
+                        tzz10 = -0.126,
+                        tzz20 = -0.016,
+                        txx10 = -0.466,
+                        txx20 = 0.062,
+                        tzz1z = -0.439,
+                        tzz2z = 0.033,
+                        txx1z = 0.0,
                         txx2z = 0.0,
-                        txz10 = 0.239,
-                        txz2z = 0.034,
-                        muz = 10.409,
-                        mux = 10.776, 
-                        U = 3.7,
-                        Up = 2.5,
-                        J = -0.6*2,
-                        J2 = 0.6,
+                        txz10 =  0.229,
+                        txz2z = -0.032,
+                        tzz40 = -0.014,
+                        txx40 = -0.064,
+                        txz40 = 0.026,
+                        txx80 = -0.015,
+                        muz = 0.351,
+                        mux = 0.870, 
+                        Uz = 3.51,
+                        Ux = 4.03,
+                        Up = 2.65,
+                        J = 0.56,
+                        Vz = 1.31,
+                        Vx = 1.04,
+                        Vxz = 1.13,
+                        J1 = -J*2,
+                        J2 = J,
                         UpJ2 = Up - J2/2,
                         filling=(1,1))
     hop = hopping(elt, SU2Irrep, U1Irrep; filling=filling)
@@ -147,6 +156,7 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
     nbc = neiborCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
     sf = heisenberg(elt, SU2Irrep, U1Irrep; filling=filling)
     ph = pairhopping(elt, SU2Irrep, U1Irrep; filling=filling)
+    nec = neiborCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
     terms = []
     if tzz10 !== 0
         zz10 = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>1))
@@ -206,7 +216,7 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
             elseif (lattice.lattice[a] - lattice.lattice[b])[1] ≈ 0
                 push!(terms, xz10[i]=>-txz10*hop)
             else
-                throw(ArgumentError("Invalid nn xz bond"))
+                throw(ArgumentError("Invalid n1 xz bond"))
             end
         end
     end
@@ -215,26 +225,57 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
         for i in eachindex(xz2z)
             a, b = find_position(lattice.indices, xz2z[i][1]), find_position(lattice.indices, xz2z[i][2])
             if (lattice.lattice[a] - lattice.lattice[b])[2] ≈ 0
-                push!(terms, xz2z[i]=>-txz2z*hop)
-            elseif (lattice.lattice[a] - lattice.lattice[b])[1] ≈ 0
                 push!(terms, xz2z[i]=>txz2z*hop)
+            elseif (lattice.lattice[a] - lattice.lattice[b])[1] ≈ 0
+                push!(terms, xz2z[i]=>-txz2z*hop)
             else
-                throw(ArgumentError("Invalid nnn xz bond"))
+                throw(ArgumentError("Invalid n2 xz bond"))
             end 
+        end
+    end
+    if tzz40 !== 0
+        zz40 = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(4=>2.0))
+        for i in eachindex(zz40)
+            push!(terms, zz40[i]=>tzz40*hop) 
+        end
+    end
+    if txx40 !== 0
+        xx40 = twosite_bonds(lattice, 2, 2; intralayer=true, neighbors=Neighbors(4=>2.0))
+        for i in eachindex(xx40)
+            push!(terms, xx40[i]=>txx40*hop) 
+        end
+    end
+    if txz40 !== 0
+        xz40 = [twosite_bonds(lattice, 1, 2; intralayer=true, neighbors=Neighbors(4=>2.0)); twosite_bonds(lattice, 2, 1; intralayer=true, neighbors=Neighbors(4=>2.0))]
+        for i in eachindex(xz40)
+            a, b = find_position(lattice.indices, xz40[i][1]), find_position(lattice.indices, xz40[i][2])
+            if (lattice.lattice[a] - lattice.lattice[b])[2] ≈ 0
+                push!(terms, xz40[i]=>txz40*hop)
+            elseif (lattice.lattice[a] - lattice.lattice[b])[1] ≈ 0
+                push!(terms, xz40[i]=>-txz40*hop)
+            else
+                throw(ArgumentError("Invalid n4 xz bond"))
+            end 
+        end
+    end
+    if txx80 !== 0
+        xx80 = twosite_bonds(lattice, 2, 2; intralayer=true, neighbors=Neighbors(8=>3.0))
+        for i in eachindex(xx80)
+            push!(terms, xx80[i]=>txx80*hop) 
         end
     end
     a = onesite_bonds(lattice, 1)
     for i in eachindex(a)
         push!(terms, a[i]=>muz*num) 
-        if U !== 0
-            push!(terms, a[i]=>U*onc)
+        if Uz !== 0
+            push!(terms, a[i]=>Uz*onc)
         end
     end
     b = onesite_bonds(lattice, 2)
     for i in eachindex(b)
         push!(terms, b[i]=>mux*num)
-        if U !== 0
-            push!(terms, b[i]=>U*onc)
+        if Ux !== 0
+            push!(terms, b[i]=>Ux*onc)
         end
     end
     ab = onesite_bonds(lattice, 1, 2)
@@ -242,8 +283,8 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
         if UpJ2 !== 0
             push!(terms, ab[i]=>UpJ2*nbc)
         end
-        if J !== 0
-            push!(terms, ab[i]=>J*sf)
+        if J1 !== 0
+            push!(terms, ab[i]=>J1*sf)
         end
         if J2 !== 0
             push!(terms, ab[i]=>J2*ph)
@@ -252,6 +293,24 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
     if !isnothing(pinning)
         for i in eachindex(pinning[1])
             push!(terms, pinning[1][i] => pinning[2][i]*num)
+        end
+    end
+    if Vz !== 0.0
+        zz1z = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>1))
+        for i in eachindex(zz1z)
+            push!(terms, zz1z[i]=>Vz*nec)
+        end
+    end
+    if Vx !== 0.0
+        xx1z = twosite_bonds(lattice, 2, 2; intralayer=false, neighbors=Neighbors(1=>1))
+        for i in eachindex(xx1z)
+            push!(terms, xx1z[i]=>Vx*nec)
+        end
+    end
+    if Vxz !== 0.0
+        zx1z = [twosite_bonds(lattice, 1, 2; intralayer=false, neighbors=Neighbors(1=>1)); twosite_bonds(lattice, 2, 1; intralayer=false, neighbors=Neighbors(1=>1))]
+        for i in eachindex(zx1z)
+            push!(terms, zx1z[i]=>Vxz*nec)
         end
     end
     I = ProductSector{Tuple{FermionParity, SU2Irrep, U1Irrep}}
