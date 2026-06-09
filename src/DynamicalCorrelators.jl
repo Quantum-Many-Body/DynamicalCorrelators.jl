@@ -7,14 +7,15 @@ using TensorOperations: promote_contract, tensorfree!
 using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, sectors, Bosonic
 using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dual, fuse, svd_trunc!, svd_compact!, normalize!,normalize, oneunit, notrunc, similarstoragetype, insertleftunit, insertrightunit, removeunit
 using TensorKit: left_null, right_null!, catdomain, catcodomain, qr_compact!, left_orth, right_orth, rmul!
-using TensorKit: ⊠, ⊗, permute, repartition, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum, id
+using TensorKit: ⊠, ⊗, permute, repartition, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum, id, zerovector, tensormaptype
+using BlockTensorKit: nonzero_pairs, nonzero_length
 using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG2, IDMRG, IDMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
 using MPSKit: add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, timestep, timestep!, environments, expectation_value, max_virtualspaces, physicalspace
 using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor, approximate, LAPACK_DivideAndConquer, left_orth!, right_orth!
 using MPSKit.Defaults: _finalize
-using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, AC_hamiltonian, _transpose_front, MPSTensor, MPSBondTensor, check_unambiguous_braiding, scalartype, fixedpoint, transfer_leftenv!, transfer_rightenv!, transfer_right
+using MPSKit: AbstractFiniteMPS, updatetol, zerovector!, AC2_hamiltonian, _transpose_front, MPSTensor, MPSBondTensor, check_unambiguous_braiding, scalartype, fixedpoint, transfer_leftenv!, transfer_rightenv!, transfer_right
 using MPSKit: _mul_tail, _mul_front, _transpose_tail, AC2, recalculate!, calc_galerkin, IDMRGState, IterativeSolver
-using MPSKit: leftenv, rightenv, JordanMPO_AC_Hamiltonian
+using MPSKit: leftenv, rightenv, JordanMPO_AC_Hamiltonian, JordanMPOTensor
 using KrylovKit: exponentiate, eigsolve, Lanczos, ModifiedGramSchmidt
 using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, next_nearest_neighbours
 using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadder, FiniteChain, FiniteCylinder, FiniteStrip, FiniteHelix, FiniteLadder
@@ -28,7 +29,7 @@ using Dates
 using TimerOutputs: TimerOutput, @timeit
 
 import QuantumLattices: expand
-import MPSKit: propagator, dot, correlator, transfer_left
+import MPSKit: propagator, dot, correlator, transfer_left, AC_hamiltonian, DerivativeOperator
 import MPSKitModels: S_plus, S_min, S_z
 
 # ── includes ──
@@ -49,6 +50,7 @@ include("algorithms/dmrg2.jl")
 include("algorithms/dmrg1_cbe.jl")
 include("algorithms/idmrg2.jl")
 include("algorithms/cpt.jl")
+include("algorithms/hamiltonian_derivatives_multithreading.jl")
 
 include("utility/defaults.jl")
 
