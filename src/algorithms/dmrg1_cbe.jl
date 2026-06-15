@@ -15,7 +15,7 @@ projected tensor.
 - `truncdims`: vector of target bond dimensions D_f, one per sweep iteration
 
 # Keyword arguments
-- `alg_eigsolve`: eigensolver algorithm (default: `DefaultDMRG1CBE_eigsolve`)
+- `alg_eigsolve`: eigensolver algorithm (default: `myDMRG1CBE_eigsolve`)
 - `alg_svd`: SVD algorithm (default: `LAPACK_DivideAndConquer()`)
 - `cbe_method`: `:shrewd` for the standard Algorithm-1 flow, or `:direct` for
   direct projected two-site expansion (default: `:shrewd`)
@@ -43,7 +43,7 @@ projected tensor.
 - Gleis, Li, von Delft, Phys. Rev. Lett. 130, 246402 (2023)
 """
 function dmrg1_cbe!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector;
-        alg_eigsolve=DefaultDMRG1CBE_eigsolve,
+        alg_eigsolve=myDMRG1CBE_eigsolve,
         alg_svd=LAPACK_DivideAndConquer(),
         cbe_method::Symbol=:direct,
         cbe_tol::Real=1e-10,
@@ -327,6 +327,16 @@ function _cbe_expand_direct_dim(current_D::Int, D_f::Integer, delta::Real, left_
     D_eff = _cbe_effective_target(left_tensor, right_tensor, _cbe_work_target(D_f, delta))
     D_add = D_eff - current_D
     return D_add <= 0 ? nothing : D_add
+end
+
+function _cbe_direct_project(pos::Int, ψ::AbstractFiniteMPS, H::MPOHamiltonian{<:JordanMPOTensor}, envs, left_tensor, right_tensor, NL, NR)
+    GL = leftenv(envs, pos, ψ)
+    GR = rightenv(envs, pos + 1, ψ)
+    W1 = H[pos]
+    W2 = H[pos + 1]
+    right_tail = _transpose_tail(right_tensor)
+    project = _cbe_project_multithreading(NL, NR, left_tensor, right_tail, GL, W1, W2, GR)
+    return _apply_cbe_project(project)
 end
 
 function _cbe_direct_project(pos::Int, ψ::AbstractFiniteMPS, H, envs, left_tensor, right_tensor, NL, NR)
