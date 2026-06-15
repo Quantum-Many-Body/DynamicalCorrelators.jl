@@ -1,8 +1,8 @@
 """
-    dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true, envs=environments(ψ, H))
+    dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=myDMRG2(), filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true, envs=environments(ψ, H))
     Add some auxiliary contents to `find_groundstate` in MPSKit.jl and rename the function as `dmrg2`.
 """
-function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true, envs=environments(ψ, H))
+function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector; alg::DMRG2=myDMRG2(), filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true, envs=environments(ψ, H))
     ϵs = map(pos -> 1.0, 1:length(ψ))
     ϵ = maximum(ϵs)
     trschemes =  map(d -> truncrank(d), truncdims)
@@ -80,12 +80,12 @@ function dmrg2(ψ, H, truncdims; kwargs...)
 end
 
 """
-    dmrg2_sweep!(iter, ψ, H, trscheme, ϵs; alg=DefaultDMRG, filename="default_dmrg2.jld2", verbose=true)
+    dmrg2_sweep!(iter, ψ, H, trscheme, ϵs; alg=myDMRG2(), filename="default_dmrg2.jld2", verbose=true)
 
 Perform a single two-site DMRG sweep (left-to-right then right-to-left) on `ψ`.
 Wraps MPSKit's DMRG2 algorithm with progress logging, timing, and JLD2 checkpointing.
 """
-function dmrg2_sweep!(iter::Integer, ψ::AbstractFiniteMPS, H, trscheme, ϵs::AbstractArray; alg::DMRG2=DefaultDMRG, filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true)
+function dmrg2_sweep!(iter::Integer, ψ::AbstractFiniteMPS, H, trscheme, ϵs::AbstractArray; alg::DMRG2=myDMRG2(), filename::String="default_dmrg2.jld2", verbose::Union{Bool, Integer}=true)
     start_time = now()
     ϵ = maximum(ϵs)
     if iter == 1

@@ -141,58 +141,62 @@ function _vspaces(::Type{SU2Irrep}, ::Type{U1Irrep}, P, Q, k, Z, N, I, md)
 end
 
 """
-    randFiniteMPS(elt, H::MPOHamiltonian; left=oneunit(...), right=oneunit(...))
+    randFiniteMPS(elt, state, flux; side=:right, normalize=true)
 
-Create a random finite MPS compatible with the given MPO Hamiltonian `H`.
-The virtual spaces are automatically inferred from the physical spaces and boundary conditions.
+Create a random finite MPS in the charged sector obtained by adding `flux` to `state`.
+The internal bond spaces are capped by the bond-space profile of `state`.
+
+Use `side=:right` when the extra charge belongs to the right boundary and
+`side=:left` when it belongs to the left boundary.
 """
-function randFiniteMPS(elt::Type{<:Number}, H::MPOHamiltonian; left=oneunit(physicalspace(H)[1]), right=oneunit(physicalspace(H)[1]))
-    Ps = physicalspace(H)
-    temp = restrict_virtualspaces(Ps; left=left, right=right)
-    st = FiniteMPS(rand, elt, Ps,temp[2:(end - 1)]; left=left, right=right)
-    changebonds!(st, SvdCut(;trscheme=truncrank(32)))
-    Vs = Vector{eltype(Ps)}(undef, length(temp))
-    for i in 1:length(Ps)
-        Vs[i] = left_virtualspace(st[i])
+function randFiniteMPS(
+        elt::Type{<:Number}, state::FiniteNormalMPS, flux;
+        side::Symbol = :right, normalize::Bool = true
+    )
+    L = length(state)
+    maxvspaces = Vector{typeof(left_virtualspace(state, 1))}(undef, L - 1)
+    for i in 1:(L - 1)
+        maxvspaces[i] = right_virtualspace(state, i)
     end
-    Vs[length(Ps)+1] = right_virtualspace(st[length(Ps)])
-    return FiniteMPS(rand, elt, Ps, Vs[2:end-1]; left=left, right=right)
-end
 
-
-"""
-    randFiniteMPS(elt, pspace, N; right=oneunit(pspace))
-
-Create a random finite MPS with `N` sites, each having physical space `pspace`.
-"""
-function randFiniteMPS(elt::Type{<:Number}, pspace, N::Integer; right=oneunit(pspace))
-    pspaces = repeat([pspace], N)
-    vspaces = restrict_virtualspaces(pspaces; right=right)
-    FiniteMPS(rand, elt, pspaces, vspaces[2:(end - 1)]; right=right)
-end
-
-"""
-    restrict_virtualspaces(Ps; left=oneunit(Ps[1]), right=oneunit(Ps[1]))
-
-Compute virtual spaces for a chain of physical spaces `Ps`.
-For short chains (N ≤ 12), uses exact `max_virtualspaces`.
-For longer chains, uses an interpolation scheme from a 10-site reference to avoid
-exponential growth of quantum number sectors.
-"""
-function restrict_virtualspaces(Ps; left=oneunit(Ps[1]), right=oneunit(Ps[1]))
-    N = length(Ps)
-    if  N <= 12
-        Vs = max_virtualspaces(Ps; left=left, right=right)
+    left = left_virtualspace(state, 1)
+    right = right_virtualspace(state, L)
+    if side === :right
+        right = fuse(right, flux)
+    elseif side === :left
+        left = fuse(left, flux)
     else
-        Vs = Vector{eltype(Ps)}(undef, N+1)
-        temp = max_virtualspaces(Ps[1:10]; left=left, right=right)
-        Vs[1:3] = temp[1:3]
-        Vs[N-1:N+1] = temp[9:11]
-        Vs[N÷2+1] = temp[6]
-        Vs[4:2:(N÷2-1)] = [temp[4] for _ in 1:length(4:2:(N÷2-1))]
-        Vs[5:2:N÷2] = [temp[5]  for _ in 1:length(5:2:N÷2)]
-        Vs[(N÷2+2):2:(N-3)] = [temp[7] for _ in 1:length((N÷2+2):2:(N-3))]
-        Vs[(N÷2+3):2:(N-2)] = [temp[8] for _ in 1:length((N÷2+3):2:(N-2))]
+        throw(ArgumentError("invalid side :$side, expected :right or :left"))
     end
-    return Vs
+
+    return FiniteMPS(
+        rand, elt, physicalspace(state), maxvspaces;
+        left = left, right = right, normalize = normalize
+    )
+end
+
+
+"""
+    randFiniteMPS(elt, state::FiniteNormalMPS, operator::AbstractTensorMap)
+
+Create a random finite MPS in the charge sector selected by `operator`.
+
+For `(1,2)` operators the extra virtual space is taken from the second domain
+leg and attached to the right boundary. For `(2,1)` operators it is taken from
+the first codomain leg and attached to the left boundary. Charge-neutral
+`(1,1)` operators keep the reference boundary sector.
+"""
+function randFiniteMPS(elt::Type{<:Number}, state::FiniteNormalMPS, operator::AbstractTensorMap)
+    if (length(domain(operator)) == 2)&&(length(codomain(operator)) == 1)
+        vspace = domain(operator)[2]
+        return randFiniteMPS(elt, state, vspace)
+    elseif (length(codomain(operator)) == 2)&&(length(domain(operator)) == 1)
+        vspace = codomain(operator)[1]
+        return randFiniteMPS(elt, state, vspace; side=:left)
+    elseif (length(codomain(operator)) == 1)&&(length(domain(operator)) == 1)
+        vspace = oneunit(right_virtualspace(state, length(state)))
+        return randFiniteMPS(elt, state, vspace)
+    else
+        throw(ArgumentError("invalid operator, expected 2-leg or 3-leg tensor"))
+    end
 end

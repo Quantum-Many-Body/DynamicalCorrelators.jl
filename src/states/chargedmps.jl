@@ -111,34 +111,20 @@ function chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::I
     return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
 end
 
-function chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS; tol=1e-6, maxiter=30, krylovdim=8, trscheme=truncrank(dims(domain(gs[length(gs)÷2]))[1]), cgs_path::String="./")
-    !isdir(cgs_path)&& mkdir(cgs_path)
-    filename = joinpath(gf_path, "chargedMPS_N=$(length(gs)).jld2")
-    jldopen(filename, "w") do f
-        f["gs"] = gs
-    end
-    alg = DMRG2(; tol=tol, maxiter=maxiter, verbosity=3,
-            alg_eigsolve= Lanczos(;
-                krylovdim = krylovdim,
-                maxiter = 1,
-                tol = 1e-8,
-                orth = ModifiedGramSchmidt(),
-                eager = false,
-                verbosity = 0), 
-            alg_svd= LAPACK_DivideAndConquer(), 
-            trscheme=trscheme)
-    record_start = now()
-    println("chargedMPS start", Dates.format(start_time, "d.u yyyy HH:MM"))
-    @sync @distributed for i in 1:length(gs)
-        ags, _, ϵ = approximate(cgs[i], (chargedMPO(op, i, length(gs)), gs), alg)
-        jldopen(filename, "a") do f
-            f["cgs_$(i)"] = ags
-            f["eps_$(i)"] = ϵ
-        end
-        println("chargedMPS_$(i) is finished, ϵ=$(ϵ)", Dates.canonicalize(now()-record_start))
-        GC.gc()
-    end
-    return nothing
+"""
+    chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS, site::Integer, alg)
+
+Approximate `chargedMPO(op, site, length(gs)) * gs` with the supplied MPSKit
+algorithm `alg`.
+
+The initial state is a random finite MPS in the charge sector implied by `op`
+and with internal bond spaces inherited from `gs`. This is useful for charged
+states whose exact MPO application would create an inconvenient bond
+dimension.
+"""
+function chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS, site::Integer, alg)
+    ψ, = approximate(randFiniteMPS(eltype(gs[1]), gs, op), (chargedMPO(op, site, length(gs)), gs), alg)
+    return ψ
 end
 
 """

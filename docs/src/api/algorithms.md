@@ -22,10 +22,10 @@ idmrg2
 ## Default Algorithm Configurations
 
 ```@docs
-DefaultDMRG
-DefaultDMRG2
-DefaultTDVP
-DefaultTDVP2
+myDMRG
+myDMRG2
+myTDVP
+myTDVP2
 ```
 
 ## Cluster Perturbation Theory (CPT)
