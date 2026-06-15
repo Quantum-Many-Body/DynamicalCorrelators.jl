@@ -1,115 +1,135 @@
 # Getting Started
 
-This tutorial covers the basic workflow for using DynamicalCorrelators.jl.
+This tutorial gives the shortest route from an MPO Hamiltonian to a dynamical
+correlation function. The examples use a finite Hubbard chain with
+`SU2Irrep × U1Irrep` symmetry, but the same workflow applies to wider Jordan-MPO
+Hamiltonians built in this package.
 
-## Prerequisites
-
-Make sure you have the following packages installed:
-
-```julia
-using Pkg
-Pkg.add("DynamicalCorrelators")
-```
-
-## Basic Workflow
-
-A typical calculation follows these steps:
-
-1. **Define a lattice** — choose the geometry and boundary conditions
-2. **Build a Hamiltonian** — specify the model parameters
-3. **Find the ground state** — using DMRG
-4. **Compute observables** — static/dynamical correlations, spectral functions
-
-## Step 1: Lattice Construction
-
-### Using pre-defined lattices from MPSKitModels
-
-For simple 1D chains:
+## Load Packages
 
 ```julia
-using MPSKitModels: FiniteChain, InfiniteChain
-
-lattice = FiniteChain(48)   # 48-site open chain
-```
-
-### Using CustomLattice for 2D systems
-
-For 2D systems, use the `Square` or `BilayerSquare` lattice types:
-
-```julia
+using TensorKit
+using MPSKit
+using MPSKitModels: FiniteChain
 using DynamicalCorrelators
-
-# 4×4 square lattice with open boundaries
-sq = Square(4, 4)
-
-# 2×2 bilayer square lattice with 2 orbitals per site
-bl = BilayerSquare(2, 2; norbit=2)
-
-# Custom lattice from QuantumLattices
-using QuantumLattices
-unitcell = Lattice([0.0, 0.0]; vectors=[[1, 0], [0, 1]])
-lattice = Lattice(unitcell, (4, 4), ('o', 'o'))
-cl = Custom(lattice)
 ```
 
-## Step 2: Hamiltonian Construction
+DynamicalCorrelators.jl reexports the model builders, operators, state helpers,
+algorithm wrappers, and observable routines used below.
 
-### Pre-defined Hamiltonians (with non-Abelian symmetry)
+## Build a Hamiltonian
+
+For common models, use the package model helpers:
 
 ```julia
-using TensorKit, MPSKit
+N = 24
+filling = (1, 1)
 
-filling = (1, 1)  # half-filling: P/Q = 1/1
-
-# SU(2)×U(1) Hubbard model on a chain
-H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(48);
-            t=1.0, U=8.0, μ=0.0, filling=filling)
+H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
+    t = 1.0,
+    U = 8.0,
+    μ = 0.0,
+    filling = filling,
+)
 ```
 
-### From QuantumLattices (Abelian symmetry only)
+For custom Abelian models, construct the Hamiltonian through QuantumLattices and
+then call `hamiltonian(...)`. That route is useful for arbitrary neighbor lists
+and lattice geometries, while the model helpers are usually more convenient for
+standard Hubbard, extended Hubbard, bilayer, Kitaev-Hubbard, and spin models.
+
+## Create an Initial State
+
+The symmetry-aware random-state constructors choose physical and virtual spaces
+compatible with the filling:
 
 ```julia
-using QuantumLattices
-
-unitcell = Lattice([0.0, 0.0]; vectors=[[1, 0], [0, 1]])
-lattice = Lattice(unitcell, (4, 4), ('o', 'o'))
-hilbert = Hilbert(site => Fock{:f}(1, 2) for site in 1:length(lattice))
-
-t = Hopping(:t, -1.0, 1)
-U = Hubbard(:U, 8.0)
-
-H = hamiltonian((t, U), lattice, hilbert; neighbors=1)
+ψ0 = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling)
 ```
 
-## Step 3: Ground State Search
+For infinite or unit-cell calculations, use `randInfiniteMPS` with the same
+symmetry and filling conventions.
+
+## Find a Ground State
+
+For a quick calculation, use the DMRG2 wrapper:
 
 ```julia
-# Create random initial MPS
-st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, 48; filling=filling)
-
-# Find ground state with DMRG
-gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme=trunctol(1e-6)))
-
-# Check ground state energy
-E0 = expectation_value(gs, H)
-println("Ground state energy: ", E0)
+truncdims = [128, 256, 512]
+gs, envs, ϵ = dmrg2(ψ0, H, truncdims; alg = myDMRG2())
+E0 = expectation_value(gs, H, envs)
 ```
 
-## Step 4: Compute Observables
-
-### Static correlations
+For larger sparse Jordan-MPO calculations, one-site CBE-DMRG is often the more
+useful production path:
 
 ```julia
-# Spin-spin correlation
-sp = S_plus(Float64, SU2Irrep, U1Irrep; filling=filling)
-corr = TwoSiteCorrelation((sp, sp), Custom(lattice), 1)
-Fr = correlator(corr, gs)
+gs, envs, ϵ = dmrg1_cbe(ψ0, H, truncdims;
+    cbe_method = :direct,
+    filename = "dmrg1_cbe.jld2",
+)
 ```
 
-### Dynamical correlations (see next tutorials)
+`dmrg1_cbe!` mutates the input state; `dmrg1_cbe` works on a copy.
+
+## Choose Operators
+
+Fermionic single-particle Green's functions use creation and annihilation
+operators with the same filling convention as the Hamiltonian:
 
 ```julia
-cp = e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
-cm = e_min(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
-gf = dcorrelator(gs, H, (cp, cm); times=0:0.05:10, trscheme=truncrank(200))
+cp = e_plus(Float64, SU2Irrep, U1Irrep; side = :L, filling)
+cm = e_min(Float64, SU2Irrep, U1Irrep; side = :L, filling)
 ```
+
+Spin or charge responses use single local operators:
+
+```julia
+sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
+```
+
+## Compute Real-Time Correlators
+
+Use `dcorrelator` for zero-temperature dynamical correlations. In v0.11, the
+recommended single-site long-time algorithm is CBE-TDVP1:
+
+```julia
+times = 0:0.05:10
+tdvp_cbe = myTDVP1_CBE(D = 512)
+
+gf_electron = dcorrelator(gs, H, (cp, cm);
+    times,
+    tdvp1 = tdvp_cbe,
+    tdvp2 = tdvp_cbe,
+    gf_path = "gf_electron",
+)
+```
+
+For one source channel only, pass an integer `id` instead of an array:
+
+```julia
+gf_spin_site = dcorrelator(gs, H, sp, div(N, 2);
+    times,
+    record_indices = 1:101,
+    tdvp1 = tdvp_cbe,
+    gf_path = "gf_spin_site",
+)
+```
+
+Integer source ids `1:N` and `N+1:2N` select the two conjugate channels for
+single-operator correlators.
+
+## Transform to Spectra
+
+Use `fourier_kw` for momentum-frequency data and `fourier_rw` for real-space
+frequency data:
+
+```julia
+rs = [[Float64(i)] for i in 1:N]
+ks = [[k] for k in range(-pi, pi; length = 101)]
+ws = range(-10, 10; length = 401)
+
+gf_kw = fourier_kw(gf_electron, rs, times, ks, ws; broadentype = (0.05, "G"))
+```
+
+The spectral tutorials discuss broadening choices and multi-orbital regrouping.

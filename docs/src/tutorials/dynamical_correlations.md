@@ -1,98 +1,154 @@
 # Dynamical Correlations
 
-This tutorial explains how to compute dynamical correlation functions using
-TDVP time evolution (provided by [MPSKit.jl](https://github.com/QuantumKitHub/MPSKit.jl)).
+This page describes zero-temperature real-time correlation functions computed
+with TDVP time evolution.
 
-## Theory
+The core idea is simple: apply a local operator to the ground state, evolve that
+charged state in real time, and measure overlaps with operator-applied ground
+states at each time step.
 
-The retarded single-particle Green's function is defined as:
+## Single-Particle Green's Functions
 
-```math
-G^R_{ij}(t) = -i\theta(t)\langle \psi_0 | \{c_i(t), c_j^\dagger(0)\} | \psi_0 \rangle
-```
-
-which can be decomposed into greater and lesser components:
+For a retarded fermionic Green's function, use a pair of operators:
 
 ```math
-G^>_{ij}(t) = -i e^{iE_0 t} \langle \psi_0 | c_i \, e^{-iHt} \, c_j^\dagger | \psi_0 \rangle
+G^R_{ij}(t) =
+-i\theta(t)\langle\psi_0|\{c_i(t), c_j^\dagger(0)\}|\psi_0\rangle .
 ```
 
-The key computational step is evolving the "charged" MPS ``c_j^\dagger|\psi_0\rangle`` in time
-using TDVP, then computing overlaps with all ``\langle\psi_0|c_i`` at each time step.
-
-## Single-particle Green's function
-
-### Using operator pair `(c†, c)`
+In code, pass `(creation, annihilation)` to `dcorrelator`:
 
 ```julia
-using TensorKit, MPSKit, DynamicalCorrelators
+using TensorKit
+using MPSKit
+using MPSKitModels: FiniteChain
+using DynamicalCorrelators
 
+N = 24
 filling = (1, 1)
-H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(24); t=1, U=8, filling=filling)
-st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, 24; filling=filling)
-gs, _, _ = find_groundstate(st, H, DMRG2(trscheme=trunctol(1e-6)))
+H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
+    t = 1.0, U = 8.0, filling = filling)
 
-# Define creation and annihilation operators
-cp = e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
-cm = e_min(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
+ψ0 = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling)
+gs, envs, ϵ = dmrg2(ψ0, H, [128, 256, 512]; alg = myDMRG2())
 
-# Compute retarded Green's function G(r, t)
-# This evolves c†_j|gs⟩ and c_j|gs⟩ for all j, computing overlaps at each time step
+cp = e_plus(Float64, SU2Irrep, U1Irrep; side = :L, filling)
+cm = e_min(Float64, SU2Irrep, U1Irrep; side = :L, filling)
+
+times = 0:0.05:20
+tdvp_cbe = myTDVP1_CBE(D = 512)
+
 gf = dcorrelator(gs, H, (cp, cm);
-    times=0:0.05:20,        # time grid
-    trscheme=truncrank(200), # bond dimension control
-    n=3                      # use TDVP2 for first n steps, then TDVP1
+    times,
+    tdvp1 = tdvp_cbe,
+    tdvp2 = tdvp_cbe,
+    gf_path = "gf_electron",
 )
 ```
 
-### Using pre-computed charged MPS
+The pair-operator method computes both source channels and combines them with
+the sign convention controlled by `isfermion`.
 
-For large systems, you may want to pre-compute and store the charged MPS:
+## One-Operator Responses
+
+For spin, charge, or other one-operator responses, pass a single operator and a
+set of source ids:
 
 ```julia
-# Pre-compute all c†_j|gs⟩
-mps = [chargedMPS(cp, gs, j) for j in 1:length(H)]
+sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
 
-# Then pass them directly
-gf = dcorrelator(gs, H, cp, 1:length(H);
-    times=0:0.05:20,
-    trscheme=truncrank(200)
+gf_spin = dcorrelator(gs, H, sp, 1:N;
+    times,
+    tdvp1 = tdvp_cbe,
+    tdvp2 = tdvp_cbe,
+    gf_path = "gf_spin",
 )
 ```
 
-## Spin-spin dynamical correlations
-
-For two-particle correlations like ``\langle S^+(t) S^-(0) \rangle``:
+The result has dimensions
 
 ```julia
-sp = S_plus(Float64, SU2Irrep, U1Irrep; filling=filling)
-
-# Compute spin dynamical structure factor
-gf_spin = dcorrelator(gs, H, sp, 1:length(H);
-    times=0:0.1:50,
-    trscheme=truncrank(200)
-)
+(length(H), length(indices), length(record_indices))
 ```
 
-## Checkpoint and Resume
+where the first dimension is the measured site and the second dimension is the
+source channel.
 
-The `dcorrelator` function automatically saves intermediate results to JLD2 files in the
-`gf_path` directory. If a computation is interrupted, it will resume from the last saved
-checkpoint when re-run:
+## Single-Source Calculations
+
+When only one source site is needed, pass an integer id. This avoids
+`SharedArray` allocation and distributed scheduling:
 
 ```julia
-gf = dcorrelator(gs, H, (cp, cm);
-    times=0:0.05:20,
-    gf_path="./green_functions/",  # directory for checkpoints
-    trscheme=truncrank(200)
+site = div(N, 2)
+
+gf_site = dcorrelator(gs, H, sp, site;
+    times,
+    record_indices = 1:101,
+    tdvp1 = tdvp_cbe,
+    gf_path = "gf_spin_site",
 )
 ```
 
-## TDVP Algorithm Selection
+For single-operator correlators, ids `1:N` and `N+1:2N` select the two conjugate
+source channels.
 
-The parameter `n` controls the switch from two-site TDVP (TDVP2) to single-site TDVP (TDVP1):
+## Choosing TDVP Algorithms
 
-- **TDVP2** (first `n` steps): Allows bond dimension growth, more expensive but captures entanglement growth.
-- **TDVP1** (remaining steps): Fixed bond dimension, faster but may miss entanglement.
+The standard pattern is:
 
-For typical calculations, `n=2` or `n=3` is sufficient.
+```julia
+dcorrelator(gs, H, op, indices;
+    times,
+    n = 3,
+    tdvp1 = myTDVP,
+    tdvp2 = myTDVP2(truncrank(512)),
+)
+```
+
+Here the first `n` steps use two-site TDVP and later steps use one-site TDVP.
+This is MPSKit's conventional warmup strategy.
+
+In v0.11, CBE-TDVP1 is often the preferred long-time path:
+
+```julia
+tdvp_cbe = myTDVP1_CBE(D = 512, delta = 0.1, cbe_tol = 1e-10)
+
+dcorrelator(gs, H, op, indices;
+    times,
+    tdvp1 = tdvp_cbe,
+    tdvp2 = tdvp_cbe,
+)
+```
+
+With this choice, bond growth is controlled by `D` in the CBE algorithm rather
+than by a TDVP2 `trscheme`.
+
+## Checkpointing
+
+Each source channel is saved to a JLD2 file under `gf_path`. Re-running the same
+calculation loads completed files and recomputes incomplete ones:
+
+```julia
+gf = dcorrelator(gs, H, sp, 1:N;
+    times = 0:0.05:20,
+    record_indices = 1:201,
+    gf_path = "gf_spin",
+    tdvp1 = tdvp_cbe,
+)
+```
+
+Use separate `gf_path` directories for calculations with different operators,
+time grids, or TDVP algorithms.
+
+## What `sweep_dot` Does
+
+For zero-temperature single-operator correlators, `dcorrelator` uses `sweep_dot`
+to compute all overlaps
+
+```math
+\langle gs|O_i^\dagger|\psi(t)\rangle
+```
+
+in one left/right environment sweep. Operators with `(1,2)` legs in the
+`side=:L` convention and charge-neutral `(1,1)` operators are supported.

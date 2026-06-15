@@ -1,66 +1,117 @@
-# Finite Temperature Calculations
+# Finite-Temperature Correlations
 
-This tutorial covers finite-temperature dynamical correlations using the
-thermofield double (purification) approach.
-
-## Theory
-
-In the purification approach, the thermal density matrix ``\rho = e^{-\beta H}`` is represented
-as a pure state in a doubled Hilbert space (physical + ancilla):
+Finite-temperature calculations use purification: the density matrix is treated
+as a pure MPS in a doubled Hilbert space. In this package that state has type
+`FiniteSuperMPS`.
 
 ```math
-|\rho\rangle = e^{-\beta H / 2} |\mathbb{I}\rangle
+|\rho_\beta\rangle =
+\exp(-\beta H / 2)|\mathbb{I}\rangle .
 ```
 
-where ``|\mathbb{I}\rangle`` is the identity MPS (maximally entangled state between physical
-and ancilla spaces). This `FiniteSuperMPS` has 3 physical legs per site
-(virtual, physical, ancilla; virtual).
+## Prepare the Purification
 
-## Workflow
-
-### Step 1: Construct the identity MPS
+Start from the infinite-temperature identity MPS:
 
 ```julia
-using TensorKit, MPSKit, DynamicalCorrelators
+using TensorKit
+using MPSKit
+using MPSKitModels: FiniteChain
+using DynamicalCorrelators
 
+N = 12
 filling = (1, 1)
-H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(12); t=1, U=8, filling=filling)
+H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
+    t = 1.0, U = 8.0, filling = filling)
 
-# Create identity MPS (infinite temperature state)
-rho = identityMPS(H)
+rho0 = identityMPS(H)
 ```
 
-### Step 2: Evolve to finite temperature
-
-Cool down to inverse temperature ``\beta`` by evolving in imaginary time using
-TDVP (from [MPSKit.jl](https://github.com/QuantumKitHub/MPSKit.jl)):
+Cool the state by imaginary-time evolution to `β/2`:
 
 ```julia
-beta = 2.0  # inverse temperature
-ts_beta = 0:0.01:(beta/2)  # imaginary time steps (evolve β/2)
+β = 2.0
+τs = 0:0.01:(β / 2)
 
-rho_beta = evolve_mps(H, ts_beta, rho;
-    filename="rho_beta_$(beta).jld2",
-    trscheme=truncrank(200),
-    n=3
+rhoβ = evolve_mps(H, τs, rho0;
+    filename = "rho_beta_2.jld2",
+    tdvp1 = myTDVP,
+    tdvp2 = myTDVP2(truncrank(256)),
+    n = 3,
 )
 ```
 
-### Step 3: Compute finite-T correlations
+The saved file contains selected purification states from the imaginary-time
+path. The real-time finite-temperature correlator below does not need a cached
+array of all `rho(t)` states.
+
+## Single-Operator Finite-T Correlators
+
+For one source channel, pass an integer `id`:
 
 ```julia
-cp = e_plus(Float64, SU2Irrep, U1Irrep; side=:L, filling=filling)
+sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
+times = 0:0.05:10
+tdvp_cbe = myTDVP1_CBE(D = 256)
 
-gf = dcorrelator(rho_beta, H, cp, 1:length(H);
-    times=0:0.05:10,
-    beta=beta,
-    trscheme=truncrank(200)
+gf_site = dcorrelator(rhoβ, H, sp, div(N, 2);
+    times,
+    beta = β,
+    tdvp1 = tdvp_cbe,
+    tdvp2 = tdvp_cbe,
+    gf_path = "gf_finiteT_site",
 )
 ```
 
-## Key differences from zero temperature
+This method evolves only the current purification `rho_t`, the charged source
+ket, and their environments. It returns an array of size
+`(length(H), length(times))`.
 
-1. **MPS type**: Uses `FiniteSuperMPS` (3-leg tensors) instead of `FiniteNormalMPS` (2-leg tensors).
-2. **Operator application**: The `chargedMPS` function handles the extra ancilla leg automatically.
-3. **Normalization**: The partition function ``Z = \langle\rho|\rho\rangle`` is computed internally.
-4. **Time evolution**: Both the density matrix ``|\rho(t)\rangle`` and the charged states need to be evolved.
+## Multi-Source Finite-T Correlators
+
+To compute many source channels in one call:
+
+```julia
+gf = dcorrelator(rhoβ, H, sp, 1:N;
+    times,
+    beta = β,
+    tdvp1 = tdvp_cbe,
+    tdvp2 = tdvp_cbe,
+    gf_path = "gf_finiteT_spin",
+)
+```
+
+Completed source files are loaded from `gf_path`; active sources are evolved
+together. This avoids the older memory-heavy strategy of precomputing all
+thermal states and all charged bra states for every time point.
+
+## Pair-Operator Finite-T Correlators
+
+Fermionic Green's functions use an operator pair:
+
+```julia
+cp = e_plus(Float64, SU2Irrep, U1Irrep; side = :L, filling)
+cm = e_min(Float64, SU2Irrep, U1Irrep; side = :L, filling)
+
+gf_electron = dcorrelator(rhoβ, H, (cp, cm);
+    times,
+    beta = β,
+    tdvp1 = tdvp_cbe,
+    tdvp2 = tdvp_cbe,
+    gf_path = "gf_finiteT_electron",
+)
+```
+
+The two channel groups are combined as a fermionic sum by default. Set
+`isfermion=false` for the opposite sign convention.
+
+## Notes
+
+- `identityMPS(H)` constructs the purified infinite-temperature state.
+- `dot(rhoβ, rhoβ)` is used internally as the partition-function
+  normalization.
+- The `rho_path` keyword is accepted by finite-temperature `dcorrelator`
+  methods for compatibility, but v0.11 does not use cached `rho(t)` trajectory
+  files in real-time correlators.
+- CBE-TDVP1 is useful here for the same reason as at zero temperature: it lets
+  the one-site time-evolution path expand bonds in a controlled way.
