@@ -7,7 +7,7 @@ The eigensolver is a one-step Lanczos solver with modified Gram-Schmidt
 orthogonalization. Use `tol`, `maxiter`, and `krylovdim` to tune the outer DMRG
 stopping tolerance, sweep count, and local Krylov dimension.
 """
-myDMRG(;tol=1e-8, maxiter=100, krylovdim=16) = DMRG(; tol=tol, maxiter=maxiter, verbosity=3,
+myDMRG(;tol=1e-6, maxiter=100, krylovdim=16) = DMRG(; tol=tol, maxiter=maxiter, verbosity=3,
             alg_eigsolve= Lanczos(;
             krylovdim = krylovdim,
             maxiter = 1,
