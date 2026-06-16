@@ -79,16 +79,20 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
         for i in eachindex(tb)
             push!(terms, tb[i]=>-t*hop)
         end
-        for i in eachindex(tb2)
-            push!(terms, tb2[i]=>-t2*hop)
+        if t2 !== 0.0
+            for i in eachindex(tb2)
+                push!(terms, tb2[i]=>-t2*hop)
+            end
         end
         tf = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
         tf2 = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
         for i in eachindex(tf)
             push!(terms, tf[i]=>-th*hop)
         end
-        for i in eachindex(tf2)
-            push!(terms, tf2[i]=>-th2*hop)
+        if th2 !== 0.0
+            for i in eachindex(tf2)
+                push!(terms, tf2[i]=>-th2*hop)
+            end
         end
     elseif length(lattice.lattice[1]) == 2
         tb = twosite_bonds(lattice, 1, 1; neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
@@ -96,13 +100,17 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
         for i in eachindex(tb)
             push!(terms, tb[i]=>-t*hop)
         end
-        for i in eachindex(tb2)
-            push!(terms, tb2[i]=>-t2*hop)
+        if t2 !== 0.0
+            for i in eachindex(tb2)
+                push!(terms, tb2[i]=>-t2*hop)
+            end
         end
     end
     ob = onesite_bonds(lattice, 1)
     for i in eachindex(ob)
-        push!(terms, ob[i]=>-μ*num) 
+        if μ !== 0.0
+            push!(terms, ob[i]=>-μ*num) 
+        end
         push!(terms, ob[i]=>U*onc)
     end
     if !isnothing(pinning)
