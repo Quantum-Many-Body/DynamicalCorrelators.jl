@@ -12,6 +12,151 @@ Please type `]` in the REPL to use the package mode, then type this command:
 add DynamicalCorrelators
 ```
 
+# DynamicalCorrelators.jl v0.12.0 Release Notes
+
+## Highlights
+
+v0.12.0 is a **correlator-workflow and fermionic-string correctness release**.
+Compared with v0.11.0, the largest user-facing change is that `dcorrelator`
+now follows a single-operator workflow: pass one local operator and one source
+id, or a collection of source ids. Source ids `1:length(H)` select the forward
+channel, while `length(H)+1:2length(H)` select the conjugated channel.
+
+Finite-temperature correlators also move to an explicit trajectory-on-disk
+model. Instead of passing an in-memory `FiniteSuperMPS` to `dcorrelator`, first
+save the real-time purification trajectory with `evolve_mps(...; save_id =
+eachindex(times))`, then call `dcorrelator(rho_path, H, op, ids; ...)`.
+During the correlator calculation, each worker loads only the current `rho(t)`
+slice and evolves one charged source ket.
+
+This release also tightens the handling of fermionic strings and charged
+operator transfer matrices. String propagation now uses materialized
+`TensorMap(BraidingTensor(...))` objects in the charged-MPO, finite-temperature
+charged-MPS, `sweep_dot`, and multi-operator correlator paths, reducing
+ambiguities in fermionic signs and braided transfer contractions.
+
+## Dynamical Correlators
+
+- Removed the old pair-operator `dcorrelator(..., (op₁, op₂); ...)` workflows.
+  Use one operator at a time and select the conjugated channel through source
+  ids `L+1:2L`, where `L = length(H)`.
+- Zero-temperature `dcorrelator(gs, H, op, id; ...)` and
+  `dcorrelator(gs, H, op, indices; ...)` now use the same single-operator
+  channel convention.
+- Finite-temperature methods now take the saved trajectory path as their first
+  argument:
+
+```julia
+rho_path = "rho_realtime.jld2"
+evolve_mps(H, times, rhoβ;
+    filename = rho_path,
+    save_id = eachindex(times),
+)
+
+gf = dcorrelator(rho_path, H, op, 1:length(H);
+    times,
+    beta = β,
+)
+```
+
+- Finite-temperature correlators load `rho(t)` from keys of the form
+  `"t=$(times[k])"` and compute all detector-site overlaps with `sweep_dot`
+  instead of constructing every charged bra state explicitly.
+- Completed JLD2 source files are still reused, and incomplete files are
+  recomputed rather than silently accepted.
+- The finite-temperature multi-source method evaluates source channels
+  independently with `Distributed`, so each worker holds one charged ket and
+  the current loaded `rho(t)` slice.
+
+## `sweep_dot`
+
+`sweep_dot` is now exported and documented for both zero-temperature and
+finite-temperature workflows:
+
+```julia
+sweep_dot(gs, op, ket)
+sweep_dot(rho, op, ket)
+```
+
+It computes all site overlaps in one sweep. Supported operator structures are
+charge-carrying `(1,2)` operators using the `side = :L` convention and
+charge-neutral `(1,1)` operators. Operators with the virtual leg on the
+codomain side, i.e. `(2,1)`, are intentionally rejected in this sweep path;
+construct the operator with `side = :L` for these correlator workflows.
+
+## Fermionic Strings and Correlators
+
+- `fZ(operator)` now returns a concrete
+  `TensorMap(BraidingTensor(pspace, vspace))` instead of rebuilding the
+  braiding contraction manually.
+- `chargedMPO` documentation now matches the implemented string convention:
+  `(1,2)` / `side=:L` operators place the string to the right of the source
+  site, while `(2,1)` operators place it to the left.
+- Finite-temperature `chargedMPS(op, rho, site)` now supports the `(1,2)`
+  `side=:L` convention and `(1,1)` neutral operators, with explicit braiding
+  tensors through the physical-ancilla legs.
+- The static `correlator` contractions for charged two- and four-operator
+  measurements were updated to propagate strings through intermediate sites
+  with explicit transfer matrices and flip/isomorphism factors.
+- Super-MPS transfer helpers were added for left/right environment propagation
+  with and without charged strings.
+
+## Hamiltonians and Operators
+
+- Added and exported directed hopping operators:
+
+```julia
+cdagc(elt, SU2Irrep, U1Irrep; filling=(1, 1))
+ccdag(elt, SU2Irrep, U1Irrep; filling=(1, 1))
+```
+
+- The SU(2) × U(1) Hubbard Hamiltonian now builds hopping terms from these two
+  directed pieces, using conjugated amplitudes for the Hermitian partner terms.
+- Zero-valued next-neighbor/interlayer hoppings and chemical-potential terms
+  are skipped when constructing the Hamiltonian term list.
+
+## Algorithm Defaults and API Changes
+
+- Package version bumped from `0.11.0` to `0.12.0`.
+- `myTDVP` is now a constructor:
+
+```julia
+myTDVP(; krylovdim = 32)
+```
+
+- `myTDVP2` now uses keyword arguments and has its own default truncation:
+
+```julia
+myTDVP2(; trunc = truncrank(4096), krylovdim = 16)
+```
+
+- The old `trscheme` keyword was removed from `evolve_mps` and `dcorrelator`
+  call paths. Pass a complete TDVP2 object instead, for example:
+
+```julia
+dcorrelator(gs, H, op, 1:length(H);
+    tdvp2 = myTDVP2(; trunc = truncrank(512)),
+)
+```
+
+- `evolve_mps` defaults now construct algorithms as
+  `tdvp1 = myTDVP()` and
+  `tdvp2 = myTDVP2(; trunc = truncerror(; rtol = 1e-3))`.
+- `myDMRG` now defaults to `tol = 1e-6`, matching the package's less aggressive
+  default one-site DMRG tolerance.
+
+## Internal Fixes and Documentation
+
+- Corrected index ordering in the multithreaded Jordan-MPO `AC2_hamiltonian`
+  action and in the direct CBE projector channel contractions.
+- Simplified several CBE contractions by avoiding forced `@plansor opt=true`
+  paths in numerically sensitive tensor contractions.
+- Updated the documentation tutorials to show the current single-operator
+  correlator interface, the finite-temperature `rho_path` workflow, and the
+  exported `sweep_dot` API.
+
+---
+
 # DynamicalCorrelators.jl v0.11.0 Release Notes
 
 ## Highlights
@@ -23,11 +168,12 @@ single-site finite-TDVP sweep structure, but expands each moving bond with the
 direct Controlled Bond Expansion projector before the one-site TDVP update.
 
 This release also changes the finite-temperature dynamical-correlator memory
-model. Finite-temperature correlators now read a saved `rho(t)` trajectory from
-`rho_path` and evolve one charged source ket at a time, instead of keeping all
-active kets in memory. Single-source correlator methods are added for the
-one-operator zero-temperature and finite-temperature cases, which avoids
-`SharedArray` and distributed scheduling when only one source site is needed.
+model. Finite-temperature correlators now evolve the thermal state and active
+source kets together, instead of precomputing and storing the full `rho(t)` and
+all charged bra MPS objects for every time slice. Single-source correlator
+methods are added for the one-operator zero-temperature and finite-temperature
+cases, which avoids `SharedArray` and distributed scheduling when only one
+source site is needed.
 
 ## CBE-TDVP1
 
@@ -90,7 +236,7 @@ memory behavior.
 - Added zero-temperature single-source method
   `dcorrelator(gs, H, op, id; ...)`.
 - Added finite-temperature single-source method
-  `dcorrelator(rho_path, H, op, id; ...)`.
+  `dcorrelator(rho, H, op, id; ...)`.
 - These single-source methods write and resume the same `pro_k` checkpoint
   layout as the multi-source routines, but use ordinary arrays and a single
   local time-evolution path rather than `SharedArray` and distributed workers.
@@ -98,9 +244,12 @@ memory behavior.
   explicitly and only evolves up to the last requested record.
 - Incomplete JLD2 correlator files are detected and recomputed rather than
   silently accepted.
-- Finite-temperature correlators now read the thermal trajectory from
-  `rho_path` and keep only one charged source ket plus the current loaded
-  `rho(t)` in memory.
+- Finite-temperature correlators no longer precompute the full thermal
+  trajectory and all charged bra states. They keep only the current `rho_t`,
+  the active source kets, and their environments during the time loop.
+- `rho_path` is retained as a keyword for compatibility, but the v0.11.0
+  finite-temperature implementation does not use cached `rho(t)` trajectory
+  files.
 
 ## State Construction
 
@@ -123,8 +272,8 @@ boundary charge.
 - Default algorithm configuration names were renamed:
   - `DefaultDMRG` -> `myDMRG2()` for the default two-site DMRG constructor.
   - `DefaultDMRG2(tol, krylovdim)` -> `myDMRG2(; tol, krylovdim, ...)`.
-  - `DefaultTDVP` -> `myTDVP()`.
-  - `DefaultTDVP2(trscheme)` -> `myTDVP2(; trunc=trscheme)`.
+  - `DefaultTDVP` -> `myTDVP`.
+  - `DefaultTDVP2(trscheme)` -> `myTDVP2(trscheme)`.
   - `DefaultDMRG1CBE_eigsolve` -> `myDMRG1CBE_eigsolve`.
 - Added `myDMRG()` for one-site DMRG and `myTDVP1_CBE()` for CBE-TDVP1.
 - Exported `TDVP1_CBE` and `myTDVP1_CBE`.

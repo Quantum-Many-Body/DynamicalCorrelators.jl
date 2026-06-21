@@ -14,21 +14,20 @@ The package is built around three layers:
 - convenience workflows for charged states, TDVP time evolution, checkpointed
   dynamical correlators, and Fourier transforms.
 
-## Version 0.11 Highlights
+## Core Features
 
-The current version focuses on controlled bond growth and sparse Jordan-MPO
-performance:
+DynamicalCorrelators.jl provides convenience wrappers for the common pieces of
+finite-MPS dynamical-correlation workflows:
 
 - `dmrg1_cbe!` implements one-site DMRG with Controlled Bond Expansion (CBE),
-  including the direct CBE projector used in production calculations.
+  including the direct CBE projector.
 - `TDVP1_CBE` and `myTDVP1_CBE` add CBE-assisted one-site TDVP. This lets
   single-site TDVP grow bonds through CBE while keeping the cheaper one-site
   time-evolution sweep.
 - finite Jordan-MPO `AC_hamiltonian` and `AC2_hamiltonian` are specialized with
   sparse-channel multithreading for the dominant `A` and `AA` channel work.
-- `dcorrelator` supports both multi-source checkpointed calculations and
-  single-source methods that avoid `SharedArray` and distributed scheduling
-  when only one source site is needed.
+- `dcorrelator` supports single-source and multi-source checkpointed
+  real-time correlator calculations.
 - finite-temperature correlators read a saved `rho(t)` trajectory one slice at
   a time and use sweep contractions against the active charged ket.
 
@@ -102,9 +101,8 @@ and utility functions. Start with:
 ## Compatibility Note
 
 Before v1.0, minor versions may change APIs when the internal workflow improves.
-For v0.11, the default algorithm constructors are the `my*` names
-(`myDMRG2`, `myTDVP`, `myTDVP1_CBE`, `myTDVP2`) rather than the old `Default*`
-names.
+Use the exported `my*` constructors (`myDMRG2`, `myTDVP`, `myTDVP1_CBE`,
+`myTDVP2`) for the package's default algorithm configurations.
 
 ## Acknowledgments
 
