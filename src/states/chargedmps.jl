@@ -38,7 +38,9 @@ end
 
 Apply a (1,2)-leg operator (1 codomain, 2 domain legs) to a super MPS at `site`.
 This inserts the operator into the physical-ancilla leg structure of the purified state.
-For sites after the operator site, the tensor legs are rearranged via braiding (τ).
+The operator is assumed to use the `side=:L` convention. Sites at and after the
+operator site use materialized `TensorMap(BraidingTensor(...))` tensors for the
+fermionic string, so the propagated string has a fixed braiding channel.
 """
 function chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::Integer) where {B, S}
     T = promote_contract(scalartype(op), scalartype(mps))
@@ -49,40 +51,15 @@ function chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::I
             a = A1
         end
         if i == site 
+            τ2 = TensorMap(BraidingTensor(dual(codomain(A1,2)), domain(op, 2)))
             F = fuser(A, domain(A1, 1), domain(op, 2))
-            @plansor a[-1 -2 -3; -4] := A1[-1 1 3; 5] * op[-2; 1 2] * τ[2 -3; 3 4] * conj(F[-4; 5 4])
+            @plansor a[-1 -2 -3; -4] := A1[-1 1 3; 5] * op[-2; 1 2] * τ2[2 -3; 3 4] * conj(F[-4; 5 4])
         end
         if i > site
+            τ1 = TensorMap(BraidingTensor(codomain(A1,2), domain(op, 2)))
+            τ2 = TensorMap(BraidingTensor(dual(codomain(A1,2)), domain(op, 2)))
             Fl, Fr = fuser(A, codomain(A1, 1), domain(op, 2)), fuser(A, domain(A1, 1), domain(op, 2))
-            @plansor a[-1 -2 -3; -4] := Fl[-1; 1 2] * A1[1 3 5; 7] * τ[2 -2; 3 4] * τ[4 -3; 5 6] * conj(Fr[-4; 7 6])
-        end
-        return a
-    end
-    trscheme = trunctol(; atol = eps(real(T)))
-    return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
-end
-
-"""
-    chargedMPS(op::AbstractTensorMap{S,B,2,1}, mps::FiniteSuperMPS, site::Integer)
-
-Apply a (2,1)-leg operator (2 codomain, 1 domain legs) to a super MPS at `site`.
-For sites before the operator site, the tensor legs are rearranged via braiding (τ).
-"""
-function chargedMPS(op::AbstractTensorMap{S,B,2,1}, mps::FiniteSuperMPS, site::Integer) where {B, S}
-    T = promote_contract(scalartype(op), scalartype(mps))
-    A = similarstoragetype(eltype(mps), T)
-    A2 = map(1:length(mps)) do i
-        A1 = i == 1 ? mps.AC[1] : mps.AR[i]
-        if i < site
-            Fl, Fr = fuser(A, codomain(A1, 1), codomain(op, 1)), fuser(A, domain(A1, 1), codomain(op, 1))
-            @plansor a[-1 -2 -3; -4] := Fl[-1; 1 2] * A1[1 3 5; 7] * τ[2 -2; 3 4] * τ[4 -3; 5 6] * conj(Fr[-4; 7 6])
-        end
-        if i == site 
-            F = fuser(A, codomain(A1, 1), codomain(op, 1))
-            @plansor a[-1 -2 -3; -4] := F[-1; 1 2] * A1[1 3 -3; -4] * op[2 -2; 3]
-        end
-        if i > site
-            a = A1
+            @plansor a[-1 -2 -3; -4] := Fl[-1; 1 2] * A1[1 3 5; 7] * τ1[2 -2; 3 4] * τ2[4 -3; 5 6] * conj(Fr[-4; 7 6])
         end
         return a
     end

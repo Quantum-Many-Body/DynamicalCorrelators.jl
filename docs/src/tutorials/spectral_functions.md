@@ -30,27 +30,27 @@ H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
 ψ0 = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling)
 gs, envs, ϵ = dmrg2(ψ0, H, [128, 256, 512]; alg = myDMRG2())
 
-cp = e_plus(Float64, SU2Irrep, U1Irrep; side = :L, filling)
-cm = e_min(Float64, SU2Irrep, U1Irrep; side = :L, filling)
-
 times = 0:0.05:20
 tdvp_cbe = myTDVP1_CBE(D = 512)
+sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
 
-gf_rt = dcorrelator(gs, H, (cp, cm);
+gf_rt = dcorrelator(gs, H, sp, 1:N;
     times,
     tdvp1 = tdvp_cbe,
     tdvp2 = tdvp_cbe,
-    gf_path = "gf_electron",
+    gf_path = "gf_spin",
 )
 ```
 
-For a spin response, replace the operator pair with a single operator and a set
-of source ids:
+For one source channel, pass an integer id:
 
 ```julia
-sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
-gf_rt_spin = dcorrelator(gs, H, sp, 1:N; times, tdvp1 = tdvp_cbe)
+gf_rt_site = dcorrelator(gs, H, sp, div(N, 2); times, tdvp1 = tdvp_cbe)
 ```
+
+The current `dcorrelator` interface evolves one source operator at a time.
+Source ids `1:N` select the forward channel, while `N+1:2N` select the
+conjugated channel.
 
 ## Momentum-Frequency Transform
 

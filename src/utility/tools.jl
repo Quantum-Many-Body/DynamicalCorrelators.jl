@@ -95,9 +95,8 @@ Left transfer operation for a 4-leg boundary tensor `v` through an MPS tensor `A
 and its conjugate `Ab`. Used in multi-site correlation function contractions
 where extra operator legs need to be propagated through the chain via braiding tensors (τ).
 """
-function transfer_left(v::AbstractTensorMap{T, S, 4, 1}, A::MPSTensor{S}, Ab::MPSTensor{S}) where {T, S}
-    check_unambiguous_braiding(space(v, 4))
-    @plansor v[-1 -2 -3 -4; -5] := v[1 2 3 4; 5] * A[5 6; -5] * τ[4 7; 6 -4] * τ[3 8; 7 -3] * τ[2 9; 8 -2] * conj(Ab[1 9; -1])
+function transfer_left(v::AbstractTensorMap{T, S, 4, 1}, A::MPSTensor{S}, τ1, τ2, τ3, Ab::MPSTensor{S}) where {T, S}
+    @plansor v[-1 -2 -3 -4; -5] := v[1 2 3 4; 5] * A[5 6; -5] * τ1[4 7; 6 -4] * τ2[3 8; 7 -3] * τ3[2 9; 8 -2] * conj(Ab[1 9; -1])
 end
 
 """
@@ -105,9 +104,48 @@ end
 
 Left transfer operation for a 3-leg boundary tensor `v`. See the 4-leg version above.
 """
-function transfer_left(v::AbstractTensorMap{T, S, 3, 1}, A::MPSTensor{S}, Ab::MPSTensor{S}) where {T, S}
+function transfer_left(v::AbstractTensorMap{T, S, 3, 1}, A::MPSTensor{S}, τ2, τ3, Ab::MPSTensor{S}) where {T, S}
     check_unambiguous_braiding(space(v, 2))
-    @plansor v[-1 -2 -3; -4] := v[1 2 3; 4] * A[4 5; -4] * τ[3 6; 5 -3] * τ[2 7; 6 -2] * conj(Ab[1 7; -1])
+    @plansor v[-1 -2 -3; -4] := v[1 2 3; 4] * A[4 5; -4] * τ2[3 6; 5 -3] * τ3[2 7; 6 -2] * conj(Ab[1 7; -1])
+end
+
+"""
+    transfer_left(v, A, Ab)
+
+Left transfer for super-MPS tensors without an inserted string.
+`A` and `Ab` have leg structure `(left, physical, ancilla; right)`.
+"""
+function transfer_left(v::AbstractTensorMap{T, S, 1, 1}, A::AbstractTensorMap{TA, S, 3, 1}, Ab::AbstractTensorMap{TB, S, 3, 1}) where {T, S, TA, TB}
+    @plansor vnew[-1; -2] := v[1; 2] * A[2 3 4; -2] * conj(Ab[1 3 4; -1])
+    return vnew
+end
+
+"""
+    transfer_right(v, A, Ab)
+
+Right transfer for super-MPS tensors without an inserted string.
+`A` and `Ab` have leg structure `(left, physical, ancilla; right)`.
+"""
+function transfer_right(v::AbstractTensorMap{T, S, 1, 1}, A::AbstractTensorMap{TA, S, 3, 1}, Ab::AbstractTensorMap{TB, S, 3, 1}) where {T, S, TA, TB}
+    @plansor vnew[-1; -2] := A[-1 3 4; 1] * v[1; 2] * conj(Ab[-2 3 4; 2])
+    return vnew
+end
+
+"""
+    transfer_right(v, t1, t2, A, Ab)
+
+Right transfer for super-MPS tensors carrying a `(1,2)` charged string.
+The string braids are passed as materialized `TensorMap`s to avoid lazy
+braiding ambiguities during environment propagation.
+"""
+function transfer_right(v::AbstractTensorMap{T, S, 2, 1}, t1::AbstractTensorMap{T1, S, 2, 2}, t2::AbstractTensorMap{T2, S, 2, 2},
+                        A::AbstractTensorMap{TA, S, 3, 1}, Ab::AbstractTensorMap{TB, S, 3, 1}) where {T, S, T1, T2, TA, TB}
+    @plansor vnew[-1 -2; -3] := A[-1 3 5; 7] *
+        t1[-2 9; 3 4] *
+        t2[4 10; 5 6] *
+        v[7 6; 8] *
+        conj(Ab[-3 9 10; 8])
+    return vnew
 end
 
 

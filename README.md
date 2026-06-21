@@ -23,12 +23,11 @@ single-site finite-TDVP sweep structure, but expands each moving bond with the
 direct Controlled Bond Expansion projector before the one-site TDVP update.
 
 This release also changes the finite-temperature dynamical-correlator memory
-model. Finite-temperature correlators now evolve the thermal state and active
-source kets together, instead of precomputing and storing the full `rho(t)` and
-all charged bra MPS objects for every time slice. Single-source correlator
-methods are added for the one-operator zero-temperature and finite-temperature
-cases, which avoids `SharedArray` and distributed scheduling when only one
-source site is needed.
+model. Finite-temperature correlators now read a saved `rho(t)` trajectory from
+`rho_path` and evolve one charged source ket at a time, instead of keeping all
+active kets in memory. Single-source correlator methods are added for the
+one-operator zero-temperature and finite-temperature cases, which avoids
+`SharedArray` and distributed scheduling when only one source site is needed.
 
 ## CBE-TDVP1
 
@@ -91,7 +90,7 @@ memory behavior.
 - Added zero-temperature single-source method
   `dcorrelator(gs, H, op, id; ...)`.
 - Added finite-temperature single-source method
-  `dcorrelator(rho, H, op, id; ...)`.
+  `dcorrelator(rho_path, H, op, id; ...)`.
 - These single-source methods write and resume the same `pro_k` checkpoint
   layout as the multi-source routines, but use ordinary arrays and a single
   local time-evolution path rather than `SharedArray` and distributed workers.
@@ -99,12 +98,9 @@ memory behavior.
   explicitly and only evolves up to the last requested record.
 - Incomplete JLD2 correlator files are detected and recomputed rather than
   silently accepted.
-- Finite-temperature correlators no longer precompute the full thermal
-  trajectory and all charged bra states. They keep only the current `rho_t`,
-  the active source kets, and their environments during the time loop.
-- `rho_path` is retained as a keyword for compatibility, but the new
-  finite-temperature implementation does not use cached `rho(t)` trajectory
-  files.
+- Finite-temperature correlators now read the thermal trajectory from
+  `rho_path` and keep only one charged source ket plus the current loaded
+  `rho(t)` in memory.
 
 ## State Construction
 
@@ -127,8 +123,8 @@ boundary charge.
 - Default algorithm configuration names were renamed:
   - `DefaultDMRG` -> `myDMRG2()` for the default two-site DMRG constructor.
   - `DefaultDMRG2(tol, krylovdim)` -> `myDMRG2(; tol, krylovdim, ...)`.
-  - `DefaultTDVP` -> `myTDVP`.
-  - `DefaultTDVP2(trscheme)` -> `myTDVP2(trscheme)`.
+  - `DefaultTDVP` -> `myTDVP()`.
+  - `DefaultTDVP2(trscheme)` -> `myTDVP2(; trunc=trscheme)`.
   - `DefaultDMRG1CBE_eigsolve` -> `myDMRG1CBE_eigsolve`.
 - Added `myDMRG()` for one-site DMRG and `myTDVP1_CBE()` for CBE-TDVP1.
 - Exported `TDVP1_CBE` and `myTDVP1_CBE`.

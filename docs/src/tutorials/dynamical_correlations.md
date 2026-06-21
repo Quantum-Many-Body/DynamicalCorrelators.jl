@@ -7,16 +7,18 @@ The core idea is simple: apply a local operator to the ground state, evolve that
 charged state in real time, and measure overlaps with operator-applied ground
 states at each time step.
 
-## Single-Particle Green's Functions
+## Single-Operator Real-Time Correlators
 
-For a retarded fermionic Green's function, use a pair of operators:
+`dcorrelator` evolves one source operator at a time. For an operator `O`, the
+zero-temperature workflow builds charged states `O_j|gs>` and measures all
+overlaps against operator-applied ground states during TDVP evolution:
 
 ```math
-G^R_{ij}(t) =
--i\theta(t)\langle\psi_0|\{c_i(t), c_j^\dagger(0)\}|\psi_0\rangle .
+G_{ij}(t) =
+-i\langle gs|O_i^\dagger e^{-iHt} O_j|gs\rangle .
 ```
 
-In code, pass `(creation, annihilation)` to `dcorrelator`:
+Pass a single operator and either one source id or a collection of source ids:
 
 ```julia
 using TensorKit
@@ -32,27 +34,22 @@ H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
 ψ0 = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling)
 gs, envs, ϵ = dmrg2(ψ0, H, [128, 256, 512]; alg = myDMRG2())
 
-cp = e_plus(Float64, SU2Irrep, U1Irrep; side = :L, filling)
-cm = e_min(Float64, SU2Irrep, U1Irrep; side = :L, filling)
-
 times = 0:0.05:20
 tdvp_cbe = myTDVP1_CBE(D = 512)
+sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
 
-gf = dcorrelator(gs, H, (cp, cm);
+gf = dcorrelator(gs, H, sp, 1:N;
     times,
     tdvp1 = tdvp_cbe,
     tdvp2 = tdvp_cbe,
-    gf_path = "gf_electron",
+    gf_path = "gf_spin",
 )
 ```
 
-The pair-operator method computes both source channels and combines them with
-the sign convention controlled by `isfermion`.
-
 ## One-Operator Responses
 
-For spin, charge, or other one-operator responses, pass a single operator and a
-set of source ids:
+For spin, charge, or other one-operator responses, pass a single operator and
+one source id or a set of source ids:
 
 ```julia
 sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
@@ -101,8 +98,8 @@ The standard pattern is:
 dcorrelator(gs, H, op, indices;
     times,
     n = 3,
-    tdvp1 = myTDVP,
-    tdvp2 = myTDVP2(truncrank(512)),
+    tdvp1 = myTDVP(),
+    tdvp2 = myTDVP2(; trunc=truncrank(512)),
 )
 ```
 
@@ -122,7 +119,7 @@ dcorrelator(gs, H, op, indices;
 ```
 
 With this choice, bond growth is controlled by `D` in the CBE algorithm rather
-than by a TDVP2 `trscheme`.
+than by the `trunc` setting of `myTDVP2`.
 
 ## Checkpointing
 

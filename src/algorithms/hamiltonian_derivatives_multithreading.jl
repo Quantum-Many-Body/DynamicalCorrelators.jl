@@ -160,11 +160,11 @@ function _apply_AA_channels_threaded(valid_AA_channels, x)
 
                 channel = valid_AA_channels[idx_t]
                 tmp = @plansor tmp[-1 -2; -3 -4] :=
-                    channel.leftenv[-1 7; 6] *
-                    x[6 5; 1 3] *
-                    channel.localop1[7 -2; 5 4] *
-                    channel.localop2[4 -4; 3 2] *
-                    channel.rightenv[1 2; -3]
+                    channel.leftenv[-1 2; 1] *
+                    x[1 3; 7 5] *
+                    channel.localop1[2 -2; 3 4] *
+                    channel.localop2[4 -4; 5 6] *
+                    channel.rightenv[7 6; -3]
 
                 lock(lk)
                 try
@@ -313,50 +313,50 @@ function _cbe_project_add(intermediate, contribution)
 end
 
 function _apply_cbe_channel(channel::JordanMPO_AAChannel_Multithreading, NL, NR, left_tensor, right_tail)
-    tmp = @plansor opt=true tmp[-1; -2] :=
-        conj(NL[10 8; -1]) *
-        channel.leftenv[10 7; 6] *
-        left_tensor[6 5; 9] *
-        right_tail[9; 1 3] *
-        channel.localop1[7 8; 5 4] *
-        channel.localop2[4 11; 3 2] *
-        channel.rightenv[1 2; 12] *
-        conj(NR[-2; 12 11])
+    tmp = @plansor tmp[-1; -2] :=
+        conj(NL[4 5; -1]) *
+        channel.leftenv[4 2; 1] *
+        left_tensor[1 3; 11] *
+        right_tail[11; 6 7] *
+        channel.localop1[2 5; 3 12] *
+        channel.localop2[12 10; 7 8] *
+        channel.rightenv[6 8; 9] *
+        conj(NR[-2; 9 10])
     return tmp
 end
 
 function _apply_cbe_channel(channel::JordanMPO_CBE_CAChannel_Multithreading, NL, NR, left_tensor, right_tail)
-    tmp = @plansor opt=true tmp[-1; -2] :=
-        conj(NL[10 8; -1]) *
-        left_tensor[10 5; 9] *
-        right_tail[9; 1 3] *
-        channel.localop1[8; 5 4] *
-        channel.localop2[4 11; 3 2] *
-        channel.rightenv[1 2; 12] *
-        conj(NR[-2; 12 11])
+    tmp = @plansor tmp[-1; -2] :=
+        conj(NL[1 3; -1]) *
+        left_tensor[1 2; 9] *
+        right_tail[9; 4 5] *
+        channel.localop1[3; 2 10] *
+        channel.localop2[10 8; 5 6] *
+        channel.rightenv[4 6; 7] *
+        conj(NR[-2; 7 8])
     return tmp
 end
 
 function _apply_cbe_channel(channel::JordanMPO_CBE_ABChannel_Multithreading, NL, NR, left_tensor, right_tail)
-    tmp = @plansor opt=true tmp[-1; -2] :=
-        conj(NL[10 8; -1]) *
-        channel.leftenv[10 7; 6] *
-        left_tensor[6 5; 9] *
-        right_tail[9; 12 3] *
-        channel.localop1[7 8; 5 4] *
-        channel.localop2[4 11; 3] *
-        conj(NR[-2; 12 11])
+    tmp = @plansor tmp[-1; -2] :=
+        conj(NL[4 5; -1]) *
+        channel.leftenv[4 2; 1] *
+        left_tensor[1 3; 9] *
+        right_tail[9; 6 7] *
+        channel.localop1[2 5; 3 10] *
+        channel.localop2[10 8; 7] *
+        conj(NR[-2; 6 8])
     return tmp
 end
 
 function _apply_cbe_channel(channel::JordanMPO_CBE_CBChannel_Multithreading, NL, NR, left_tensor, right_tail)
-    tmp = @plansor opt=true tmp[-1; -2] :=
-        conj(NL[10 8; -1]) *
-        left_tensor[10 5; 9] *
-        right_tail[9; 12 3] *
-        channel.localop1[8; 5 4] *
-        channel.localop2[4 11; 3] *
-        conj(NR[-2; 12 11])
+    tmp = @plansor tmp[-1; -2] :=
+        conj(NL[1 3; -1]) *
+        left_tensor[1 2; 7] *
+        right_tail[7; 4 5] *
+        channel.localop1[3; 2 8] *
+        channel.localop2[8 6; 5] *
+        conj(NR[-2; 4 6])
     return tmp
 end
 

@@ -1,6 +1,12 @@
 """
     fZ(operator::AbstractTensorMap)
-    braiding operator 
+
+Return the materialized fermionic string tensor associated with `operator`.
+
+The string is `TensorMap(BraidingTensor(pspace, vspace))`, where `pspace` is the
+physical space and `vspace` is the charged virtual leg of the operator. Using a
+concrete `TensorMap` fixes the braiding channel for string propagation through
+MPO/MPS transfer matrices, which is important for fermionic signs.
 """
 function fZ(operator::AbstractTensorMap)
     if length(domain(operator)) > length(codomain(operator))
@@ -10,10 +16,7 @@ function fZ(operator::AbstractTensorMap)
         vspace = codomain(operator)[1]
         pspace = domain(operator)[1]
     end
-    iso₁ = isomorphism(storagetype(operator), vspace, vspace)
-    iso₂ = isomorphism(storagetype(operator), pspace, pspace)
-    @planar Z[-1 -2; -3 -4] := iso₁[-1; 1] * iso₂[-2; 2] * τ[1 2; 3 4] * iso₂[3; -3] * iso₁[4; -4]
-    return Z
+    return TensorMap(BraidingTensor(pspace, vspace))
 end
 
 #===========================================================================================
@@ -295,6 +298,18 @@ function hopping(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling
     cl = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
     c⁺r = e_plus(elt, SU2Irrep, U1Irrep; side=:R, filling=filling)
     return contract_twosite(c⁺l,cr) + contract_twosite(cl, c⁺r)
+end
+
+function cdagc(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    c⁺l = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+    cr = e_min(elt, SU2Irrep, U1Irrep; side=:R, filling=filling)
+    return contract_twosite(c⁺l,cr)
+end
+
+function ccdag(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
+    cl = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+    c⁺r = e_plus(elt, SU2Irrep, U1Irrep; side=:R, filling=filling)
+    return contract_twosite(cl, c⁺r)
 end
 
 """
@@ -623,4 +638,3 @@ end
 #     @planar Szd[-1; -2] := bpd[-1; 1 2] * isod[2; 3] * bmd[1; -2 3]
 #     return (Szu - Szd)/2
 # end
-
