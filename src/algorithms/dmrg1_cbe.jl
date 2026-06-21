@@ -339,19 +339,6 @@ function _cbe_direct_project(pos::Int, ψ::AbstractFiniteMPS, H::MPOHamiltonian{
     return _apply_cbe_project(project)
 end
 
-function _cbe_direct_project(pos::Int, ψ::AbstractFiniteMPS, H, envs, left_tensor, right_tensor, NL, NR)
-    GL = leftenv(envs, pos, ψ)
-    GR = rightenv(envs, pos + 1, ψ)
-    W1 = H[pos]
-    W2 = H[pos + 1]
-    right_tail = _transpose_tail(right_tensor)
-
-    @plansor opt=true intermediate[-1; -2] := conj(NL[10 8; -1]) *
-        GL[10 7; 6] * left_tensor[6 5; 9] * right_tail[9; 1 3] *
-        W1[7 8; 5 4] * W2[4 11; 3 2] * GR[1 2; 12] *
-        conj(NR[-2; 12 11])
-    return intermediate
-end
 
 """
     _cbe_expand_direct_l2r!(ψ, H, pos, envs, alg_svd, D_f, cbe_tol, delta, project_error, timer)
@@ -387,7 +374,7 @@ function _cbe_expand_direct_l2r!(ψ::AbstractFiniteMPS, H, pos::Int, envs, alg_s
     ϵp = NaN
     @timeit timer "CBE concat" begin
         if project_error
-            @plansor opt=true old_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * ψ.AR[pos + 1][1 -3; -4]
+            @plansor old_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * ψ.AR[pos + 1][1 -3; -4]
         end
         ar_re = V * NR
         ar_le = zerovector!(similar(ar_re, codomain(ψ.AC[pos]) ← space(V, 1)))
@@ -396,7 +383,7 @@ function _cbe_expand_direct_l2r!(ψ::AbstractFiniteMPS, H, pos::Int, envs, alg_s
         ψ.AC[pos] = (nal, nc)
         ψ.AC[pos + 1] = (nc, nar)
         if project_error
-            @plansor opt=true new_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
+            @plansor new_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
             ϵp = norm(old_two_site - new_two_site)
         end
     end
@@ -438,7 +425,7 @@ function _cbe_expand_direct_r2l!(ψ::AbstractFiniteMPS, H, pos::Int, envs, alg_s
     ϵp = NaN
     @timeit timer "CBE concat" begin
         if project_error
-            @plansor opt=true old_two_site[-1 -2 -3; -4] := ψ.AL[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
+            @plansor old_two_site[-1 -2 -3; -4] := ψ.AL[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
         end
         al_re = NL * U_exp
         ac_tail = _transpose_tail(ψ.AC[pos + 1]; copy=true)
@@ -448,7 +435,7 @@ function _cbe_expand_direct_r2l!(ψ::AbstractFiniteMPS, H, pos::Int, envs, alg_s
         ψ.AC[pos] = (nal, nc)
         ψ.AC[pos + 1] = (nc, nar)
         if project_error
-            @plansor opt=true new_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
+            @plansor new_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
             ϵp = norm(old_two_site - new_two_site)
         end
     end
@@ -553,8 +540,8 @@ Computes R^orth_ℓ = (I - B B†)(Λ · B_{ℓ+1} · W_{ℓ+1} · R_{ℓ+2}), c
 Only U·S flows into GETLORTH (step b); Vᴴ is discarded by the caller.
 """
 function _cbe_getrorth_l2r(GR, W2, AR, Λ)
-    @plansor opt=true tmp[-1; -4 -3 -2] := Λ[-1; 1] * AR[1 2; 3] * W2[-2 -3; 2 4] * GR[3 4; -4]
-    @plansor opt=true tmp2[-1; -4 -3 -2] := tmp[-1; 2 1 -2] * conj(AR[3 1; 2]) * AR[3 -3; -4]
+    @plansor tmp[-1; -4 -3 -2] := Λ[-1; 1] * AR[1 2; 3] * W2[-2 -3; 2 4] * GR[3 4; -4]
+    @plansor tmp2[-1; -4 -3 -2] := tmp[-1; 2 1 -2] * conj(AR[3 1; 2]) * AR[3 -3; -4]
     return svd_compact!(tmp - tmp2)
 end
 
@@ -565,8 +552,8 @@ Fig. S-2(a) mirrored, TABLE I steps 1-6, R→L sweep. GETLORTH (mirror).
 Returns compact SVD of L^orth; only S·Vᴴ flows into GETRORTH (step b).
 """
 function _cbe_getlorth_r2l(GL, W1, AL, Λ)
-    @plansor opt=true tmp[-1 -2 -4; -3] := GL[-1 2; 1] * AL[1 3; 4] * W1[2 -2; 3 -4] * Λ[4; -3]
-    @plansor opt=true tmp2[-1 -2 -4; -3] := tmp[1 2 -4; -3] * conj(AL[1 2; 3]) * AL[-1 -2; 3]
+    @plansor tmp[-1 -2 -4; -3] := GL[-1 2; 1] * AL[1 3; 4] * W1[2 -2; 3 -4] * Λ[4; -3]
+    @plansor tmp2[-1 -2 -4; -3] := tmp[1 2 -4; -3] * conj(AL[1 2; 3]) * AL[-1 -2; 3]
     return svd_compact!(tmp - tmp2)
 end
 
@@ -587,8 +574,8 @@ Computes L^orth_ℓ by projecting out the kept (A_ℓ) subspace:
 Then SVD-truncates center bond D → D'.
 """
 function _cbe_getlorth_l2r(GL, W1, AL, U, S, D_prime::Int, alg_svd, cbe_tol::Real)
-    @plansor opt=true tmp[-1 -2 -4; -3] := GL[-1 2; 1] * AL[1 3; 4] * W1[2 -2; 3 -4] * U[4; 5] * S[5; -3]
-    @plansor opt=true tmp2[-1 -2 -4; -3] := tmp[1 2 -4; -3] * conj(AL[1 2; 3]) * AL[-1 -2; 3]
+    @plansor tmp[-1 -2 -4; -3] := GL[-1 2; 1] * AL[1 3; 4] * W1[2 -2; 3 -4] * U[4; 5] * S[5; -3]
+    @plansor tmp2[-1 -2 -4; -3] := tmp[1 2 -4; -3] * conj(AL[1 2; 3]) * AL[-1 -2; 3]
     U_L, S_L, _, _ = svd_trunc!(tmp - tmp2; trunc=_cbe_preselect_trunc(D_prime, cbe_tol), alg=alg_svd)
     return U_L * S_L
 end
@@ -599,8 +586,8 @@ end
 Fig. S-2(b) mirrored, TABLE I steps 7-12, R→L sweep. Mirror of `_cbe_getlorth_l2r`.
 """
 function _cbe_getrorth_r2l(GR, W2, AR, S, Vᴴ, D_prime::Int, alg_svd, cbe_tol::Real)
-    @plansor opt=true tmp[-1; -4 -3 -2] := S[-1; 1] * Vᴴ[1; 2] * AR[2 4; 3] * W2[-2 -3; 4 5] * GR[3 5; -4]
-    @plansor opt=true tmp2[-1; -4 -3 -2] := tmp[-1; 2 1 -2] * conj(AR[3 1; 2]) * AR[3 -3; -4]
+    @plansor tmp[-1; -4 -3 -2] := S[-1; 1] * Vᴴ[1; 2] * AR[2 4; 3] * W2[-2 -3; 4 5] * GR[3 5; -4]
+    @plansor tmp2[-1; -4 -3 -2] := tmp[-1; 2 1 -2] * conj(AR[3 1; 2]) * AR[3 -3; -4]
     _, S_R, Vᴴ_R, _ = svd_trunc!(tmp - tmp2; trunc=_cbe_preselect_trunc(D_prime, cbe_tol), alg=alg_svd)
     return S_R*Vᴴ_R
 end
@@ -654,26 +641,26 @@ function _cbe_get_Bpr_r2l(R_orth_tr, AR, D_f::Int, alg_svd, cbe_tol::Real, safet
 end
 
 function _cbe_Apr_orthogonality(AL, A_pr)
-    @plansor opt=true overlap[-1; -2] := conj(AL[1 2; -1]) * A_pr[1 2; -2]
+    @plansor overlap[-1; -2] := conj(AL[1 2; -1]) * A_pr[1 2; -2]
     return norm(overlap)
 end
 
 function _cbe_Bpr_orthogonality(B_pr, AR)
     ARr = repartition(AR, 1, 2)
-    @plansor opt=true overlap[-1; -2] := B_pr[-1; 1 2] * conj(ARr[-2; 1 2])
+    @plansor overlap[-1; -2] := B_pr[-1; 1 2] * conj(ARr[-2; 1 2])
     return norm(overlap)
 end
 
 function _cbe_project_Apr_complement(AL, A_pr)
-    @plansor opt=true overlap[-1; -2] := conj(AL[1 2; -1]) * A_pr[1 2; -2]
-    @plansor opt=true proj[-1 -2; -3] := AL[-1 -2; 1] * overlap[1; -3]
+    @plansor overlap[-1; -2] := conj(AL[1 2; -1]) * A_pr[1 2; -2]
+    @plansor proj[-1 -2; -3] := AL[-1 -2; 1] * overlap[1; -3]
     return A_pr - proj
 end
 
 function _cbe_project_Bpr_complement(B_pr, AR)
     ARr = repartition(AR, 1, 2)
-    @plansor opt=true overlap[-1; -2] := B_pr[-1; 1 2] * conj(ARr[-2; 1 2])
-    @plansor opt=true proj[-1; -2 -3] := overlap[-1; 1] * ARr[1; -2 -3]
+    @plansor overlap[-1; -2] := B_pr[-1; 1 2] * conj(ARr[-2; 1 2])
+    @plansor proj[-1; -2 -3] := overlap[-1; 1] * ARr[1; -2 -3]
     return B_pr - proj
 end
 
@@ -694,9 +681,9 @@ TABLE I steps 22-23: SVD-truncate C^orth_{ℓ+1} to D̃ singular values,
 giving ũ; return Â^tr = Â^pr · ũ with codomain=(D_left, phys), image dimension D̃.
 """
 function _cbe_get_Atr_l2r(A_pr, AL, AR, Λ, W1, W2, GL, GR, D_tilde::Int, alg_svd, cbe_tol::Real)
-    @plansor opt=true L_pr[-1; -2 -3] := GL[4 3; 1] * AL[1 2; -2] * W1[3 5; 2 -3] * conj(A_pr[4 5; -1])
-    @plansor opt=true tmp[-1; -3 -2] := L_pr[-1; 1 6] * Λ[1; 2] * AR[2 4; 3] * W2[6 -2; 4 5] * GR[3 5; -3]
-    @plansor opt=true tmp2[-1; -3 -2] := tmp[-1; 2 1] * conj(AR[3 1; 2]) * AR[3 -2; -3]
+    @plansor L_pr[-1; -2 -3] := GL[4 3; 1] * AL[1 2; -2] * W1[3 5; 2 -3] * conj(A_pr[4 5; -1])
+    @plansor tmp[-1; -3 -2] := L_pr[-1; 1 6] * Λ[1; 2] * AR[2 4; 3] * W2[6 -2; 4 5] * GR[3 5; -3]
+    @plansor tmp2[-1; -3 -2] := tmp[-1; 2 1] * conj(AR[3 1; 2]) * AR[3 -2; -3]
     tilde_u, _, _, _ = svd_trunc!(tmp - tmp2; trunc=_cbe_preselect_trunc(D_tilde, cbe_tol), alg=alg_svd)
     @plansor A_tr[-1 -2; -3] := A_pr[-1 -2; 1] * tilde_u[1; -3]
     return A_tr
@@ -710,9 +697,9 @@ Fig. S-2(d) mirrored, TABLE I steps 16-23, R→L sweep.
 Mirror of `_cbe_get_Atr_l2r`.
 """
 function _cbe_get_Btr_r2l(B_pr, AL, AR, Λ, W1, W2, GL, GR, D_tilde::Int, alg_svd, cbe_tol::Real)
-    @plansor opt=true R_pr[-1 -2; -3] := AR[-1 1; 2] * W2[-2 4;1 3] * GR[2 3; 5] * conj(B_pr[-3; 5 4])
-    @plansor opt=true tmp[-1 -2; -3] := GL[-1 2; 1] * AL[1 3; 4] * W1[2 -2; 3 6] * Λ[4; 5] * R_pr[5 6; -3]
-    @plansor opt=true tmp2[-1 -2; -3] := tmp[1 2; -3] * conj(AL[1 2; 3]) * AL[-1 -2; 3]
+    @plansor R_pr[-1 -2; -3] := AR[-1 1; 2] * W2[-2 4;1 3] * GR[2 3; 5] * conj(B_pr[-3; 5 4])
+    @plansor tmp[-1 -2; -3] := GL[-1 2; 1] * AL[1 3; 4] * W1[2 -2; 3 6] * Λ[4; 5] * R_pr[5 6; -3]
+    @plansor tmp2[-1 -2; -3] := tmp[1 2; -3] * conj(AL[1 2; 3]) * AL[-1 -2; 3]
     _, _, tilde_vh, _ = svd_trunc!(tmp - tmp2; trunc=_cbe_preselect_trunc(D_tilde, cbe_tol), alg=alg_svd)
     @plansor B_tr[-1; -3 -2] := tilde_vh[-1; 1] * B_pr[1; -3 -2]
     return B_tr
@@ -735,22 +722,22 @@ Returns the explicit projection error if `project_error` is true; otherwise `NaN
 """
 function _cbe_bond_expand_l2r!(ψ, pos::Int, AL, A_tr, project_error::Bool)
     if project_error
-        @plansor opt=true old_two_site[-1 -2 -3; -4] := AL[-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
+        @plansor old_two_site[-1 -2 -3; -4] := AL[-1 -2; 1] * ψ.AC[pos + 1][1 -3; -4]
     end
 
     A_tr_inner = A_tr[1, 1, 1]
     A_ex0 = catdomain(AL, A_tr_inner)
-    @plansor opt=true new_ac0[-1 -2; -3] := conj(A_ex0[1 2; -1]) * AL[1 2; 3] * ψ.AC[pos+1][3 -2; -3]
+    @plansor new_ac0[-1 -2; -3] := conj(A_ex0[1 2; -1]) * AL[1 2; 3] * ψ.AC[pos+1][3 -2; -3]
 
     # FiniteMPS performs a final no-truncation orthogonalization after oplus.
     # This keeps the enlarged basis canonical while preserving the state.
     A_ex, R = left_orth(A_ex0)
-    @plansor opt=true new_ac[-1 -2; -3] := R[-1; 1] * new_ac0[1 -2; -3]
+    @plansor new_ac[-1 -2; -3] := R[-1; 1] * new_ac0[1 -2; -3]
 
     ψ.AC[pos] = (A_ex, R)
     ψ.AC[pos + 1] = new_ac
     if project_error
-        @plansor opt=true new_two_site[-1 -2 -3; -4] := A_ex[-1 -2; 1] * new_ac[1 -3; -4]
+        @plansor new_two_site[-1 -2 -3; -4] := A_ex[-1 -2; 1] * new_ac[1 -3; -4]
         return norm(old_two_site - new_two_site)
     end
     return NaN
@@ -769,22 +756,22 @@ Returns the explicit projection error if `project_error` is true; otherwise `NaN
 """
 function _cbe_bond_expand_r2l!(ψ, pos::Int, AR, B_tr, project_error::Bool)
     if project_error
-        @plansor opt=true old_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * AR[1 -3; -4]
+        @plansor old_two_site[-1 -2 -3; -4] := ψ.AC[pos][-1 -2; 1] * AR[1 -3; -4]
     end
 
     B_tr_inner = B_tr[1, 1, 1]
     B_ex0 = repartition(catcodomain(repartition(AR, 1, 2), B_tr_inner), 2, 1)
-    @plansor opt=true new_ac0[-1 -2; -3] := ψ.AC[pos][-1 -2; 1] * AR[1 2; 3] * conj(B_ex0[-3 2; 3])
+    @plansor new_ac0[-1 -2; -3] := ψ.AC[pos][-1 -2; 1] * AR[1 2; 3] * conj(B_ex0[-3 2; 3])
 
     # Mirror of the final no-truncation orthogonalization after oplus.
     L, B_ex_tail = right_orth(_transpose_tail(B_ex0))
     B_ex = _transpose_front(B_ex_tail)
-    @plansor opt=true new_ac[-1 -2; -3] := new_ac0[-1 -2; 1] * L[1; -3]
+    @plansor new_ac[-1 -2; -3] := new_ac0[-1 -2; 1] * L[1; -3]
 
     ψ.AC[pos + 1] = (L, B_ex)
     ψ.AC[pos] = new_ac
     if project_error
-        @plansor opt=true new_two_site[-1 -2 -3; -4] := new_ac[-1 -2; 1] * B_ex[1 -3; -4]
+        @plansor new_two_site[-1 -2 -3; -4] := new_ac[-1 -2; 1] * B_ex[1 -3; -4]
         return norm(old_two_site - new_two_site)
     end
     return NaN

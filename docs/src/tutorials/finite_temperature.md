@@ -35,15 +35,25 @@ Cool the state by imaginary-time evolution to `β/2`:
 
 rhoβ = evolve_mps(H, τs, rho0;
     filename = "rho_beta_2.jld2",
-    tdvp1 = myTDVP,
-    tdvp2 = myTDVP2(truncrank(256)),
+    tdvp1 = myTDVP(),
+    tdvp2 = myTDVP2(; trunc=truncrank(256)),
     n = 3,
 )
 ```
 
-The saved file contains selected purification states from the imaginary-time
-path. The real-time finite-temperature correlator below does not need a cached
-array of all `rho(t)` states.
+Then evolve the prepared purification in real time and save every `rho(t)`:
+
+```julia
+times = 0:0.05:10
+rho_path = "rho_beta_2_realtime.jld2"
+evolve_mps(H, times, rhoβ;
+    filename = rho_path,
+    save_id = eachindex(times),
+    tdvp1 = myTDVP(),
+    tdvp2 = myTDVP2(; trunc=truncrank(256)),
+    n = 3,
+)
+```
 
 ## Single-Operator Finite-T Correlators
 
@@ -51,10 +61,9 @@ For one source channel, pass an integer `id`:
 
 ```julia
 sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
-times = 0:0.05:10
 tdvp_cbe = myTDVP1_CBE(D = 256)
 
-gf_site = dcorrelator(rhoβ, H, sp, div(N, 2);
+gf_site = dcorrelator(rho_path, H, sp, div(N, 2);
     times,
     beta = β,
     tdvp1 = tdvp_cbe,
@@ -63,16 +72,16 @@ gf_site = dcorrelator(rhoβ, H, sp, div(N, 2);
 )
 ```
 
-This method evolves only the current purification `rho_t`, the charged source
-ket, and their environments. It returns an array of size
-`(length(H), length(times))`.
+This method evolves only the charged source ket in memory and loads the
+corresponding `rho(t)` from `rho_path` for each time slice. It returns an array
+of size `(length(H), length(times))`.
 
 ## Multi-Source Finite-T Correlators
 
 To compute many source channels in one call:
 
 ```julia
-gf = dcorrelator(rhoβ, H, sp, 1:N;
+gf = dcorrelator(rho_path, H, sp, 1:N;
     times,
     beta = β,
     tdvp1 = tdvp_cbe,
@@ -81,37 +90,16 @@ gf = dcorrelator(rhoβ, H, sp, 1:N;
 )
 ```
 
-Completed source files are loaded from `gf_path`; active sources are evolved
-together. This avoids the older memory-heavy strategy of precomputing all
-thermal states and all charged bra states for every time point.
-
-## Pair-Operator Finite-T Correlators
-
-Fermionic Green's functions use an operator pair:
-
-```julia
-cp = e_plus(Float64, SU2Irrep, U1Irrep; side = :L, filling)
-cm = e_min(Float64, SU2Irrep, U1Irrep; side = :L, filling)
-
-gf_electron = dcorrelator(rhoβ, H, (cp, cm);
-    times,
-    beta = β,
-    tdvp1 = tdvp_cbe,
-    tdvp2 = tdvp_cbe,
-    gf_path = "gf_finiteT_electron",
-)
-```
-
-The two channel groups are combined as a fermionic sum by default. Set
-`isfermion=false` for the opposite sign convention.
+Completed source files are loaded from `gf_path`; unfinished source channels are
+evaluated independently, and distributed workers each keep one charged ket and
+one loaded thermal state at a time.
 
 ## Notes
 
 - `identityMPS(H)` constructs the purified infinite-temperature state.
-- `dot(rhoβ, rhoβ)` is used internally as the partition-function
+- `dot(rho(0), rho(0))` is used internally as the partition-function
   normalization.
-- The `rho_path` keyword is accepted by finite-temperature `dcorrelator`
-  methods for compatibility, but v0.11 does not use cached `rho(t)` trajectory
-  files in real-time correlators.
+- The finite-temperature `dcorrelator` methods take `rho_path` as their first
+  argument and expect keys of the form `"t=$(times[k])"`.
 - CBE-TDVP1 is useful here for the same reason as at zero temperature: it lets
   the one-site time-evolution path expand bonds in a controlled way.

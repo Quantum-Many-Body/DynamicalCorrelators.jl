@@ -69,7 +69,8 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
                         μ = 0.0, 
                         pinning = nothing,
                         filling=(1,1))
-    hop = hopping(elt, SU2Irrep, U1Irrep; filling=filling)
+    hop1 = cdagc(elt, SU2Irrep, U1Irrep; filling=filling)
+    hop2 = ccdag(elt, SU2Irrep, U1Irrep; filling=filling)
     onc = onsiteCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
     num = number(elt, SU2Irrep, U1Irrep; filling=filling)
     terms = []
@@ -77,32 +78,32 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
         tb = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
         tb2 = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
         for i in eachindex(tb)
-            push!(terms, tb[i]=>-t*hop)
+            push!(terms, tb[i]=>t*hop1+t'*hop2)
         end
         if t2 !== 0.0
             for i in eachindex(tb2)
-                push!(terms, tb2[i]=>-t2*hop)
+                push!(terms, tb2[i]=>t2*hop1+t2'*hop2)
             end
         end
         tf = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
         tf2 = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
         for i in eachindex(tf)
-            push!(terms, tf[i]=>-th*hop)
+            push!(terms, tf[i]=>th*hop1+th'*hop2)
         end
         if th2 !== 0.0
             for i in eachindex(tf2)
-                push!(terms, tf2[i]=>-th2*hop)
+                push!(terms, tf2[i]=>th2*hop1+th2'*hop2)
             end
         end
     elseif length(lattice.lattice[1]) == 2
         tb = twosite_bonds(lattice, 1, 1; neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
         tb2 = twosite_bonds(lattice, 1, 1; neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
         for i in eachindex(tb)
-            push!(terms, tb[i]=>-t*hop)
+            push!(terms, tb[i]=>t*hop1+t'*hop2)
         end
         if t2 !== 0.0
             for i in eachindex(tb2)
-                push!(terms, tb2[i]=>-t2*hop)
+                push!(terms, tb2[i]=>t2*hop1+t2'*hop2)
             end
         end
     end

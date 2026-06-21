@@ -22,6 +22,7 @@ correlator
 ```@docs
 evolve_mps
 dcorrelator
+sweep_dot
 ```
 
 ## Fourier Transforms

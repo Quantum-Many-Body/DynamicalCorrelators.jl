@@ -1,5 +1,5 @@
 """
-    myDMRG(; tol=1e-8, maxiter=100, krylovdim=16)
+    myDMRG(; tol=1e-6, maxiter=100, krylovdim=16)
 
 Construct the default one-site DMRG algorithm used by this package.
 
@@ -37,16 +37,16 @@ myDMRG2(;tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16) = DMRG2(; to
             trscheme=trunc)
 
 """
-    myTDVP
+    myTDVP(; krylovdim=32)
 
-Default single-site TDVP algorithm object for finite-MPS time evolution.
+Construct the default single-site TDVP algorithm for finite-MPS time evolution.
 
-This is the fixed-bond-dimension TDVP path from MPSKit, using a Lanczos
-integrator with `krylovdim=32`.
+This is the fixed-bond-dimension TDVP path from MPSKit. `krylovdim` controls the
+dimension of the Lanczos Krylov subspace used by the local time integrator.
 """
-myTDVP = TDVP(;
+myTDVP(; krylovdim = 32) = TDVP(;
             integrator = Lanczos(;
-                krylovdim = 32,
+                krylovdim = krylovdim,
                 maxiter = 1,
                 tol = 1e-8,
                 orth = ModifiedGramSchmidt(),
@@ -81,17 +81,17 @@ myTDVP1_CBE(; D=4096, cbe_tol=1e-10, delta=0.1, project_error=false, krylovdim=3
             project_error = project_error)
 
 """
-    myTDVP2(trscheme)
+    myTDVP2(; trunc=truncrank(4096), krylovdim=16)
 
-Construct a two-site TDVP algorithm with the given truncation scheme `trscheme`.
+Construct the default two-site TDVP algorithm.
 
-Two-site TDVP allows bond-dimension growth through its SVD truncation step and
-is commonly used for the first few time steps before switching to `myTDVP` or
-`myTDVP1_CBE`.
+`trunc` is passed as the SVD truncation scheme, so callers can use either a
+fixed-rank rule such as `truncrank(D)` or a tolerance-based rule. `krylovdim`
+controls the Lanczos Krylov dimension for the two-site time integrator.
 """
-myTDVP2(trscheme) = TDVP2(;
+myTDVP2(; trunc = truncrank(4096), krylovdim = 16) = TDVP2(;
             integrator = Lanczos(;
-                krylovdim = 32,
+                krylovdim = krylovdim,
                 maxiter = 1,
                 tol = 1e-8,
                 orth = ModifiedGramSchmidt(),
@@ -100,7 +100,7 @@ myTDVP2(trscheme) = TDVP2(;
             tolgauge =  1e-13,
             gaugemaxiter = 200,
             alg_svd = LAPACK_DivideAndConquer(),
-            trscheme=trscheme)
+            trscheme=trunc)
 
 """
     myDMRG1CBE_eigsolve

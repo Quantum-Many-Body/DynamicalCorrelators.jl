@@ -223,16 +223,22 @@ function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::Abs
             @plansor Vₗ[-1 -2; -3] := state.AC[i][3 4; -3] * O₁[2; 4 -2] * conj(state.AC[i][3 2; -1])
             ctr = i + 1
             if j > ctr
-                Vₗ = Vₗ * TransferMatrix(state.AR[ctr:(j - 1)])
+                Z = TensorMap(BraidingTensor(domain(O₁,1), domain(O₁,2)))
+                midsites = ctr:(j - 1)
+                Vₗ = Vₗ * TransferMatrix(state.AR[midsites], fill(Z, length(midsites)), state.AR[midsites])
             end
             G = @plansor Vₗ[2 3; 5] * state.AR[j][5 6; 7] * O₂[3 4; 6] * conj(state.AR[j][2 4; 7])
         else
-            @plansor Vₗ[-1 -2; -3] := state.AC[j][3 4; -3] * O₂[2 1; 4] * τ[2 5; 1 -2] * conj(state.AC[j][3 5; -1])
+            iso₂ = isomorphism(flip(codomain(O₂, 1)), codomain(O₂, 1))
+            @plansor Vₗ[-1 -2; -3] := state.AC[j][3 4; -3] * O₂[2 1; 4] * iso₂[6; 2] * τ[6 5; 1 -2] * conj(state.AC[j][3 5; -1])
             ctr = j + 1
             if i > ctr
-                Vₗ = Vₗ * TransferMatrix(state.AR[ctr:(i - 1)])
+                Z = TensorMap(BraidingTensor(domain(O₁,1), dual(flip(codomain(O₂, 1)))))
+                midsites = ctr:(i - 1)
+                Vₗ = Vₗ * TransferMatrix(state.AR[midsites], fill(Z, length(midsites)), state.AR[midsites])
             end
-            G = @plansor Vₗ[1 2; 3] * state.AR[i][3 4; 8] * τ[2 5; 4 6] * O₁[7; 5 6] * conj(state.AR[i][1 7; 8])
+            iso₁ = isomorphism(codomain(O₂, 1), flip(codomain(O₂, 1)))
+            G = @plansor Vₗ[1 2; 3] * state.AR[i][3 4; 8] * τ[2 5; 4 6] * iso₁[9; 6] * O₁[7; 5 9] * conj(state.AR[i][1 7; 8])
         end
     elseif (length(domain(O₁)) == 1)&&(length(codomain(O₂)) == 1)
         if i == j 
@@ -273,17 +279,23 @@ function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::Abs
         @plansor Vᵢ[-1 -2; -3] := state.AC[i][3 4; -3] * conj(U[1]) * I[1 2; 4 -2] *
                             conj(state.AC[i][3 2; -1])
         if j > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(j - 1)])
+            Zᵢⱼ = TensorMap(BraidingTensor(domain(I,1), domain(I, 2)))
+            midsites = (i + 1):(j - 1)
+            Vᵢ = Vᵢ * TransferMatrix(state.AR[midsites], fill(Zᵢⱼ, length(midsites)), state.AR[midsites])
         end
         @plansor Vⱼ[-1 -2; -3] := Vᵢ[1 2; 3] * state.AR[j][3 4; -3] * J[2 5; 4 -2] *
                             conj(state.AR[j][1 5; -1])
         if k > (j + 1)
-            Vⱼ = Vⱼ * TransferMatrix(state.AR[(j + 1):(k - 1)])
+            Zⱼₖ = TensorMap(BraidingTensor(domain(J, 1), domain(J, 2)))
+            midsites = (j + 1):(k - 1)
+            Vⱼ = Vⱼ * TransferMatrix(state.AR[midsites], fill(Zⱼₖ, length(midsites)), state.AR[midsites])
         end
         @plansor Vₖ[-1 -2; -3] := Vⱼ[1 2; 3] * state.AR[k][3 4; -3] * K[2 5; 4 -2] *
                             conj(state.AR[k][1 5; -1])
         if l > (k + 1)
-            Vₖ = Vₖ * TransferMatrix(state.AR[(k + 1):(l - 1)])
+            Zₖₗ = TensorMap(BraidingTensor(domain(K, 1), domain(K, 2)))
+            midsites = (k + 1):(l - 1)
+            Vₖ = Vₖ * TransferMatrix(state.AR[midsites], fill(Zₖₗ, length(midsites)), state.AR[midsites])
         end
         G = @plansor Vₖ[2 3; 5] * state.AR[l][5 6; 7] * L[3 4; 6 1] * U[1] *
                         conj(state.AR[l][2 4; 7])
@@ -292,12 +304,16 @@ function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::Abs
         @plansor Vᵢ[-1 -2; -3] := state.AC[i][3 4; -3] * conj(U[1]) * I[1 2; 4 -2] *
                             conj(state.AC[i][3 2; -1])
         if j > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(j - 1)])
+            Zᵢⱼ = TensorMap(BraidingTensor(domain(I,1), domain(I, 2)))
+            midsites = (i + 1):(j - 1)
+            Vᵢ = Vᵢ * TransferMatrix(state.AR[midsites], fill(Zᵢⱼ, length(midsites)), state.AR[midsites])
         end
         @plansor Vⱼ[-1 -2; -3] := Vᵢ[1 2; 3] * state.AR[j][3 4; -3] * K[5 6; 4 -2] *
-                            τ[7 8; 5 6] * J[2 9; 7 8] * conj(state.AR[j][1 9; -1])
+                            τ[5 7; 6 8] * J[2 9; 7 8] * conj(state.AR[j][1 9; -1])
         if l > (j + 1)
-            Vⱼ = Vⱼ * TransferMatrix(state.AR[(j + 1):(l - 1)])
+            Zₖₗ = TensorMap(BraidingTensor(domain(K, 1), domain(K, 2)))
+            midsites = (j + 1):(l - 1)
+            Vⱼ = Vⱼ * TransferMatrix(state.AR[midsites], fill(Zₖₗ, length(midsites)), state.AR[midsites])
         end
         G = @plansor Vⱼ[2 3; 5] * state.AR[l][5 6; 7] * L[3 4; 6 1] * U[1] *
                             conj(state.AR[l][2 4; 7])
@@ -306,17 +322,28 @@ function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::Abs
         @plansor Vᵢ[-1 -2; -3] := state.AC[i][3 4; -3] * conj(U[1]) * I[1 2; 4 -2] *
                             conj(state.AC[i][3 2; -1])
         if k > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(k - 1)])
+            Zᵢₖ = TensorMap(BraidingTensor(domain(I,1), domain(I, 2)))
+            midsites = (i + 1):(k - 1)
+            Vᵢ = Vᵢ * TransferMatrix(state.AR[midsites], fill(Zᵢₖ, length(midsites)), state.AR[midsites])
         end                     
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
         @plansor Vₖ[-1 -2 -3 -4; -5] := Vᵢ[1 2; 3] * state.AR[k][3 4; -5] * 
-                            K[5 6; 4 -4] * τ[5 7; 6 -3] * τ[2 8; 7 -2] * conj(state.AR[k][1 8; -1])
+                            K[5 6; 4 -4] * iso[9; 5] * τ[9 7; 6 -3] * τ[2 8; 7 -2] * conj(state.AR[k][1 8; -1])
         if j > (k + 1)
-             Vₖ = Vₖ * TransferMatrix(state.AR[(k + 1):(j - 1)])
+            τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+            τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (k + 1):(j - 1)
+                Vₖ = transfer_left(Vₖ, state.AR[a], τ1, τ2, τ3, state.AR[a])
+            end
         end
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
         @plansor Vⱼ[-1, -2; -3] := Vₖ[1 2 3 4; 5] * state.AR[j][5 6; -3] * τ[4 7; 6 -2] * 
-                            τ[3 8; 7 9] * J[2 10; 8 9] * conj(state.AR[j][1 10; -1])
+                            τ[3 8; 7 9] * J[2 10; 8 11] * iso[11; 9] * conj(state.AR[j][1 10; -1])
         if l > (j + 1)
-             Vⱼ = Vⱼ * TransferMatrix(state.AR[(j + 1):(l - 1)])
+            Zⱼₗ = TensorMap(BraidingTensor(domain(K, 1), domain(K, 2)))
+            midsites = (j + 1):(l - 1)
+            Vⱼ = Vⱼ * TransferMatrix(state.AR[midsites], fill(Zⱼₗ, length(midsites)), state.AR[midsites])
         end
         G = @plansor Vⱼ[2 3; 5] * state.AR[l][5 6; 7] * L[3 4; 6 1] * U[1] *
                             conj(state.AR[l][2 4; 7])
@@ -325,174 +352,259 @@ function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::Abs
         @plansor Vᵢ[-1 -2; -3] := state.AC[i][3 4; -3] * conj(U[1]) * I[1 2; 4 -2] *
                             conj(state.AC[i][3 2; -1])
         if k > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(k - 1)])
+            Zᵢₖ = TensorMap(BraidingTensor(domain(I,1), domain(I, 2)))
+            midsites = (i + 1):(k - 1)
+            Vᵢ = Vᵢ * TransferMatrix(state.AR[midsites], fill(Zᵢₖ, length(midsites)), state.AR[midsites])
         end                     
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
+        τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
         @plansor Vₖ[-1 -2 -3 -4; -5] := Vᵢ[1 2; 3] * state.AR[k][3 4; -5] * 
-                            K[5 6; 4 -4] * τ[5 7; 6 -3] * τ[2 8; 7 -2] * conj(state.AR[k][1 8; -1])
+                            K[5 6; 4 -4] * iso[9; 5] * τ[9 7; 6 -3] * τ3[2 8; 7 -2] * conj(state.AR[k][1 8; -1])
         if j > (k + 1)
-             Vₖ = Vₖ * TransferMatrix(state.AR[(k + 1):(j - 1)])
+            τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+            τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (k + 1):(j - 1)
+                Vₖ = transfer_left(Vₖ, state.AR[a], τ1, τ2, τ3, state.AR[a])
+            end
         end
-        G = @plansor Vₖ[1 2 3 4; 5] * state.AR[j][5 6; 11] * L[4 7; 6 12] * U[12] *
-                            τ[3 8; 7 9] * J[2 10; 8 9] * conj(state.AR[j][1 10; 11])
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
+        G = @plansor Vₖ[1 2 3 4; 5] * state.AR[j][5 6; 13] * L[4 7; 6 12] * U[12] *
+                            τ[3 8; 7 9] * iso[11; 9] * J[2 10; 8 11] * conj(state.AR[j][1 10; 13])
 
     elseif i == k < j < l
-        @plansor Vᵢ[-1 -2 -3 -4; -5] := state.AC[i][3 7; -5] * K[5 6; 7 -4] * τ[5 4; 6 -3] *
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
+        @plansor Vᵢ[-1 -2 -3 -4; -5] := state.AC[i][3 7; -5] * K[5 6; 7 -4] * iso[8; 5] * τ[8 4; 6 -3] *
                             conj(U[1]) * I[1 2; 4 -2] * conj(state.AC[i][3 2; -1])
         if j > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(j - 1)])
+            τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+            τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (i + 1):(j - 1)
+                Vᵢ = transfer_left(Vᵢ, state.AR[a], τ1, τ2, τ3, state.AR[a])
+            end
         end
-        @plansor Vⱼ[-1 -2; -3] := Vᵢ[1 2 3 4; 5] * state.AR[j][5 6; -3] * τ[4 7; 6 -2] *
-                            τ[3 8; 7 9] * J[2 10; 8 9] * conj(state.AR[j][1 10; -1])
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
+        τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+        @plansor Vⱼ[-1, -2; -3] := Vᵢ[1 2 3 4; 5] * state.AR[j][5 6; -3] * τ1[4 7; 6 -2] * 
+                            τ[3 8; 7 9] * J[2 10; 8 11] * iso[11; 9] * conj(state.AR[j][1 10; -1])
         if l > (j + 1)
-            Vⱼ = Vⱼ * TransferMatrix(state.AR[(j + 1):(l - 1)])
+            Zⱼₗ = TensorMap(BraidingTensor(domain(K, 1), domain(K, 2)))
+            midsites = (j + 1):(l - 1)
+            Vⱼ = Vⱼ * TransferMatrix(state.AR[midsites], fill(Zⱼₗ, length(midsites)), state.AR[midsites])
         end
         G = @plansor Vⱼ[2 3; 5] * state.AR[l][5 6; 7] * L[3 4; 6 1] * U[1] *
                             conj(state.AR[l][2 4; 7])
     
     elseif i == k < j == l
-        @plansor Vᵢ[-1 -2 -3 -4; -5] := state.AC[i][3 7; -5] * K[5 6; 7 -4] * τ[5 4; 6 -3] *
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
+        @plansor Vᵢ[-1 -2 -3 -4; -5] := state.AC[i][3 7; -5] * K[5 6; 7 -4] * iso[8; 5] * τ[8 4; 6 -3] *
                             conj(U[1]) * I[1 2; 4 -2] * conj(state.AC[i][3 2; -1])
         if j > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(j - 1)])
+            τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+            τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (i + 1):(j - 1)
+                Vᵢ = transfer_left(Vᵢ, state.AR[a], τ1, τ2, τ3, state.AR[a])
+            end
         end
-        G = @plansor Vᵢ[1 2 3 4; 5] * state.AR[j][5 6; 11] * L[4 7; 6 12] * U[12] * 
-                            τ[3 8; 7 9] * J[2 10; 8 9] * conj(state.AR[j][1 10; 11])
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
+        G = @plansor Vᵢ[1 2 3 4; 5] * state.AR[j][5 6; 13] * L[4 7; 6 12] * U[12] *
+                            τ[3 8; 7 9] * iso[11; 9] * J[2 10; 8 11] * conj(state.AR[j][1 10; 13])
     
     elseif i < k < l < j
         @plansor Vᵢ[-1 -2; -3] := state.AC[i][3 4; -3] * conj(U[1]) * I[1 2; 4 -2] *
                             conj(state.AC[i][3 2; -1])
         if k > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(k - 1)])
+            Zᵢₖ = TensorMap(BraidingTensor(domain(I,1), domain(I, 2)))
+            midsites = (i + 1):(k - 1)
+            Vᵢ = Vᵢ * TransferMatrix(state.AR[midsites], fill(Zᵢₖ, length(midsites)), state.AR[midsites])
         end                     
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
+        τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
         @plansor Vₖ[-1 -2 -3 -4; -5] := Vᵢ[1 2; 3] * state.AR[k][3 4; -5] * 
-                            K[5 6; 4 -4] * τ[5 7; 6 -3] * τ[2 8; 7 -2] * conj(state.AR[k][1 8; -1])
+                            K[5 6; 4 -4] * iso[9; 5] * τ[9 7; 6 -3] * τ3[2 8; 7 -2] * conj(state.AR[k][1 8; -1])
         if l > (k + 1)
-            Vₖ = Vₖ * TransferMatrix(state.AR[(k + 1):(l - 1)])
+            τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+            τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (k + 1):(l - 1)
+                Vₖ = transfer_left(Vₖ, state.AR[a], τ1, τ2, τ3, state.AR[a])
+            end
         end
+        τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
         @plansor Vₗ[-1 -2 -3; -4] := Vₖ[1 2 3 4; 5] * state.AR[l][5 6; -4] * L[4 7; 6 10] * U[10] *
-                            τ[3 8; 7 -3] * τ[2 9; 8 -2] * conj(state.AR[l][1 9; -1])
+                            τ2[3 8; 7 -3] * τ3[2 9; 8 -2] * conj(state.AR[l][1 9; -1])
         if j > (l + 1)
-            Vₗ = Vₗ * TransferMatrix(state.AR[(l + 1):(j - 1)])
+            for a in (l + 1):(j - 1)
+                Vₗ = transfer_left(Vₗ, state.AR[a], τ2, τ3, state.AR[a])
+            end
         end
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
         G = @plansor Vₗ[1 2 3; 4] * state.AR[j][4 5; 9] *
-                            τ[3 6; 5 7] * J[2 8; 6 7] * conj(state.AR[j][1 8; 9])
+                            τ[3 6; 5 7] * iso[10; 7] * J[2 8; 6 10] * conj(state.AR[j][1 8; 9])
 
     elseif i == k < l < j
-        @plansor Vᵢ[-1 -2 -3 -4; -5] := state.AC[i][3 7; -5] * K[5 6; 7 -4] * τ[5 4; 6 -3] *
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
+        @plansor Vᵢ[-1 -2 -3 -4; -5] := state.AC[i][3 7; -5] * K[5 6; 7 -4] * iso[8; 5] * τ[8 4; 6 -3] *
                             conj(U[1]) * I[1 2; 4 -2] * conj(state.AC[i][3 2; -1])
         if l > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(l - 1)])
+            τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+            τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (i + 1):(l - 1)
+                Vᵢ = transfer_left(Vᵢ, state.AR[a], τ1, τ2, τ3, state.AR[a])
+            end
         end
+        τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
+        τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
         @plansor Vₗ[-1 -2 -3; -4] := Vᵢ[1 2 3 4; 5] * state.AR[l][5 6; -4] * L[4 7; 6 10] * U[10] *
-                            τ[3 8; 7 -3] * τ[2 9; 8 -2] * conj(state.AR[l][1 9; -1])
+                            τ2[3 8; 7 -3] * τ3[2 9; 8 -2] * conj(state.AR[l][1 9; -1])
         if j > (l + 1)
-            Vₗ = Vₗ * TransferMatrix(state.AR[(l + 1):(j - 1)])
+            for a in (l + 1):(j - 1)
+                Vₗ = transfer_left(Vₗ, state.AR[a], τ2, τ3, state.AR[a])
+            end
         end
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
         G = @plansor Vₗ[1 2 3; 4] * state.AR[j][4 5; 9] *
-                            τ[3 6; 5 7] * J[2 8; 6 7] * conj(state.AR[j][1 8; 9])
+                            τ[3 6; 5 7] * iso[10; 7] * J[2 8; 6 10] * conj(state.AR[j][1 8; 9])
 
     elseif k < i < j < l
-        @plansor Vₖ[-1 -2 -3; -4] := state.AC[k][1 2; -4] * K[3 4; 2 -3] *
-                            τ[3 5; 4 -2] * conj(state.AC[k][1 5; -1])
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
+        @plansor Vₖ[-1 -2 -3; -4] := state.AC[k][1 2; -4] * K[3 4; 2 -3] * iso[5; 3] * 
+                            τ[5 6; 4 -2] * conj(state.AC[k][1 6; -1])
+        τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+        τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
         if i > (k + 1)
-            Vₖ = Vₖ * TransferMatrix(state.AR[(k + 1):(i - 1)])
+            for a in (k + 1):(i - 1)
+                Vₖ = transfer_left(Vₖ, state.AR[a], τ1, τ2, state.AR[a])
+            end
         end
-        @plansor Vᵢ[-1 -2 -3 -4; -5] := Vₖ[1 2 3; 4] * state.AR[i][4 5; -5] * τ[3 6; 5 -4] * 
-                            τ[2 8; 6 -3] * conj(U[7]) * I[7 9; 8 -2] * conj(state.AR[i][1 9; -1])
-
+        @plansor Vᵢ[-1 -2 -3 -4; -5] := Vₖ[1 2 3; 4] * state.AR[i][4 5; -5] * τ1[3 6; 5 -4] * 
+                            τ2[2 8; 6 -3] * conj(U[7]) * I[7 9; 8 -2] * conj(state.AR[i][1 9; -1])
         if j > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(j - 1)])
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (i + 1):(j - 1)
+                Vᵢ = transfer_left(Vᵢ, state.AR[a], τ1, τ2, τ3, state.AR[a])
+            end
         end
-        @plansor Vⱼ[-1 -2; -3] := Vᵢ[1 2 3 4; 5] * state.AR[j][5 6; -3] * τ[4 7; 6 -2] * τ[3 8; 7 9] *
-                            J[2 10; 8 9] * conj(state.AR[j][1 10; -1])
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
+        @plansor Vⱼ[-1 -2; -3] := Vᵢ[1 2 3 4; 5] * state.AR[j][5 6; -3] * τ1[4 7; 6 -2] * τ2[3 8; 7 9] *
+                            J[2 10; 8 11] * iso[11; 9] * conj(state.AR[j][1 10; -1])
         if l > (j + 1)
-            Vⱼ = Vⱼ * TransferMatrix(state.AR[(j + 1):(l - 1)])
+            Zⱼₗ = TensorMap(BraidingTensor(domain(K, 1), domain(K, 2)))
+            midsites = (j + 1):(l - 1)
+            Vⱼ = Vⱼ * TransferMatrix(state.AR[midsites], fill(Zⱼₗ, length(midsites)), state.AR[midsites])
         end
         G = @plansor Vⱼ[1 2; 3] * state.AR[l][3 4; 6] * L[2 5; 4 7] * U[7] * conj(state.AR[l][1 5; 6])
 
     elseif k < i < j == l
-        @plansor Vₖ[-1 -2 -3; -4] := state.AC[k][1 2; -4] * K[3 4; 2 -3] *
-                            τ[3 5; 4 -2] * conj(state.AC[k][1 5; -1])
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
+        @plansor Vₖ[-1 -2 -3; -4] := state.AC[k][1 2; -4] * K[3 4; 2 -3] * iso[5; 3] * 
+                            τ[5 6; 4 -2] * conj(state.AC[k][1 6; -1])
+        τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+        τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
         if i > (k + 1)
-            Vₖ = Vₖ * TransferMatrix(state.AR[(k + 1):(i - 1)])
+            for a in (k + 1):(i - 1)
+                Vₖ = transfer_left(Vₖ, state.AR[a], τ1, τ2, state.AR[a])
+            end
         end
-        @plansor Vᵢ[-1 -2 -3 -4; -5] := Vₖ[1 2 3; 4] * state.AR[i][4 5; -5] * τ[3 6; 5 -4] * 
-                            τ[2 8; 6 -3] * conj(U[7]) * I[7 9; 8 -2] * conj(state.AR[i][1 9; -1])
-
+        @plansor Vᵢ[-1 -2 -3 -4; -5] := Vₖ[1 2 3; 4] * state.AR[i][4 5; -5] * τ1[3 6; 5 -4] * 
+                            τ2[2 8; 6 -3] * conj(U[7]) * I[7 9; 8 -2] * conj(state.AR[i][1 9; -1])
         if j > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(j - 1)])
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (i + 1):(j - 1)
+                Vᵢ = transfer_left(Vᵢ, state.AR[a], τ1, τ2, τ3, state.AR[a])
+            end
         end
-        G = @plansor Vᵢ[1 2 3 4; 5] * state.AR[j][5 6; 12] * L[4 8; 6 7] * U[7] * τ[3 9; 8 10] *
-                            J[2 11; 9 10] * conj(state.AR[j][1 11; 12])
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
+        G = @plansor Vᵢ[1 2 3 4; 5] * state.AR[j][5 6; 12] * L[4 8; 6 7] * U[7] * τ[3 9; 8 10] * iso[13; 10] *
+                            J[2 11; 9 13] * conj(state.AR[j][1 11; 12])
         
     elseif k < i < l < j
-        @plansor Vₖ[-1 -2 -3; -4] := state.AC[k][1 2; -4] * K[3 4; 2 -3] *
-                            τ[3 5; 4 -2] * conj(state.AC[k][1 5; -1])
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
+        @plansor Vₖ[-1 -2 -3; -4] := state.AC[k][1 2; -4] * K[3 4; 2 -3] * iso[5; 3] * 
+                            τ[5 6; 4 -2] * conj(state.AC[k][1 6; -1])
+        τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+        τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
         if i > (k + 1)
-            Vₖ = Vₖ * TransferMatrix(state.AR[(k + 1):(i - 1)])
+            for a in (k + 1):(i - 1)
+                Vₖ = transfer_left(Vₖ, state.AR[a], τ1, τ2, state.AR[a])
+            end
         end
-        @plansor Vᵢ[-1 -2 -3 -4; -5] := Vₖ[1 2 3; 4] * state.AR[i][4 5; -5] * τ[3 6; 5 -4] * 
-                            τ[2 8; 6 -3] * conj(U[7]) * I[7 9; 8 -2] * conj(state.AR[i][1 9; -1])
+        @plansor Vᵢ[-1 -2 -3 -4; -5] := Vₖ[1 2 3; 4] * state.AR[i][4 5; -5] * τ1[3 6; 5 -4] * 
+                            τ2[2 8; 6 -3] * conj(U[7]) * I[7 9; 8 -2] * conj(state.AR[i][1 9; -1])
         if l > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(l - 1)])
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (i + 1):(l - 1)
+                Vᵢ = transfer_left(Vᵢ, state.AR[a], τ1, τ2, τ3, state.AR[a])
+            end
         end
-        @plansor Vₗ[-1 -2 -3; -4] := Vᵢ[1 2 3 4; 5] * state.AR[l][5 6; -4] * L[4 8; 6 7] * U[7] *
-                            τ[3 9; 8 -3] * τ[2 10; 9 -2] * conj(state.AR[l][1 10; -1])
+        τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+        @plansor Vₗ[-1 -2 -3; -4] := Vᵢ[1 2 3 4; 5] * state.AR[l][5 6; -4] * L[4 7; 6 10] * U[10] *
+                            τ2[3 8; 7 -3] * τ3[2 9; 8 -2] * conj(state.AR[l][1 9; -1])
         if j > (l + 1)
-            Vₗ = Vₗ * TransferMatrix(state.AR[(l + 1):(j - 1)])
+            for a in (l + 1):(j - 1)
+                Vₗ = transfer_left(Vₗ, state.AR[a], τ2, τ3, state.AR[a])
+            end
         end
-        G = @plansor Vₗ[1 2 3; 4] * state.AR[j][4 5; 9] * τ[3 6; 5 7] * J[2 8; 6 7] * 
-                            conj(state.AR[j][1 8; 9])
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
+        G = @plansor Vₗ[1 2 3; 4] * state.AR[j][4 5; 9] *
+                            τ[3 6; 5 7] * iso[10; 7] * J[2 8; 6 10] * conj(state.AR[j][1 8; 9])
 
     elseif k < i == l < j
-        @plansor Vₖ[-1 -2 -3; -4] := state.AC[k][1 2; -4] * K[3 4; 2 -3] *
-                            τ[3 5; 4 -2] * conj(state.AC[k][1 5; -1])
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
+        @plansor Vₖ[-1 -2 -3; -4] := state.AC[k][1 2; -4] * K[3 4; 2 -3] * iso[5; 3] * 
+                            τ[5 6; 4 -2] * conj(state.AC[k][1 6; -1])
+        τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+        τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
         if i > (k + 1)
-            Vₖ = Vₖ * TransferMatrix(state.AR[(k + 1):(i - 1)])
+            for a in (k + 1):(i - 1)
+                Vₖ = transfer_left(Vₖ, state.AR[a], τ1, τ2, state.AR[a])
+            end
         end
         @plansor Vᵢ[-1 -2 -3; -4] := Vₖ[1 2 3; 4] * state.AR[i][4 5; -4] * L[3 7; 5 6] * U[6] *
-                            τ[2 9; 7 -3] * I[8 10; 9 -2] * conj(U[8]) * conj(state.AR[i][1 10; -1])
+                            τ2[2 9; 7 -3] * I[8 10; 9 -2] * conj(U[8]) * conj(state.AR[i][1 10; -1])
         if j > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(j - 1)])
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (i + 1):(j - 1)
+                Vᵢ = transfer_left(Vᵢ, state.AR[a], τ2, τ3, state.AR[a])
+            end
         end
-        G = @plansor Vᵢ[1 2 3; 4] * state.AR[j][4 5; 6] *
-                            τ[3 7; 5 8] * J[2 9; 7 8] * conj(state.AR[j][1 9; 6])
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
+        G = @plansor Vᵢ[1 2 3; 4] * state.AR[j][4 5; 9] *
+                            τ[3 6; 5 7] * iso[10; 7] * J[2 8; 6 10] * conj(state.AR[j][1 8; 9])
 
     elseif k < l < i < j
-        @plansor Vₖ[-1 -2 -3; -4] := state.AC[k][1 2; -4] * K[3 4; 2 -3] *
-                            τ[3 5; 4 -2] * conj(state.AC[k][1 5; -1])
+        iso = isomorphism(flip(codomain(K, 1)), codomain(K, 1))
+        @plansor Vₖ[-1 -2 -3; -4] := state.AC[k][1 2; -4] * K[3 4; 2 -3] * iso[5; 3] * 
+                            τ[5 6; 4 -2] * conj(state.AC[k][1 6; -1])
+        τ1 = TensorMap(BraidingTensor(codomain(K, 2), domain(K, 2)))
+        τ2 = TensorMap(BraidingTensor(codomain(K, 2), dual(flip(codomain(K, 1)))))
         if l > (k + 1)
-            Vₖ = Vₖ * TransferMatrix(state.AR[(k + 1):(l - 1)])
+            for a in (k + 1):(l - 1)
+                Vₖ = transfer_left(Vₖ, state.AR[a], τ1, τ2, state.AR[a])
+            end
         end
         @plansor Vₗ[-1 -2; -3] := Vₖ[1 2 3; 4] * state.AR[l][4 6; -3] * L[3 7; 6 5] * 
-                            U[5] * τ[2 8; 7 -2] * conj(state.AR[l][1 8; -1])
+                            U[5] * τ2[2 8; 7 -2] * conj(state.AR[l][1 8; -1])
         if i > (l + 1)
-                Vₗ = Vₗ * TransferMatrix(state.AR[(l + 1):(i - 1)])
+            midsites = (l + 1):(i - 1)
+            Vₗ = Vₗ * TransferMatrix(state.AR[midsites], fill(τ2, length(midsites)), state.AR[midsites])
         end
-        @plansor Vᵢ[-1 -2 -3; -4] := Vₗ[1 2; 3] * state.AR[i][3 4; -4] * τ[2 6; 4 -3] * 
+        @plansor Vᵢ[-1 -2 -3; -4] := Vₗ[1 2; 3] * state.AR[i][3 4; -4] * τ2[2 6; 4 -3] * 
                             I[5 7; 6 -2] * conj(U[5]) * conj(state.AR[i][1 7; -1])
         if j > (i + 1)
-            Vᵢ = Vᵢ * TransferMatrix(state.AR[(i + 1):(j - 1)])
+            τ3 = TensorMap(BraidingTensor(codomain(K, 2), domain(I, 2)))
+            for a in (i + 1):(j - 1)
+                Vᵢ = transfer_left(Vᵢ, state.AR[a], τ2, τ3, state.AR[a])
+            end
         end
-        G = @plansor Vᵢ[1 2 3; 4] * state.AR[j][4 5; 9] * τ[3 6; 5 7] * J[2 8; 6 7] * 
+        iso = isomorphism(codomain(K, 1), flip(codomain(K, 1)))
+        G = @plansor Vᵢ[1 2 3; 4] * state.AR[j][4 5; 9] * τ[3 6; 5 7] * iso[10; 7] * J[2 8; 6 10] * 
                             conj(state.AR[j][1 8; 9]) 
     else
         throw(ArgumentError("invalid input indices (i, j, k, l) for ($i, $j, $k, $l), only (i < j) && (k < l) is valid"))
     end
     return G
 end
-
-
-# """
-#     correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{1, Integer}, j::NTuple{1, Integer})
-# """
-# function correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{1, Integer}, j::NTuple{1, Integer})
-#     dot(chargedMPS(O, gs, i[1]), chargedMPS(O, gs, j[1]))
-# end
-
-# """
-#     correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{2, Integer}, j::NTuple{1, Integer})
-# """
-# function correlator(O::AbstractTensorMap, gs::AbstractFiniteMPS, i::NTuple{2, Integer}, j::NTuple{2, Integer})
-#     dot(chargedMPS(O, gs, i[1], i[2]), chargedMPS(O, gs, j[1], j[2]))
-# end

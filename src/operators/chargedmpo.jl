@@ -4,8 +4,8 @@
 Construct a `FiniteMPO` that applies a single-site operator at position `site` on a chain
 of `nsites` sites. A fermionic string operator `fZ` (Jordan-Wigner string) is inserted on
 sites to the left or right of `site` depending on the operator leg structure:
-- (1 codomain, 2 domain): creation-like → string on the left.
-- (2 codomain, 1 domain): annihilation-like → string on the right.
+- (1 codomain, 2 domain): creation-like, `side=:L` convention → string on the right.
+- (2 codomain, 1 domain): annihilation-like, virtual leg on the left → string on the left.
 - (1, 1): diagonal → identity everywhere else.
 """
 function chargedMPO(operator::AbstractTensorMap, site::Integer, nsites::Integer)

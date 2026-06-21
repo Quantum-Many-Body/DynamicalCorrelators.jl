@@ -74,15 +74,7 @@ gs, envs, ϵ = dmrg1_cbe(ψ0, H, truncdims;
 
 ## Choose Operators
 
-Fermionic single-particle Green's functions use creation and annihilation
-operators with the same filling convention as the Hamiltonian:
-
-```julia
-cp = e_plus(Float64, SU2Irrep, U1Irrep; side = :L, filling)
-cm = e_min(Float64, SU2Irrep, U1Irrep; side = :L, filling)
-```
-
-Spin or charge responses use single local operators:
+Define a single local operator for the response:
 
 ```julia
 sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
@@ -97,11 +89,11 @@ recommended single-site long-time algorithm is CBE-TDVP1:
 times = 0:0.05:10
 tdvp_cbe = myTDVP1_CBE(D = 512)
 
-gf_electron = dcorrelator(gs, H, (cp, cm);
+gf_spin = dcorrelator(gs, H, sp, 1:N;
     times,
     tdvp1 = tdvp_cbe,
     tdvp2 = tdvp_cbe,
-    gf_path = "gf_electron",
+    gf_path = "gf_spin",
 )
 ```
 
@@ -129,7 +121,7 @@ rs = [[Float64(i)] for i in 1:N]
 ks = [[k] for k in range(-pi, pi; length = 101)]
 ws = range(-10, 10; length = 401)
 
-gf_kw = fourier_kw(gf_electron, rs, times, ks, ws; broadentype = (0.05, "G"))
+gf_kw = fourier_kw(gf_spin, rs, times, ks, ws; broadentype = (0.05, "G"))
 ```
 
 The spectral tutorials discuss broadening choices and multi-orbital regrouping.

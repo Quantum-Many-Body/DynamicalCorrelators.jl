@@ -29,7 +29,7 @@ using Dates
 using TimerOutputs: TimerOutput, @timeit
 
 import QuantumLattices: expand
-import MPSKit: propagator, dot, correlator, transfer_left, AC_hamiltonian, AC2_hamiltonian, C_hamiltonian, DerivativeOperator, timestep, timestep!, integrate as mps_integrate
+import MPSKit: propagator, dot, correlator, transfer_left, transfer_right, AC_hamiltonian, AC2_hamiltonian, C_hamiltonian, DerivativeOperator, timestep, timestep!, integrate as mps_integrate
 import MPSKitModels: S_plus, S_min, S_z
 
 # ── includes ──
@@ -64,7 +64,7 @@ include("observables/fourier.jl")
 export CustomLattice, BilayerSquare, Square, Custom, twosite_bonds, onesite_bonds, find_position, snake_2D, kitaev_bonds
 export hubbard, extended_hubbard, hubbard_bilayer_2band, kitaev_hubbard, heisenberg_model, JKGGp_model
 
-export fZ, e_plus, e_min, hopping, σz_hopping, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, neiborCoulomb, heisenberg, spinflip, pairhopping
+export fZ, e_plus, e_min, hopping, cdagc, ccdag, σz_hopping, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, neiborCoulomb, heisenberg, spinflip, pairhopping
 export singlet_dagger, singlet, triplet_dagger, triplet
 export chargedMPO, identityMPO, hamiltonian
 

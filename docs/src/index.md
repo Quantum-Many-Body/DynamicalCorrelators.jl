@@ -29,8 +29,8 @@ performance:
 - `dcorrelator` supports both multi-source checkpointed calculations and
   single-source methods that avoid `SharedArray` and distributed scheduling
   when only one source site is needed.
-- finite-temperature correlators evolve the purification and active charged
-  kets together instead of caching the full thermal trajectory.
+- finite-temperature correlators read a saved `rho(t)` trajectory one slice at
+  a time and use sweep contractions against the active charged ket.
 
 ## Basic Workflow
 
@@ -56,23 +56,19 @@ H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
 ψ0 = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling)
 gs, envs, ϵ = dmrg2(ψ0, H, [128, 256, 512]; alg = myDMRG2())
 
-cp = e_plus(Float64, SU2Irrep, U1Irrep; side = :L, filling)
-cm = e_min(Float64, SU2Irrep, U1Irrep; side = :L, filling)
-
 times = 0:0.05:10
-gf = dcorrelator(gs, H, (cp, cm);
+sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
+
+gf = dcorrelator(gs, H, sp, 1:N;
     times,
     tdvp1 = myTDVP1_CBE(D = 512),
     tdvp2 = myTDVP1_CBE(D = 512),
 )
 ```
 
-For a spin or charge response from one source channel, use the single-operator
-method:
+For one source channel, pass an integer `id`:
 
 ```julia
-sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
-
 gf_site = dcorrelator(gs, H, sp, div(N, 2);
     times,
     record_indices = 1:101,
