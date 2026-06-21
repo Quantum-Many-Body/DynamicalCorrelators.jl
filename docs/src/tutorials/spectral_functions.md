@@ -77,6 +77,15 @@ Akw = -imag.(gf_kw) ./ pi
 The exact sign and trace convention depends on how the Green's function was
 assembled.
 
+## Example Spectra
+
+The following figures show typical momentum-frequency outputs after applying
+the transform and spectral-function postprocessing:
+
+![Spin spectral function](../spin_spectrum.png)
+
+![Electron spectral function](../electron_spectrum.png)
+
 ## Damping Windows
 
 Finite-time data usually needs broadening or windowing:
