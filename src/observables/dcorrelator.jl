@@ -241,7 +241,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             end
         end
     end
-    verbose && _progress_start(1, length(times), "time evolves 0 of ket$(id)")
+    verbose && _progress_start(1, length(times), "time evolves 0.0 of ket$(id)")
     verbose && flush(stdout)
 
     envs = @timeit timer "setup / environments" environments(ket, H)
@@ -335,7 +335,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                 end
             end
         end
-        verbose && _progress_start(1, length(times), "time evolves 0 of ket$(id)")
+        verbose && _progress_start(1, length(times), "time evolves 0.0 of ket$(id)")
         flush(stdout)
         envs = @timeit timer "setup / environments" environments(ket, H)
         for k in 2:record_last
