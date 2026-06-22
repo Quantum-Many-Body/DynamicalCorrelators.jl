@@ -99,7 +99,7 @@ end
 
 """
     timestep!(ψ, H, t, dt, alg::TDVP1_CBE, envs=environments(ψ, H);
-              imaginary_evolution=false)
+              imaginary_evolution=false, timer=nothing)
 
 Mutating CBE-TDVP1 time step for finite MPS.
 
@@ -111,59 +111,80 @@ evolution, then truncated back to `alg.D` during the center shift. The supplied
 function timestep!(
         ψ::AbstractFiniteMPS, H, t::Number, dt::Number, alg::TDVP1_CBE,
         envs = environments(ψ, H);
-        imaginary_evolution::Bool = false
+        imaginary_evolution::Bool = false,
+        timer = nothing
     )
     N = length(ψ)
-    timer = TimerOutput()
+    timer = isnothing(timer) ? TimerOutput() : timer
 
-    for pos in 1:(N - 1)
-        Dtrunc = _cbe_effective_target(ψ.AC[pos], ψ.AR[pos + 1], alg.D)
-        _cbe_expand_direct_l2r!(
-            ψ, H, pos, envs, alg.alg_svd, alg.D, alg.cbe_tol,
-            alg.delta, alg.project_error, timer
-        )
+    @timeit timer "TDVP1_CBE timestep" begin
+        @timeit timer "L2R sweep" begin
+            for pos in 1:(N - 1)
+                Dtrunc = _cbe_effective_target(ψ.AC[pos], ψ.AR[pos + 1], alg.D)
+                @timeit timer "CBE expand" begin
+                    _cbe_expand_direct_l2r!(
+                        ψ, H, pos, envs, alg.alg_svd, alg.D, alg.cbe_tol,
+                        alg.delta, alg.project_error, timer
+                    )
+                end
 
-        Hac = AC_hamiltonian(pos, ψ, H, ψ, envs)
-        ac = mps_integrate(Hac, ψ.AC[pos], t, dt / 2, alg.integrator; imaginary_evolution)
-        c = _tdvp1_cbe_shift_right!(ψ, pos, ac, alg, Dtrunc)
+                Hac = @timeit timer "AC Hamiltonian" AC_hamiltonian(pos, ψ, H, ψ, envs)
+                ac = @timeit timer "AC evolution" mps_integrate(
+                    Hac, ψ.AC[pos], t, dt / 2, alg.integrator;
+                    imaginary_evolution
+                )
+                c = @timeit timer "center shift" _tdvp1_cbe_shift_right!(ψ, pos, ac, alg, Dtrunc)
 
-        Hc = C_hamiltonian(pos, ψ, H, ψ, envs)
-        ψ.C[pos] = mps_integrate(
-            Hc, c, t + dt / 2, -dt / 2, alg.integrator;
-            imaginary_evolution
-        )
+                Hc = @timeit timer "C Hamiltonian" C_hamiltonian(pos, ψ, H, ψ, envs)
+                ψ.C[pos] = @timeit timer "C evolution" mps_integrate(
+                    Hc, c, t + dt / 2, -dt / 2, alg.integrator;
+                    imaginary_evolution
+                )
+            end
+        end
+
+        @timeit timer "center site evolution" begin
+            Hac = @timeit timer "AC Hamiltonian" AC_hamiltonian(N, ψ, H, ψ, envs)
+            ψ.AC[N] = @timeit timer "AC evolution" mps_integrate(
+                Hac, ψ.AC[N], t, dt / 2, alg.integrator;
+                imaginary_evolution
+            )
+        end
+
+        @timeit timer "R2L sweep" begin
+            for site in N:-1:2
+                pos = site - 1
+                Dtrunc = _cbe_effective_target(ψ.AL[pos], ψ.AC[site], alg.D)
+                @timeit timer "CBE expand" begin
+                    _cbe_expand_direct_r2l!(
+                        ψ, H, pos, envs, alg.alg_svd, alg.D, alg.cbe_tol,
+                        alg.delta, alg.project_error, timer
+                    )
+                end
+
+                Hac = @timeit timer "AC Hamiltonian" AC_hamiltonian(site, ψ, H, ψ, envs)
+                ac = @timeit timer "AC evolution" mps_integrate(
+                    Hac, ψ.AC[site], t + dt / 2, dt / 2, alg.integrator;
+                    imaginary_evolution
+                )
+                c = @timeit timer "center shift" _tdvp1_cbe_shift_left!(ψ, pos, ac, alg, Dtrunc)
+
+                Hc = @timeit timer "C Hamiltonian" C_hamiltonian(pos, ψ, H, ψ, envs)
+                ψ.C[pos] = @timeit timer "C evolution" mps_integrate(
+                    Hc, c, t + dt, -dt / 2, alg.integrator;
+                    imaginary_evolution
+                )
+            end
+        end
+
+        @timeit timer "edge site evolution" begin
+            Hac = @timeit timer "AC Hamiltonian" AC_hamiltonian(1, ψ, H, ψ, envs)
+            ψ.AC[1] = @timeit timer "AC evolution" mps_integrate(
+                Hac, ψ.AC[1], t + dt / 2, dt / 2, alg.integrator;
+                imaginary_evolution
+            )
+        end
     end
-
-    Hac = AC_hamiltonian(N, ψ, H, ψ, envs)
-    ψ.AC[N] = mps_integrate(Hac, ψ.AC[N], t, dt / 2, alg.integrator; imaginary_evolution)
-
-    for site in N:-1:2
-        pos = site - 1
-        Dtrunc = _cbe_effective_target(ψ.AL[pos], ψ.AC[site], alg.D)
-        _cbe_expand_direct_r2l!(
-            ψ, H, pos, envs, alg.alg_svd, alg.D, alg.cbe_tol,
-            alg.delta, alg.project_error, timer
-        )
-
-        Hac = AC_hamiltonian(site, ψ, H, ψ, envs)
-        ac = mps_integrate(
-            Hac, ψ.AC[site], t + dt / 2, dt / 2, alg.integrator;
-            imaginary_evolution
-        )
-        c = _tdvp1_cbe_shift_left!(ψ, pos, ac, alg, Dtrunc)
-
-        Hc = C_hamiltonian(pos, ψ, H, ψ, envs)
-        ψ.C[pos] = mps_integrate(
-            Hc, c, t + dt, -dt / 2, alg.integrator;
-            imaginary_evolution
-        )
-    end
-
-    Hac = AC_hamiltonian(1, ψ, H, ψ, envs)
-    ψ.AC[1] = mps_integrate(
-        Hac, ψ.AC[1], t + dt / 2, dt / 2, alg.integrator;
-        imaginary_evolution
-    )
 
     return ψ, envs
 end
