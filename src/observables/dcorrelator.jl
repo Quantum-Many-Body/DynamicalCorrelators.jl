@@ -18,30 +18,35 @@ function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=co
                     tdvp1 = myTDVP(),
                     tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3))
                     )
+    timer = TimerOutput()
     start_time, record_start = now(), now()
-    verbose && println("[1/$(length(ts))] t = $(ts[1]) ", " | Started:", Dates.format(start_time, "d.u yyyy HH:MM"))
+    verbose && _progress_start(1, length(ts), "t = $(ts[1])")
     flush(stdout)
-    envs = environments(rho_mps, H)
-    jldopen(filename, "w") do f
-        f["ts"] = ts
-        if 1 in save_id
-            f["t=$(ts[1])"] = rho_mps
+    envs = @timeit timer "setup / environments" environments(rho_mps, H)
+    @timeit timer "write checkpoint" begin
+        jldopen(filename, "w") do f
+            f["ts"] = ts
+            if 1 in save_id
+                f["t=$(ts[1])"] = rho_mps
+            end
         end
     end
     for i in 2:length(ts)
         alg = i > n ? tdvp1 : tdvp2
-        rho_mps, envs = timestep(rho_mps, H, 0, ts[i]-ts[i-1], alg, envs)
+        rho_mps, envs = _timed_timestep(timer, rho_mps, H, 0, ts[i]-ts[i-1], alg, envs)
         current_time = now()
-        verbose && println("[$i/$(length(ts))] t = $(ts[i]) ", " | duration:", Dates.canonicalize(current_time-start_time))
+        verbose && _progress_step(i, length(ts), "t = $(ts[i])", current_time - start_time)
         flush(stdout)
-        jldopen(filename, "a") do f
-            if i in save_id
-                f["t=$(ts[i])"] = rho_mps
+        @timeit timer "write checkpoint" begin
+            jldopen(filename, "a") do f
+                if i in save_id
+                    f["t=$(ts[i])"] = rho_mps
+                end
             end
         end
         start_time = current_time
     end
-    verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+    verbose && _progress_end(record_start, timer)
     return rho_mps
 end
 
@@ -64,33 +69,87 @@ function evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mp
                     tdvp1 = myTDVP(),
                     tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3))
                     )
+    timer = TimerOutput()
     start_time, record_start = now(), now()
-    verbose && println("[1/$(length(ts))] t = $(ts[1]) ", " | Started:", Dates.format(start_time, "d.u yyyy HH:MM"))
+    verbose && _progress_start(1, length(ts), "t = $(ts[1])")
     flush(stdout)
-    envs = environments(rho_mps, H(mus[1]))
-    jldopen(filename, "w") do f
-        f["ts"] = ts
-        if 1 in save_id
-            f["t=$(ts[1])"] = rho_mps
-            f["mu_t=$(ts[1])"] = mus[1]
+    H0 = @timeit timer "build Hamiltonian" H(mus[1])
+    envs = @timeit timer "setup / environments" environments(rho_mps, H0)
+    @timeit timer "write checkpoint" begin
+        jldopen(filename, "w") do f
+            f["ts"] = ts
+            if 1 in save_id
+                f["t=$(ts[1])"] = rho_mps
+                f["mu_t=$(ts[1])"] = mus[1]
+            end
         end
     end
     for i in 2:length(ts)
         alg = i > n ? tdvp1 : tdvp2
-        rho_mps, envs = timestep(rho_mps, H(mus[i]), 0, ts[i]-ts[i-1], alg, envs)
+        Hi = @timeit timer "build Hamiltonian" H(mus[i])
+        rho_mps, envs = _timed_timestep(timer, rho_mps, Hi, 0, ts[i]-ts[i-1], alg, envs)
         current_time = now()
-        verbose && println("[$i/$(length(ts))] t = $(ts[i]) ", " | duration:", Dates.canonicalize(current_time-start_time))
+        verbose && _progress_step(i, length(ts), "t = $(ts[i])", current_time - start_time)
         flush(stdout)
-        jldopen(filename, "a") do f
-            if i in save_id
-                f["t=$(ts[i])"] = rho_mps
-                f["mu_t=$(ts[i])"] = mus[i]
+        @timeit timer "write checkpoint" begin
+            jldopen(filename, "a") do f
+                if i in save_id
+                    f["t=$(ts[i])"] = rho_mps
+                    f["mu_t=$(ts[i])"] = mus[i]
+                end
             end
         end
         start_time = current_time
     end
-    verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-record_start))
+    verbose && _progress_end(record_start, timer)
     return rho_mps
+end
+
+function _short_duration(period::Dates.CompoundPeriod)
+    parts = String[]
+    for p in period.periods
+        value = Dates.value(p)
+        value == 0 && continue
+        if p isa Dates.Day
+            push!(parts, "$(value)d")
+        elseif p isa Dates.Hour
+            push!(parts, "$(value)h")
+        elseif p isa Dates.Minute
+            push!(parts, "$(value)m")
+        elseif p isa Dates.Second
+            push!(parts, "$(value)s")
+        elseif p isa Dates.Millisecond
+            push!(parts, "$(value)ms")
+        end
+    end
+    return isempty(parts) ? "0ms" : join(parts, ", ")
+end
+
+_short_duration(period::Dates.Period) = _short_duration(Dates.canonicalize(period))
+
+_progress_prefix(i::Integer, n::Integer) = "[$(lpad(i, ndigits(n)))/$n]"
+
+function _progress_start(i::Integer, n::Integer, message)
+    println(_progress_prefix(i, n), " ", message, " | started: ", Dates.format(now(), "d.u yyyy HH:MM"))
+end
+
+function _progress_step(i::Integer, n::Integer, message, duration)
+    println(_progress_prefix(i, n), " ", message, " | duration: ", _short_duration(duration))
+end
+
+function _progress_end(start_time, timer::TimerOutput)
+    println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", _short_duration(now() - start_time))
+    println(timer)
+end
+
+function _timed_timestep(timer::TimerOutput, ψ, H, t, dt, alg, envs)
+    @timeit timer "time loop / timestep" begin
+        if alg isa TDVP1_CBE
+            return timestep(ψ, H, t, dt, alg, envs; timer)
+        else
+            return timestep(ψ, H, t, dt, alg, envs)
+        end
+    end
 end
 
 function _dcorrelator_record_window(times, record_indices)
@@ -164,37 +223,43 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
 
     _dcorrelator_load_complete!(gf, filename, length(record_indices); verbose=verbose) && return gf
 
-    ket = chargedMPS(op, gs, idx, approxalg)
+    timer = TimerOutput()
+    ket = @timeit timer "setup / chargedMPS" chargedMPS(op, gs, idx, approxalg)
     start_time, wall_start = now(), now()
-    jldopen(filename, "w") do f
-        f["times"] = times
-        f["record_indices"] = record_indices
-        f["id"] = id
-        if record_first == 1
-            phase = id <= L ? exp(im*gsenergy*times[1]) : exp(-im*gsenergy*times[1])
-            sd = sweep_dot(gs, op, ket)
-            gf[:, 1] = id <= L ? -im * phase .* sd : -im * phase .* conj.(sd)
-            f["pro_1"] = gf[:, 1]
+    if record_first == 1
+        phase = id <= L ? exp(im*gsenergy*times[1]) : exp(-im*gsenergy*times[1])
+        sd = @timeit timer "sweep_dot" sweep_dot(gs, op, ket)
+        gf[:, 1] = id <= L ? -im * phase .* sd : -im * phase .* conj.(sd)
+    end
+    @timeit timer "write checkpoint" begin
+        jldopen(filename, "w") do f
+            f["times"] = times
+            f["record_indices"] = record_indices
+            f["id"] = id
+            if record_first == 1
+                f["pro_1"] = gf[:, 1]
+            end
         end
     end
-    verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
+    verbose && _progress_start(1, length(times), "time evolves 0 of ket$(id)")
     verbose && flush(stdout)
 
-    envs = environments(ket, H)
+    envs = @timeit timer "setup / environments" environments(ket, H)
     for k in 2:record_last
         alg = k > n ? tdvp1 : tdvp2
-        ket, envs = timestep(ket, H, 0, times[k] - times[k - 1], alg, envs)
+        ket, envs = _timed_timestep(timer, ket, H, 0, times[k] - times[k - 1], alg, envs)
         current_time = now()
-        verbose && println("[$(k)/$(length(times))] time evolves $(times[k]) of ket$(id) ",
-            " | duration:", Dates.canonicalize(current_time - start_time))
+        verbose && _progress_step(k, length(times), "time evolves $(times[k]) of ket$(id)", current_time - start_time)
         verbose && flush(stdout)
         if k >= record_first
             r = k - record_first + 1
             phase = id <= L ? exp(im*gsenergy*times[k]) : exp(-im*gsenergy*times[k])
-            sd = sweep_dot(gs, op, ket)
+            sd = @timeit timer "sweep_dot" sweep_dot(gs, op, ket)
             gf[:, r] = id <= L ? -im * phase .* sd : -im * phase .* conj.(sd)
-            jldopen(filename, "a") do f
-                f["pro_$(r)"] = gf[:, r]
+            @timeit timer "write checkpoint" begin
+                jldopen(filename, "a") do f
+                    f["pro_$(r)"] = gf[:, r]
+                end
             end
         end
         start_time = current_time
@@ -203,7 +268,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     ket = nothing
     envs = nothing
     GC.gc()
-    verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now() - wall_start))
+    verbose && _progress_end(wall_start, timer)
     return gf
 end
 
@@ -255,36 +320,43 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             end
             @warn "$(filename) is incomplete; recomputing it"
         end
-        ket = chargedMPS(op, gs, idx, approxalg)
+        timer = TimerOutput()
+        ket = @timeit timer "setup / chargedMPS" chargedMPS(op, gs, idx, approxalg)
         start_time, wall_start = now(), now()
-        jldopen(filename, "w") do f
-            if record_first == 1
-                phase = id <= length(H) ? exp(im*gsenergy*times[1]) : exp(-im*gsenergy*times[1])
-                sd = sweep_dot(gs, op, ket)
-                gf[:,d,1] = id <= length(H) ? -im * phase .* sd : -im * phase .* conj.(sd)
-                f["pro_1"] = gf[:,d,1]
+        if record_first == 1
+            phase = id <= length(H) ? exp(im*gsenergy*times[1]) : exp(-im*gsenergy*times[1])
+            sd = @timeit timer "sweep_dot" sweep_dot(gs, op, ket)
+            gf[:,d,1] = id <= length(H) ? -im * phase .* sd : -im * phase .* conj.(sd)
+        end
+        @timeit timer "write checkpoint" begin
+            jldopen(filename, "w") do f
+                if record_first == 1
+                    f["pro_1"] = gf[:,d,1]
+                end
             end
         end
-        verbose && println("[1/$(length(times))] Started: time evolves 0 of ket$(id) ", Dates.format(start_time, "d.u yyyy HH:MM"))
+        verbose && _progress_start(1, length(times), "time evolves 0 of ket$(id)")
         flush(stdout)
-        envs = environments(ket, H)
+        envs = @timeit timer "setup / environments" environments(ket, H)
         for k in 2:record_last
             alg = k > n ? tdvp1 : tdvp2
-            ket, envs = timestep(ket, H, 0, times[k]-times[k-1], alg, envs)
+            ket, envs = _timed_timestep(timer, ket, H, 0, times[k]-times[k-1], alg, envs)
             if k >= record_first
                 r = k - record_first + 1
                 phase = id <= length(H) ? exp(im*gsenergy*times[k]) : exp(-im*gsenergy*times[k])
-                sd = sweep_dot(gs, op, ket)
+                sd = @timeit timer "sweep_dot" sweep_dot(gs, op, ket)
                 gf[:,d,r] = id <= length(H) ? -im * phase .* sd : -im * phase .* conj.(sd)
                 current_time = now()
-                verbose && println("[$(k)/$(length(times))] time evolves $(times[k]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
+                verbose && _progress_step(k, length(times), "time evolves $(times[k]) of ket$(id)", current_time - start_time)
                 flush(stdout)
-                jldopen(filename, "a") do f
-                    f["pro_$(r)"] = gf[:,d,r]
+                @timeit timer "write checkpoint" begin
+                    jldopen(filename, "a") do f
+                        f["pro_$(r)"] = gf[:,d,r]
+                    end
                 end
             else
                 current_time = now()
-                verbose && println("[$(k)/$(length(times))] time evolves $(times[k]) of ket$(id) ", " | duration:", Dates.canonicalize(current_time-start_time))
+                verbose && _progress_step(k, length(times), "time evolves $(times[k]) of ket$(id)", current_time - start_time)
                 flush(stdout)
             end
             start_time = current_time
@@ -292,7 +364,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         ket = nothing
         envs = nothing
         GC.gc()
-        verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now()-wall_start))
+        verbose && _progress_end(wall_start, timer)
     end
     gfs = zeros(ComplexF64, length(H), length(indices), length(record_indices))
     gfs .= gf
@@ -328,37 +400,41 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
 
     _dcorrelator_load_complete!(gf, filename, nt; verbose=verbose) && return -im * gf
 
-    rho = _dcorrelator_load_rho(rho_path, times[1])
+    timer = TimerOutput()
+    rho = @timeit timer "load rho" _dcorrelator_load_rho(rho_path, times[1])
     Z = dot(rho, rho)
-    ket = chargedMPS(op, rho, idx)
-    ket_env = environments(ket, H)
+    ket = @timeit timer "setup / chargedMPS" chargedMPS(op, rho, idx)
+    ket_env = @timeit timer "setup / environments" environments(ket, H)
     wall_start = now()
 
-    jldopen(filename, "w") do f
-        f["times"] = times
-        f["id"] = id
-        f["beta"] = beta
+    @timeit timer "write checkpoint" begin
+        jldopen(filename, "w") do f
+            f["times"] = times
+            f["id"] = id
+            f["beta"] = beta
+        end
     end
 
     for k in 1:nt
         step_start = now()
-        rho_t = k == 1 ? rho : _dcorrelator_load_rho(rho_path, times[k])
-        sd = sweep_dot(rho_t, op, ket)
+        rho_t = k == 1 ? rho : (@timeit timer "load rho" _dcorrelator_load_rho(rho_path, times[k]))
+        sd = @timeit timer "sweep_dot" sweep_dot(rho_t, op, ket)
         gf[:, k] = id <= L ? sd ./ Z : conj.(sd) ./ Z
 
-        jldopen(filename, "a") do f
-            f["pro_$(k)"] = gf[:, k]
+        @timeit timer "write checkpoint" begin
+            jldopen(filename, "a") do f
+                f["pro_$(k)"] = gf[:, k]
+            end
         end
 
         current_time = now()
-        verbose && println("[$k/$nt] finite-T correlation t=$(times[k]) of ket$(id) ",
-            " | duration:", Dates.canonicalize(current_time - step_start))
+        verbose && _progress_step(k, nt, "finite-T correlation t=$(times[k]) of ket$(id)", current_time - step_start)
         verbose && flush(stdout)
 
         if k < nt
             alg = (k + 1) > n ? tdvp1 : tdvp2
             dt = times[k + 1] - times[k]
-            ket, ket_env = timestep(ket, H, 0, dt, alg, ket_env)
+            ket, ket_env = _timed_timestep(timer, ket, H, 0, dt, alg, ket_env)
         end
     end
 
@@ -366,7 +442,7 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
     ket = nothing
     ket_env = nothing
     GC.gc()
-    verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now() - wall_start))
+    verbose && _progress_end(wall_start, timer)
     return -im * gf
 end
 
@@ -414,37 +490,41 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
             @warn "$(filename) is incomplete; recomputing it"
         end
 
-        rho = _dcorrelator_load_rho(rho_path, times[1])
+        timer = TimerOutput()
+        rho = @timeit timer "load rho" _dcorrelator_load_rho(rho_path, times[1])
         Z = dot(rho, rho)
-        ket = chargedMPS(op, rho, idx)
-        ket_env = environments(ket, H)
+        ket = @timeit timer "setup / chargedMPS" chargedMPS(op, rho, idx)
+        ket_env = @timeit timer "setup / environments" environments(ket, H)
         wall_start = now()
 
-        jldopen(filename, "w") do f
-            f["times"] = times
-            f["id"] = id
-            f["beta"] = beta
+        @timeit timer "write checkpoint" begin
+            jldopen(filename, "w") do f
+                f["times"] = times
+                f["id"] = id
+                f["beta"] = beta
+            end
         end
 
         for k in 1:nt
             step_start = now()
-            rho_t = k == 1 ? rho : _dcorrelator_load_rho(rho_path, times[k])
-            sd = sweep_dot(rho_t, op, ket)
+            rho_t = k == 1 ? rho : (@timeit timer "load rho" _dcorrelator_load_rho(rho_path, times[k]))
+            sd = @timeit timer "sweep_dot" sweep_dot(rho_t, op, ket)
             gf[:, d, k] = id <= L ? sd ./ Z : conj.(sd) ./ Z
 
-            jldopen(filename, "a") do f
-                f["pro_$(k)"] = gf[:, d, k]
+            @timeit timer "write checkpoint" begin
+                jldopen(filename, "a") do f
+                    f["pro_$(k)"] = gf[:, d, k]
+                end
             end
 
             current_time = now()
-            verbose && println("[$k/$nt] finite-T correlation t=$(times[k]) of ket$(id) ",
-                " | duration:", Dates.canonicalize(current_time - step_start))
+            verbose && _progress_step(k, nt, "finite-T correlation t=$(times[k]) of ket$(id)", current_time - step_start)
             verbose && flush(stdout)
 
             if k < nt
                 alg = (k + 1) > n ? tdvp1 : tdvp2
                 dt = times[k + 1] - times[k]
-                ket, ket_env = timestep(ket, H, 0, dt, alg, ket_env)
+                ket, ket_env = _timed_timestep(timer, ket, H, 0, dt, alg, ket_env)
             end
         end
 
@@ -452,7 +532,7 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
         ket = nothing
         ket_env = nothing
         GC.gc()
-        verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", Dates.canonicalize(now() - wall_start))
+        verbose && _progress_end(wall_start, timer)
     end
 
     gfs = zeros(ComplexF64, L, length(ids), nt)
