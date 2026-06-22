@@ -133,7 +133,7 @@ function timestep!(
                     Hac, ψ.AC[pos], t, dt / 2, alg.integrator;
                     imaginary_evolution
                 )
-                c = @timeit timer "center shift" _tdvp1_cbe_shift_right!(ψ, pos, ac, alg, Dtrunc)
+                c = _tdvp1_cbe_shift_right!(ψ, pos, ac, alg, Dtrunc)
 
                 Hc = @timeit timer "C Hamiltonian" C_hamiltonian(pos, ψ, H, ψ, envs)
                 ψ.C[pos] = @timeit timer "C evolution" mps_integrate(
@@ -143,13 +143,11 @@ function timestep!(
             end
         end
 
-        @timeit timer "center site evolution" begin
-            Hac = @timeit timer "AC Hamiltonian" AC_hamiltonian(N, ψ, H, ψ, envs)
-            ψ.AC[N] = @timeit timer "AC evolution" mps_integrate(
-                Hac, ψ.AC[N], t, dt / 2, alg.integrator;
-                imaginary_evolution
-            )
-        end
+        Hac = AC_hamiltonian(N, ψ, H, ψ, envs)
+        ψ.AC[N] = mps_integrate(
+            Hac, ψ.AC[N], t, dt / 2, alg.integrator;
+            imaginary_evolution
+        )
 
         @timeit timer "R2L sweep" begin
             for site in N:-1:2
@@ -167,7 +165,7 @@ function timestep!(
                     Hac, ψ.AC[site], t + dt / 2, dt / 2, alg.integrator;
                     imaginary_evolution
                 )
-                c = @timeit timer "center shift" _tdvp1_cbe_shift_left!(ψ, pos, ac, alg, Dtrunc)
+                c = _tdvp1_cbe_shift_left!(ψ, pos, ac, alg, Dtrunc)
 
                 Hc = @timeit timer "C Hamiltonian" C_hamiltonian(pos, ψ, H, ψ, envs)
                 ψ.C[pos] = @timeit timer "C evolution" mps_integrate(
@@ -177,13 +175,11 @@ function timestep!(
             end
         end
 
-        @timeit timer "edge site evolution" begin
-            Hac = @timeit timer "AC Hamiltonian" AC_hamiltonian(1, ψ, H, ψ, envs)
-            ψ.AC[1] = @timeit timer "AC evolution" mps_integrate(
-                Hac, ψ.AC[1], t + dt / 2, dt / 2, alg.integrator;
-                imaginary_evolution
-            )
-        end
+        Hac = AC_hamiltonian(1, ψ, H, ψ, envs)
+        ψ.AC[1] = mps_integrate(
+            Hac, ψ.AC[1], t + dt / 2, dt / 2, alg.integrator;
+            imaginary_evolution
+        )
     end
 
     return ψ, envs
