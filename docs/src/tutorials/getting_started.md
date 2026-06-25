@@ -28,7 +28,7 @@ filling = (1, 1)
 H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
     t = 1.0,
     U = 8.0,
-    μ = 0.0,
+    mu = 0.0,
     filling = filling,
 )
 ```

@@ -60,11 +60,11 @@ end
     t = Hopping(:t, -1.0, 1)
     U = Hubbard(:U, 8.0)
     H₁ = hamiltonian((t, U), lattice₁, hilbert; neighbors=1)
-    H₂ = hubbard(Float64, U1Irrep, U1Irrep, FiniteStrip(2, 4); t=1.0, U=8.0, μ=0.0, filling=(1,1))
+    H₂ = hubbard(Float64, U1Irrep, U1Irrep, FiniteStrip(2, 4); t=1.0, U=8.0, mu=0.0, filling=(1,1))
     @test H₁ ≈ H₂
     lattice₂ = Lattice(unitcell, (2, 2), ('p', 'o'))
     H₃ = hamiltonian((t, U), lattice₂, hilbert; neighbors=1)
-    H₄ = hubbard(Float64, U1Irrep, U1Irrep, FiniteCylinder(2, 4); t=1.0, U=8.0, μ=0.0, filling=(1,1))
+    H₄ = hubbard(Float64, U1Irrep, U1Irrep, FiniteCylinder(2, 4); t=1.0, U=8.0, mu=0.0, filling=(1,1))
     @test H₃ ≈ H₄
 end
 
@@ -73,7 +73,7 @@ end
     filling = (1, 1)
     L=4
     @testset "U1" begin
-        H = hubbard(elt, U1Irrep, U1Irrep, FiniteChain(L); filling=filling, t=1, U=8, μ=0)
+        H = hubbard(elt, U1Irrep, U1Irrep, FiniteChain(L); filling=filling, t=1, U=8, mu=0)
         st = randFiniteMPS(elt, U1Irrep, U1Irrep, L; filling=filling)
         gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerror(; rtol=1e-10)));
         ep =  e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
@@ -91,7 +91,7 @@ end
         @test isapprox(dot(sgs₃, sgs₄), -0.07784688507190048; atol=1e-5)
     end
     @testset "SU2" begin
-        H = hubbard(elt, SU2Irrep, U1Irrep, FiniteChain(4); filling=filling, t=1, U=8, μ=0)
+        H = hubbard(elt, SU2Irrep, U1Irrep, FiniteChain(4); filling=filling, t=1, U=8, mu=0)
         st = randFiniteMPS(elt, SU2Irrep, U1Irrep, 4; filling=filling)
         gs, envs, delta = find_groundstate(st, H, DMRG2(trscheme = truncerror(; rtol=1e-6)));
         ep = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
