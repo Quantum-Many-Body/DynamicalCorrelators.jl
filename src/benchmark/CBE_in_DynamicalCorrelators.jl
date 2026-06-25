@@ -27,7 +27,7 @@ println("="^60)
 
 # Build Hamiltonian on a finite strip (open boundaries)
 lattice = FiniteStrip(Ly, N)
-H = hubbard(Float64, U1Irrep, U1Irrep, lattice; t=t_hop, U=U_int, μ=0.0, filling=(1,1))
+H = hubbard(Float64, U1Irrep, U1Irrep, lattice; t=t_hop, U=U_int, mu=0.0, filling=(1,1))
 
 # Build random initial MPS (small bond dim)
 ψ_init = randFiniteMPS(Float64, U1Irrep, U1Irrep, N; filling=(1,1))

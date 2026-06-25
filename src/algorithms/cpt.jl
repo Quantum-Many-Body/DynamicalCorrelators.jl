@@ -200,7 +200,7 @@ function GreenFunctionPath(normal::Bool, om::AbstractMatrix, oops::AbstractVecto
 end 
 
 """
-    singleParticleGreenFunction(sym::Symbol, cpt::CPT, k_path::Union{AbstractVector, ReciprocalSpace}, ω_range::Union{AbstractVector,AbstractRange}; μ::Real=0.0,  dstr::Bool=false)
+    singleParticleGreenFunction(sym::Symbol, cpt::CPT, k_path::Union{AbstractVector, ReciprocalSpace}, ω_range::Union{AbstractVector,AbstractRange}; mu::Real=0.0,  dstr::Bool=false)
 
 The single particle Green function in k-ω space.
 """
