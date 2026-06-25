@@ -541,100 +541,177 @@ function triplet(elt::Type{<:Number}, spin_symmetry::Type{SU2Irrep}, particle_sy
     end
     return slt
 end
-#==========================================================================================
-    spin 1/2 fermions (realized by hard-core bosons and Jordan-Wigner transformation)
-    include U(1) × U(1) fermions, 
-    especially, for U(1)×U(1) fermions, there are
-            c^†_↑  L: a^†_↑ ⊗ Z_↓         R: a^†_↑
-            c_↑    L: a_↑ ⊗ Z_↓           R: a_↑
-            c^†_↓  L: a^†_↓               R: Z_↑ ⊗ a^†_↓ == a^†_↓
-            c_↓    L: a_↓                 R: Z_↑ ⊗ a_↓
-==========================================================================================#
 
-# function b_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, spin=:up)
-#     I = U1Irrep ⊠ U1Irrep
-#     pspace, vuspace, vdspace = Vect[(I)]((-1,0)=>1, (1,0)=>1,  (0,1)=>1, (0,-1)=>1), Vect[I]((1,1)=>1), Vect[I]((-1,1)=>1)
-#     if spin == :up
-#         if side == :L
-#             b⁺ = zeros(elt, pspace ← pspace ⊗ vuspace)
-#             block(b⁺, I(1,0)) .= 1
-#             block(b⁺, I(0,1)) .= -1
-#         elseif side == :R
-#             b⁺ = ones(elt, flip(vuspace)' ⊗ pspace ← pspace)
-#         end
-#     elseif spin == :down
-#         if side == :L
-#             b⁺ = ones(elt, pspace ← pspace ⊗ vdspace)
-#         elseif side == :R
-#             b⁺ = zeros(elt, flip(vdspace)' ⊗ pspace ← pspace)
-#             block(b⁺, I(1,0)) .= -1
-#             block(b⁺, I(0,-1)) .= 1
-#         end
-#     end
-#     return b⁺
-# end
-# b_plus(reps, side, spin) = b_plus(reps[1], reps[2], reps[3]; side=side, spin=spin)
+#===========================================================================================
+    spin 1/2 fermions
+    fℤ₂ × SU(2) fermions
+===========================================================================================#
+"""
+    e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}; side=:L)
+    fℤ₂ × SU(2) electron creation operator
+"""
+function e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}; side=:L)
+    vspace = Vect[(FermionParity ⊠ SU2Irrep)]((1, 1/2) => 1)
+    pspace = Vect[(FermionParity ⊠ SU2Irrep)]((0, 0) => 2, (1, 1/2) => 1)
+    if side == :L
+        e⁺ = TensorMap(elt[0.0, sqrt(2), 1.0, 0.0], pspace ← (pspace ⊗ vspace))
+    elseif side == :R
+        E = e_plus(elt, SU2Irrep; side=:L)
+        F = isomorphism(storagetype(E), vspace, flip(vspace))
+        @planar e⁺[-1 -2; -3] := E[-2; 1 2] * τ[1 2; 3 -3] * F[3; -1]
+    else
+        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+    end
+    return e⁺
+end
+"""
+    e_min(elt::Type{<:Number}, ::Type{SU2Irrep}; side=:L)
+    fℤ₂ × SU(2) electron annihilation operator
+"""
+function e_min(elt::Type{<:Number}, ::Type{SU2Irrep}; side=:L)
+    if side === :L
+        E = e_plus(elt, SU2Irrep; side=:L)'
+        F = isomorphism(storagetype(E), flip(space(E, 2)), space(E, 2))
+        @planar e⁻[-1; -2 -3] := E[-1 1; -2] * F[-3; 1]
+    elseif side === :R
+        e⁻ = permute(e_plus(elt, SU2Irrep; side=:L)',
+                    ((2, 1), (3,)))
+    else
+        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+    end
+    return e⁻
+end
 
-# function b_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L, spin=:up)
-#     I = U1Irrep ⊠ U1Irrep
-#     pspace, vuspace, vdspace = Vect[(I)]((-1,0)=>1, (1,0)=>1, (0,1)=>1, (0,-1)=>1), Vect[I]((1,1)=>1), Vect[I]((-1,1)=>1)
-#     if spin == :up
-#         if side == :L
-#             b⁻ = zeros(elt, pspace ← pspace ⊗ flip(vuspace)')
-#             block(b⁻, I(-1,0)) .= -1
-#             block(b⁻, I(0,-1)) .= 1
-#         elseif side == :R
-#             b⁻ = ones(elt, vuspace ⊗ pspace ← pspace)
-#         end
-#     elseif spin == :down
-#         if side == :L
-#             b⁻ = ones(elt, pspace ← pspace ⊗ flip(vdspace)')
-#         elseif side == :R
-#             b⁻ = zeros(elt, vdspace ⊗ pspace ← pspace)
-#             block(b⁻, I(-1,0)) .= 1
-#             block(b⁻, I(0,1)) .= -1
-#         end
-#     end
-#     return b⁻
-# end
-# b_min(reps, side, spin) = b_min(reps[1], reps[2], reps[3]; side=side, spin=spin)
+function hopping(elt::Type{<:Number}, ::Type{SU2Irrep})
+    c⁺l = e_plus(elt, SU2Irrep; side=:L)
+    cr = e_min(elt, SU2Irrep; side=:R)
+    cl = e_min(elt, SU2Irrep; side=:L)
+    c⁺r = e_plus(elt, SU2Irrep; side=:R)
+    return contract_twosite(c⁺l,cr) + contract_twosite(cl, c⁺r)
+end
 
+function number(elt::Type{<:Number}, ::Type{SU2Irrep})
+    pspace = Vect[(FermionParity ⊠ SU2Irrep)]((0, 0) => 2, (1, 1/2) => 1)
+    n = zeros(elt, pspace, pspace)
+    block(n,(FermionParity(0) ⊠ SU2Irrep(0)))[2,2] = 2
+    block(n,(FermionParity(1) ⊠ SU2Irrep(1//2)))[1,1] = 1
+    return n
+end
 
+function onsiteCoulomb(elt::Type{<:Number}, ::Type{SU2Irrep})
+    pspace = Vect[(FermionParity ⊠ SU2Irrep)]((0, 0) => 2, (1, 1/2) => 1)
+    nn = zeros(elt, pspace, pspace)
+    block(nn,(FermionParity(0) ⊠ SU2Irrep(0)))[2,2] = 1
+    return nn
+end
 
-# function Sb_plus(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
-#     bp = b_plus(elt, U1Irrep, U1Irrep; side=side, spin=:up)
-#     bm = b_min(elt, U1Irrep, U1Irrep; side=side, spin=:down)
-#     if side == :L
-#         iso = isomorphism(storagetype(bp), fuse(domain(bm)[2],domain(bp)[2]), domain(bm)[2]*domain(bp)[2])
-#         @planar S⁺[-1; -2 -3] := bm[1; -2 2] * bp[-1; 1 3] * conj(iso[-3; 2 3])
-#     elseif side == :R
-#         iso = isomorphism(storagetype(bp), fuse(codomain(bm)[1],codomain(bp)[1]), codomain(bm)[1]*codomain(bp)[1])
-#         @planar S⁺[-1 -2; -3] := iso[-1; 2 3] * bp[3 -2; 1] * bm[2 1; -3]
-#     end
-#     return S⁺
-# end
+function neiborCoulomb(elt::Type{<:Number}, ::Type{SU2Irrep})
+    n = number(elt, SU2Irrep)
+    @planar nn[-1 -2; -3 -4] := n[-1; -3] * n[-2; -4]
+    return nn
+end
 
-# function Sb_min(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}; side=:L)
-#     bp = b_plus(elt, U1Irrep, U1Irrep; side=side, spin=:down)
-#     bm = b_min(elt, U1Irrep, U1Irrep; side=side, spin=:up)
-#     if side == :L
-#         iso = isomorphism(storagetype(bp), fuse(domain(bm)[2],domain(bp)[2]), domain(bm)[2]*domain(bp)[2])
-#         @planar S⁻[-1; -2 -3] := bm[1; -2 2] * bp[-1; 1 3] * conj(iso[-3; 2 3])
-#     elseif side == :R
-#         iso = isomorphism(storagetype(bp), fuse(codomain(bm)[1],codomain(bp)[1]), codomain(bm)[1]*codomain(bp)[1])
-#         @planar S⁻[-1 -2; -3] := iso[-1; 2 3] * bp[3 -2; 1] * bm[2 1; -3]
-#     end
-#     return S⁻
-# end
+function S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}; side=:L)
+    vspace = Vect[(FermionParity ⊠ SU2Irrep)]((0, 1) => 1)
+    pspace = Vect[(FermionParity ⊠ SU2Irrep)]((0, 0) => 2, (1, 1/2) => 1)
+    if side == :L
+        Sₑ⁺ = zeros(Float64, pspace ← pspace ⊗ vspace)
+        block(Sₑ⁺, (FermionParity(1) ⊠ SU2Irrep(1/2))) .= sqrt(3)/2
+    elseif side == :R
+        S = S_plus(elt, SU2Irrep; side=:L)
+        F = isomorphism(storagetype(S), vspace, flip(vspace))
+        @planar Sₑ⁺[-1 -2; -3] := S[-2; 1 2] * τ[1 2; 3 -3] * F[3; -1]
+    else
+        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+    end
+    return Sₑ⁺
+end
 
-# function Sb_z(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep})
-#     bpu = b_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:up)
-#     bmu = b_min(elt, U1Irrep, U1Irrep; side=:L, spin=:up)
-#     bpd = b_plus(elt, U1Irrep, U1Irrep; side=:L, spin=:down)
-#     bmd = b_min(elt, U1Irrep, U1Irrep; side=:L, spin=:down)
-#     isou = isomorphism(storagetype(bpu), domain(bpu)[2], flip(domain(bpu)[2]))
-#     isod = isomorphism(storagetype(bpd), domain(bpd)[2], flip(domain(bpd)[2]))
-#     @planar Szu[-1; -2] := bpu[-1; 1 2] * isou[2; 3] * bmu[1; -2 3]
-#     @planar Szd[-1; -2] := bpd[-1; 1 2] * isod[2; 3] * bmd[1; -2 3]
-#     return (Szu - Szd)/2
-# end
+function S_min(elt::Type{<:Number}, ::Type{SU2Irrep}; side=:L)
+    if side === :L
+        S = S_plus(elt, SU2Irrep; side=:L)'
+        F = isomorphism(storagetype(S), flip(space(S, 2)), space(S, 2))
+        @planar Sₑ⁻[-1; -2 -3] := S[-1 1; -2] * F[-3; 1]
+    elseif side === :R
+        Sₑ⁻ = permute(S_plus(elt, SU2Irrep; side=:L)', ((2, 1), (3,)))
+    else
+        throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+    end
+    return Sₑ⁻
+end
+
+function heisenberg(elt::Type{<:Number}, ::Type{SU2Irrep})
+    return contract_twosite(S_plus(elt, SU2Irrep; side=:L), S_min(elt, SU2Irrep; side=:R))
+end
+
+function pairhopping(elt::Type{<:Number}, ::Type{SU2Irrep})
+    ep = e_plus(elt, SU2Irrep; side=:L)
+    em = e_min(elt, SU2Irrep; side=:R)
+    @planar Pij[-1 -2; -3 -4] := contract_twosite(ep, em)[-1 -2; 1 2] * contract_twosite(ep,em)[1 2; -3 -4]
+    ep = e_plus(elt, SU2Irrep; side=:R)
+    em = e_min(elt, SU2Irrep; side=:L)
+    @planar Pji[-1 -2; -3 -4] := contract_twosite(em, ep)[-1 -2; 1 2] * contract_twosite(em,ep)[1 2; -3 -4]
+    return (Pij + Pji)/2
+end
+
+function singlet_dagger(elt::Type{<:Number}, ::Type{SU2Irrep}; onsite::Bool=false, side=:L)
+    if onsite == true
+        if side == :L
+            A = e_plus(elt, SU2Irrep; side=:L)
+            B = deepcopy(A)
+            vspace = domain(A,2)
+            fspace = Vect[FermionParity ⊠ SU2Irrep]((0,0)=>1)
+            iso = isometry(elt, vspace⊗vspace, fspace)
+            @planar slt[-1; -2 -3] := A[-1; 1 2] * B[1; -2 3] * iso[3 2; -3]
+        elseif side == :R
+            sd = singlet_dagger(elt, SU2Irrep; onsite=true, side=:L)
+            vspace = domain(sd, 2)
+            F = isomorphism(storagetype(sd), vspace, flip(vspace))
+            @planar slt[-1 -2; -3] := sd[-2; 1 2] * τ[1 2; 3 -3] * F[3; -1]
+        else
+            throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+        end
+    else 
+        if side == :L
+            A = e_plus(elt, SU2Irrep; side=:L)
+            B = deepcopy(A)
+            vspace = domain(A,2)
+            fspace = Vect[FermionParity ⊠ SU2Irrep]((0,0)=>1)
+            iso = isometry(elt, vspace⊗vspace, fspace)
+            @planar slt[-1 -2; -3 -4 -5] := A[-1; -3 1] * τ[1 2; -4 3] * B[-2; 2 4] * iso[3 4; -5]
+        elseif side == :R
+            sd = singlet_dagger(elt, SU2Irrep; side=:L)
+            vspace = domain(sd, 3)
+            F = isomorphism(storagetype(sd), vspace, flip(vspace))
+            @planar slt[-5 -1 -2; -3 -4] := sd[-1 -2; 4 2 1] * τ[2 1; 3 -4] * τ[4 3; 5 -3] * F[5; -5]
+        else
+            throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+        end
+    end
+    return slt
+end
+
+function singlet(elt::Type{<:Number}, ::Type{SU2Irrep}; onsite::Bool=false, side=:L)
+    if onsite == true
+        if side === :L
+            sd = singlet_dagger(elt, SU2Irrep; onsite=true, side=:L)'
+            F = isomorphism(storagetype(sd), flip(space(sd, 2)), space(sd, 2))
+            @planar slt[-1; -2 -3] := sd[-1 1; -2] * F[-3; 1]
+        elseif side === :R
+            slt = permute(singlet_dagger(elt, SU2Irrep; onsite=true, side=:L)', ((2, 1), (3,)))
+        else
+            throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+        end
+    else
+        if side == :L
+            sd = singlet_dagger(elt, SU2Irrep; side=:L)'
+            F = isomorphism(storagetype(sd), flip(space(sd, 3)), space(sd, 3))
+            @planar slt[-1 -2; -3 -4 -5] := sd[-1 -2 1; -3 -4] * F[-5; 1]
+        elseif side == :R
+            slt = permute(singlet_dagger(elt, SU2Irrep; side=:L)', ((3, 1, 2), (4, 5)))
+        else
+            throw(ArgumentError("invalid side `:$side`, expected `:L` or `:R`"))
+        end
+    end
+    return slt
+end
