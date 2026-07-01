@@ -12,6 +12,181 @@ Please type `]` in the REPL to use the package mode, then type this command:
 add DynamicalCorrelators
 ```
 
+# DynamicalCorrelators.jl v0.13.0 Release Notes
+
+## Highlights
+
+v0.13.0 is a **Gorkov Green's function, superconducting-Hamiltonian, and
+TDVP-CPT extension release**. Compared with v0.12.0, the main new capability is
+that zero-temperature `dcorrelator` can now compute the four blocks of a Gorkov
+Green's function for Hamiltonians with pairing terms, while reusing the same
+expensive TDVP source evolution and adding only cheap projection sweeps.
+
+This release also extends the TDVP-CPT workflow to imaginary-axis data and
+grand-potential calculations, adds complex-frequency Fourier transforms,
+improves timing/progress output for TDVP and CBE workflows, and expands the
+fermionic operator/Hamiltonian helpers needed for SU(2)-symmetric pairing
+models.
+
+## Gorkov Green's Functions
+
+- Added an `anomalous` keyword to the zero-temperature `dcorrelator` methods:
+
+```julia
+dcorrelator(gs, H, op, id; anomalous = other_op, ...)
+dcorrelator(gs, H, op, indices; anomalous = other_op, ...)
+```
+
+- The default `anomalous = nothing` preserves the v0.12.0 normal Green's
+  function behavior and return type.
+- When `anomalous` is a `TensorMap`, `dcorrelator` returns a `NamedTuple`
+  `(G11, G12, G21, G22)`, with each block having the same shape as the normal
+  correlator output.
+- For a creation source, e.g. `op = cre` and `anomalous = ann`, one TDVP
+  evolution of `exp(-iHt)c_j^\dagger|0>` now produces all four Gorkov matrix
+  positions associated with that source by evaluating both `sweep_dot(gs, cre,
+  ket)` and `sweep_dot(gs, ann, ket)`.
+- The complementary annihilation source, e.g. `op = ann` and
+  `anomalous = cre`, similarly reuses the single
+  `exp(-iHt)c_j|0>` evolution.
+- This avoids splitting the Gorkov matrix into four independent TDVP
+  calculations; the independent time evolutions remain only the two physical
+  source states `c_j^\dagger|0>` and `c_j|0>`.
+- Gorkov checkpoint files are stored separately as
+  `gf_start=<t_start>_end=<t_end>_id=<id>_gorkov.jld2`, so normal and Gorkov
+  runs do not collide on disk.
+- Gorkov checkpoints include per-block completion checks for `G11`, `G12`,
+  `G21`, and `G22`, and incomplete files are recomputed.
+
+## Normal and Gorkov Documentation
+
+- Rewrote the dynamical-correlations tutorial to state the actual formulas used
+  by `dcorrelator`, including the ground-state phase factors
+  `exp(+iE0*t)` and `exp(-iE0*t)`.
+- Clarified source-channel terminology: ids `1:length(H)` are the greater
+  contribution, while ids `length(H)+1:2length(H)` are the lesser contribution
+  term used in the retarded combination.
+- Added explicit normal Green's function and Gorkov Green's function formulas,
+  including the block labels `G11`, `G12`, `G21`, and `G22`.
+- Documented how to assemble a complete retarded Gorkov Green's function from
+  the creation-source and annihilation-source runs.
+- Updated the spectral-functions tutorial to use greater/lesser terminology
+  instead of the older forward/conjugated wording.
+
+## TDVP-CPT and Grand Potential
+
+- Added a TDVP-CPT `GrandPotential` implementation for precomputed
+  imaginary-axis cluster Green's functions stored in `cpt.gfrw`:
+
+```julia
+GrandPotential(cpt, bz, E0, iws; normal = nothing, weights = nothing)
+GrandPotential(cpt, bz, E0; weights, normal = nothing)
+```
+
+- The implementation evaluates the discrete version of the VCA/CPT
+  grand-potential integrand
+  `log(abs(det(I - V(k) * G'(iω))))`.
+- `GPcore` now uses `logabsdet` for a more stable determinant logarithm.
+- If `weights` is omitted, trapezoidal weights are built from the supplied
+  positive imaginary-frequency grid `iws`.
+- Explicit quadrature weights can be supplied for nonuniform or externally
+  generated imaginary-axis grids.
+- Normal versus Gorkov CPT is inferred from the cluster Green's function matrix
+  size: `N x N` is normal, while `2N x 2N` is Gorkov.
+- The Gorkov grand-potential path includes the standard Nambu factor `1/2`.
+- `singleParticleGreenFunction` now uses the same matrix-size inference, so the
+  precomputed TDVP Green's function determines whether CPT runs in normal or
+  Gorkov/Nambu space.
+
+## Fourier Transforms
+
+- Added complex-frequency and imaginary-axis transforms:
+
+```julia
+fourier_rz(gf_rt, ts, zs; broadentype = nothing, mthreads = Threads.nthreads(), ifsum = false)
+fourier_riw(gf_rt, ts, iws; mu = 0, kwargs...)
+```
+
+- `fourier_rz` computes
+  `G(z) = ∫ dt exp(i*z*t) G(t)`, which is useful for imaginary-axis CPT data
+  with `z = mu + im*iω`.
+- `fourier_riw` is a convenience wrapper for
+  `fourier_rz(gf_rt, ts, mu .+ im .* iws; ...)`.
+- `fourier_rw` now validates that the third axis of `gf_rt` matches the time
+  grid.
+- Fixed `fourier_rw` output sizing so non-square `(sink, source, time)` arrays
+  preserve both the first and second dimensions instead of assuming a square
+  matrix.
+
+## Superconducting and SU(2)-Only Hamiltonian Support
+
+- Added spin-SU(2)-only fermion Hamiltonian paths that use fermion parity
+  instead of particle-number `U(1)`, enabling pairing terms that break particle
+  number conservation.
+- Added SU(2)-only directed hopping pieces:
+
+```julia
+cdagc(elt, SU2Irrep)
+ccdag(elt, SU2Irrep)
+```
+
+- `hopping(elt, SU2Irrep)` is now built from these directed pieces.
+- Added `FiniteMPO(::AbstractTensorMap)` construction through
+  `add_single_util_leg` and `decompose_localmpo`, making local TensorMap
+  operators easier to use as finite MPOs.
+- Refactored `CustomLattice` Hubbard construction through `hubbard_terms`,
+  with support for SU(2)-only pairing terms controlled by `se`.
+- Added SU(2)-only bilayer two-band Hubbard construction and pairing fields
+  `spmz` and `spmx` for interlayer pair terms on the `z` and `x` orbitals.
+- Bilayer two-band parameter handling was moved into
+  `hubbard_bilayer_2band_terms`, with zero-valued terms skipped through
+  `iszero(...)` checks.
+
+## Timing, Progress, and Profiling
+
+- Added shared progress helpers for real-time evolution and dynamical
+  correlator workflows, with compact elapsed-time formatting.
+- `evolve_mps` and both zero-temperature and finite-temperature `dcorrelator`
+  paths now use `TimerOutput` sections for setup, Hamiltonian construction,
+  TDVP timesteps, `rho(t)` loading, and `sweep_dot`.
+- `TDVP1_CBE` accepts an optional `timer` keyword in `timestep!`, allowing CBE
+  expansion, AC/C Hamiltonian construction, and local time evolution to appear
+  in the caller's timing report.
+- Removed redundant timing wrappers in lower-level CBE calls so timing output is
+  less noisy.
+
+## API Changes
+
+- Package version bumped from `0.12.0` to `0.13.0`.
+- Chemical-potential keywords and examples now consistently use ASCII `mu`
+  instead of Unicode `μ`:
+
+```julia
+hubbard(...; mu = 0.0)
+conductivity(...; mu = 0)
+```
+
+- Updated docs, tests, and benchmark scripts to use the `mu` keyword.
+- `S_plus`, `S_min`, and `heisenberg` for plain `SU2Irrep` spin operators now
+  take the spin value as an explicit positional argument:
+
+```julia
+S_plus(elt, SU2Irrep, spin; side = :L)
+S_min(elt, SU2Irrep, spin; side = :R)
+heisenberg(elt, SU2Irrep, spin)
+```
+
+## Exports and Internal Updates
+
+- Exported `GrandPotential`, `fourier_rz`, and `fourier_riw`.
+- Imported `logabsdet` from `LinearAlgebra`.
+- Kept `FiniteMPO` available through import from MPSKit while adding the local
+  TensorMap-to-FiniteMPO convenience method.
+- Updated tutorials and examples to reflect the current `mu` keyword and the
+  Gorkov/greater/lesser correlator workflow.
+
+---
+
 # DynamicalCorrelators.jl v0.12.0 Release Notes
 
 ## Highlights
