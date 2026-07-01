@@ -87,3 +87,7 @@ function identityMPO(H::FiniteMPOHamiltonian)
     end
     return FiniteMPO(W)
 end
+
+function FiniteMPO(O::AbstractTensorMap{T, S, N1, N2}) where {T, S, N1, N2}
+    return FiniteMPO(decompose_localmpo(add_single_util_leg(O)))
+end

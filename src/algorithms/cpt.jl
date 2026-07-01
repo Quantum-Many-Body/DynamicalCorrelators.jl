@@ -127,6 +127,96 @@ function CPTcore(cgfm::AbstractMatrix, vm::AbstractMatrix)
     return cgfm*inv(mul!(result, vm, cgfm, -1, 1))
 end
 
+function _cpt_normal_and_size(cpt::CPT, normal::Union{Nothing, Bool})
+    size(cpt.gfrw, 1) == size(cpt.gfrw, 2) || throw(DimensionMismatch("Cluster Green function matrices must be square."))
+    table_size = length(cpt.table)
+    gf_size = size(cpt.gfrw, 1)
+    inferred = if gf_size == table_size
+        true
+    elseif gf_size == 2table_size
+        false
+    else
+        throw(DimensionMismatch("Cluster Green function matrix size $(gf_size) is incompatible with table size $(table_size). Expected $(table_size) for normal Green function or $(2table_size) for Gorkov Green function."))
+    end
+    if !isnothing(normal) && normal != inferred
+        throw(ArgumentError("normal=$normal is inconsistent with the cluster Green function matrix size $(gf_size)."))
+    end
+    return inferred, gf_size
+end
+
+function _positive_axis_weights(xs::AbstractVector)
+    length(xs) > 1 || throw(ArgumentError("At least two imaginary-frequency points are required when weights are not provided."))
+    weights = zeros(Float64, length(xs))
+    for i in 2:length(xs)
+        step = xs[i] - xs[i-1]
+        step > 0 || throw(ArgumentError("Imaginary-frequency points must be strictly increasing."))
+        weights[i-1] += step/2
+        weights[i] += step/2
+    end
+    return weights
+end
+
+function _gp_weights(iws::AbstractVector, weights::Nothing, nfreq::Int)
+    length(iws) == nfreq || throw(DimensionMismatch("The number of imaginary-frequency points must match size(cpt.gfrw, 3)."))
+    return _positive_axis_weights(iws)
+end
+function _gp_weights(iws::AbstractVector, weights::AbstractVector, nfreq::Int)
+    length(iws) == nfreq || throw(DimensionMismatch("The number of imaginary-frequency points must match size(cpt.gfrw, 3)."))
+    length(weights) == nfreq || throw(DimensionMismatch("The number of quadrature weights must match size(cpt.gfrw, 3)."))
+    return Float64.(weights)
+end
+function _gp_weights(weights::AbstractVector, nfreq::Int)
+    length(weights) == nfreq || throw(DimensionMismatch("The number of quadrature weights must match size(cpt.gfrw, 3)."))
+    return Float64.(weights)
+end
+
+function _cpt_vm_matrices(normal::Bool, cpt::CPT, bz::Union{AbstractVector, ReciprocalSpace}, matrix_size::Int)
+    oops = filter(op -> length(op) == 2, collect(expand(cpt.origigenerator)))
+    rops = filter(op -> length(op) == 2, collect(expand(cpt.refergenerator)))
+    oopsseqs = seqs(oops, cpt.table)
+    rm = referQuadraticTerms(normal, rops, zeros(ComplexF64, matrix_size, matrix_size), cpt.table)
+    vmvec = Vector{Matrix{ComplexF64}}(undef, length(bz))
+    for i in eachindex(bz)
+        vmvec[i] = origiQuadraticTerms!(normal, zeros(ComplexF64, matrix_size, matrix_size), oops, oopsseqs, bz[i]) - rm
+    end
+    return vmvec
+end
+
+function _cpt_trvm(normal::Bool, vmvec::AbstractVector, matrix_size::Int)
+    if normal
+        return sum(tr(vm) for vm in vmvec)
+    else
+        half = matrix_size ÷ 2
+        return sum(tr(vm[1:half, 1:half]) - tr(vm[half+1:matrix_size, half+1:matrix_size]) for vm in vmvec)
+    end
+end
+
+"""
+    GPcore(temp, cgfm, vm)
+
+The logarithmic determinant core of the grand-potential integrand,
+`log(abs(det(I - V(k) * G'(z))))`.
+"""
+function GPcore(temp::AbstractMatrix, cgfm::AbstractMatrix, vm::AbstractMatrix)
+    result = copy(temp)
+    mul!(result, vm, cgfm, -1, 1)
+    return logabsdet(result)[1]
+end
+
+"""
+    GPintegrand(normal, cgfm, temp, vmvec)
+
+Sum the grand-potential integrand over all momenta in `vmvec`.  The Gorkov
+case carries the usual Nambu factor `1/2`.
+"""
+function GPintegrand(normal::Bool, cgfm::AbstractMatrix, temp::AbstractMatrix, vmvec::AbstractVector)
+    intra = 0.0
+    for vm in vmvec
+        intra += GPcore(temp, cgfm, vm)
+    end
+    return (normal ? 1.0 : 0.5) * intra
+end
+
 """
     perGreenFunction(normal::Bool, GFm::AbstractMatrix, k::AbstractVector, perioder::Perioder, cluster::QLattice)
 
@@ -206,8 +296,7 @@ The single particle Green function in k-ω space.
 """
 function singleParticleGreenFunction(cpt::CPT, k_path::Union{AbstractVector, ReciprocalSpace}; mthreads::Integer=Threads.nthreads(), loc::Union{Nothing, AbstractVector}=nothing)
     oops, rops = filter(op -> length(op) == 2, collect(expand(cpt.origigenerator))), filter(op -> length(op) == 2, collect(expand(cpt.refergenerator)))
-    R, N = isempty(filter(op -> op.id[1].index.internal.nambu==op.id[2].index.internal.nambu, collect(rops))), length(cpt.table)
-    R ? N=N : N=2*N
+    R, N = _cpt_normal_and_size(cpt, nothing)
     oopsseqs = seqs(oops, cpt.table)
     rm = referQuadraticTerms(R, rops, zeros(ComplexF64, N, N), cpt.table)
     gfpv = Vector(undef, size(cpt.gfrw, 3))
@@ -231,8 +320,7 @@ end
 
 function singleParticleGreenFunction(cpt::CPT, k_path::Union{AbstractVector, ReciprocalSpace}, fsid::Int; loc::Union{Nothing, AbstractVector}=nothing)
     oops, rops = filter(op -> length(op) == 2, collect(expand(cpt.origigenerator))), filter(op -> length(op) == 2, collect(expand(cpt.refergenerator)))
-    R, N = isempty(filter(op -> op.id[1].index.internal.nambu==op.id[2].index.internal.nambu, collect(rops))), length(cpt.table)
-    R ? N=N : N=2*N
+    R, N = _cpt_normal_and_size(cpt, nothing)
     oopsseqs = seqs(oops, cpt.table)
     rm = referQuadraticTerms(R, rops, zeros(ComplexF64, N, N), cpt.table)
     gfpv = Vector(undef, 1)
@@ -266,4 +354,68 @@ function densityofstates(gfpathv::AbstractVector; select::AbstractVector=Vector(
         end
     end
     return A/length(gfpathv[1])
+end
+
+function _grand_potential(cpt::CPT, bz::Union{AbstractVector, ReciprocalSpace}, E0::Real, weights::AbstractVector; normal::Union{Nothing, Bool}=nothing, mthreads::Integer=Threads.nthreads())
+    isnormal, matrix_size = _cpt_normal_and_size(cpt, normal)
+    length(weights) == size(cpt.gfrw, 3) || throw(DimensionMismatch("The number of quadrature weights must match size(cpt.gfrw, 3)."))
+    vmvec = _cpt_vm_matrices(isnormal, cpt, bz, matrix_size)
+    temp = Matrix{ComplexF64}(I, matrix_size, matrix_size)
+    integrands = zeros(Float64, size(cpt.gfrw, 3))
+    if mthreads == 1
+        for i in axes(cpt.gfrw, 3)
+            integrands[i] = GPintegrand(isnormal, cpt.gfrw[:, :, i], temp, vmvec)
+        end
+    else
+        idx = Threads.Atomic{Int}(1)
+        n = size(cpt.gfrw, 3)
+        Threads.@sync for _ in 1:mthreads
+            Threads.@spawn while true
+                i = Threads.atomic_add!(idx, 1)
+                i > n && break
+                integrands[i] = GPintegrand(isnormal, cpt.gfrw[:, :, i], temp, vmvec)
+            end
+        end
+    end
+    integral = sum(weights .* integrands)
+    trvm = _cpt_trvm(isnormal, vmvec, matrix_size)
+    return (E0 + (-integral/π + real(trvm)/2)/length(bz))/length(cpt.cluster)/length(cpt.unitcell)
+end
+
+"""
+    GrandPotential(cpt, bz, E0, iws; normal=nothing, weights=nothing, mthreads=nthreads())
+
+Grand potential for a TDVP-CPT calculation whose cluster Green function has
+already been transformed to the positive imaginary axis and stored in
+`cpt.gfrw[:,:,n]`.
+
+The formula is the discrete version of
+
+```math
+\\Omega = \\frac{1}{L_c L_u}\\left[
+E_0 + \\frac{1}{N_k}\\left(
+-\\frac{1}{\\pi}\\int_0^\\infty d\\omega\\,
+\\alpha\\sum_k \\log\\left|\\det(1 - V(k)G'(i\\omega))\\right|
++ \\frac{1}{2}\\operatorname{Tr}V
+\\right)\\right],
+```
+
+with `α = 1` for a normal Green function and `α = 1/2` for a Gorkov Green
+function.  If `weights` is omitted, trapezoidal weights are built from `iws`.
+"""
+function GrandPotential(cpt::CPT, bz::Union{AbstractVector, ReciprocalSpace}, E0::Real, iws::AbstractVector; normal::Union{Nothing, Bool}=nothing, weights::Union{Nothing, AbstractVector}=nothing, mthreads::Integer=Threads.nthreads())
+    qweights = _gp_weights(iws, weights, size(cpt.gfrw, 3))
+    return _grand_potential(cpt, bz, E0, qweights; normal=normal, mthreads=mthreads)
+end
+
+"""
+    GrandPotential(cpt, bz, E0; weights, normal=nothing, mthreads=nthreads())
+
+Grand potential with user-supplied quadrature weights for `cpt.gfrw[:,:,n]`.
+Use this method for non-trapezoidal imaginary-axis grids.
+"""
+function GrandPotential(cpt::CPT, bz::Union{AbstractVector, ReciprocalSpace}, E0::Real; weights::Union{Nothing, AbstractVector}=nothing, normal::Union{Nothing, Bool}=nothing, mthreads::Integer=Threads.nthreads())
+    isnothing(weights) && throw(ArgumentError("Pass imaginary-frequency points as `GrandPotential(cpt, bz, E0, iws)` or provide explicit `weights`."))
+    qweights = _gp_weights(weights, size(cpt.gfrw, 3))
+    return _grand_potential(cpt, bz, E0, qweights; normal=normal, mthreads=mthreads)
 end

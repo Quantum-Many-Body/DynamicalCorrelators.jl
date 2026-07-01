@@ -583,11 +583,19 @@ function e_min(elt::Type{<:Number}, ::Type{SU2Irrep}; side=:L)
 end
 
 function hopping(elt::Type{<:Number}, ::Type{SU2Irrep})
+    return cdagc(elt, SU2Irrep) + ccdag(elt, SU2Irrep)
+end
+
+function cdagc(elt::Type{<:Number}, ::Type{SU2Irrep})
     c⁺l = e_plus(elt, SU2Irrep; side=:L)
     cr = e_min(elt, SU2Irrep; side=:R)
+    return contract_twosite(c⁺l, cr)
+end
+
+function ccdag(elt::Type{<:Number}, ::Type{SU2Irrep})
     cl = e_min(elt, SU2Irrep; side=:L)
     c⁺r = e_plus(elt, SU2Irrep; side=:R)
-    return contract_twosite(c⁺l,cr) + contract_twosite(cl, c⁺r)
+    return contract_twosite(cl, c⁺r)
 end
 
 function number(elt::Type{<:Number}, ::Type{SU2Irrep})

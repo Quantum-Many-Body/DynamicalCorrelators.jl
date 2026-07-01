@@ -164,8 +164,9 @@ Time Fourier transform from `G(r, t)` to `G(r, ω)` (real-space, frequency domai
 Array of shape `(N_sites, N_sites, length(ws))`.
 """
 function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; broadentype=(0.05, "G"), mthreads::Integer=Threads.nthreads(), ifsum::Bool=true)
+    _check_gf_time_axes(gf_rt, ts)
     dampings = [damping(t, broadentype) for t in ts]
-    gf_rw = zeros(ComplexF64, size(gf_rt, 1), size(gf_rt, 1), length(ws))
+    gf_rw = zeros(ComplexF64, size(gf_rt, 1), size(gf_rt, 2), length(ws))
     if mthreads == 1
         for i in eachindex(ws)
             for a in axes(gf_rt, 1)
@@ -192,6 +193,72 @@ function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; 
         end
     end
     return gf_rw
+end
+
+function _check_gf_time_axes(gf_rt::AbstractArray, ts::AbstractArray)
+    ndims(gf_rt) >= 3 || throw(DimensionMismatch("gf_rt must have at least three axes, with time on the third axis."))
+    size(gf_rt, 3) == length(ts) || throw(DimensionMismatch("The third axis of gf_rt must have the same length as ts."))
+    length(ts) > 0 || throw(ArgumentError("ts must not be empty."))
+    return nothing
+end
+
+function _damping_vector(ts::AbstractArray, broadentype)
+    return isnothing(broadentype) ? ones(Float64, length(ts)) : [damping(t, broadentype) for t in ts]
+end
+
+function _time_integral(ts::AbstractArray, values::AbstractArray, ifsum::Bool)
+    return ifsum ? sum(values)*((ts[end]-ts[1])/length(ts)) : integrate(ts, values)
+end
+
+"""
+    fourier_rz(gf_rt, ts, zs; broadentype=nothing, mthreads=nthreads(), ifsum=false)
+
+Time Fourier/Laplace transform from retarded real-time Green function `G(t)` to
+complex frequency `G(z)`,
+
+```math
+G(z) = \\int_0^T dt\\, e^{i z t} G(t).
+```
+
+For imaginary-axis CPT grand-potential calculations, pass
+`zs = μ .+ im .* iωs`, so the kernel becomes `exp(i*μ*t - iω*t)`.
+`gf_rt` may be either the normal matrix or an already assembled Gorkov matrix.
+"""
+function fourier_rz(gf_rt::AbstractArray, ts::AbstractArray, zs::AbstractArray; broadentype=nothing, mthreads::Integer=Threads.nthreads(), ifsum::Bool=false)
+    _check_gf_time_axes(gf_rt, ts)
+    dampings = _damping_vector(ts, broadentype)
+    gf_rz = zeros(ComplexF64, size(gf_rt, 1), size(gf_rt, 2), length(zs))
+    if mthreads == 1
+        for i in eachindex(zs)
+            kernel = exp.(im*zs[i].*ts) .* dampings
+            for a in axes(gf_rt, 1), b in axes(gf_rt, 2)
+                gf_rz[a,b,i] = _time_integral(ts, gf_rt[a,b,:] .* kernel, ifsum)
+            end
+        end
+    else
+        idx = Threads.Atomic{Int}(1)
+        n = length(zs)
+        Threads.@sync for _ in 1:mthreads
+            Threads.@spawn while true
+                i = Threads.atomic_add!(idx, 1)
+                i > n && break
+                kernel = exp.(im*zs[i].*ts) .* dampings
+                for a in axes(gf_rt, 1), b in axes(gf_rt, 2)
+                    gf_rz[a,b,i] = _time_integral(ts, gf_rt[a,b,:] .* kernel, ifsum)
+                end
+            end
+        end
+    end
+    return gf_rz
+end
+
+"""
+    fourier_riw(gf_rt, ts, iws; mu=0, kwargs...)
+
+Convenience wrapper for `fourier_rz(gf_rt, ts, mu .+ im .* iws; kwargs...)`.
+"""
+function fourier_riw(gf_rt::AbstractArray, ts::AbstractArray, iws::AbstractArray; mu::Real=0, kwargs...)
+    return fourier_rz(gf_rt, ts, mu .+ im .* iws; kwargs...)
 end
 
 """

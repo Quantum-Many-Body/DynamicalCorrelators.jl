@@ -1,6 +1,6 @@
 module DynamicalCorrelators
 
-using LinearAlgebra: norm, inv, mul!, I, tr, dot, BLAS
+using LinearAlgebra: norm, inv, mul!, I, tr, dot, BLAS, logabsdet
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
 using TensorOperations: promote_contract, tensorfree!
@@ -9,7 +9,7 @@ using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dua
 using TensorKit: left_null, right_null!, catdomain, catcodomain, qr_compact!, left_orth, right_orth, rmul!
 using TensorKit: ⊠, ⊗, permute, repartition, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum, id, zerovector, tensormaptype
 using BlockTensorKit: nonzero_pairs, nonzero_length
-using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG, DMRG2, IDMRG, IDMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
+using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG, DMRG2, IDMRG, IDMRG2, changebonds!, SvdCut, left_virtualspace, right_virtualspace
 using MPSKit: Algorithm, add_util_leg, _firstspace, _lastspace, decompose_localmpo, TransferMatrix, environments, expectation_value, max_virtualspaces, physicalspace
 using MPSKit: spacetype, fuse_mul_mpo, fuser, DenseMPO, MPOTensor, approximate, LAPACK_DivideAndConquer, left_orth!, right_orth!
 using MPSKit.Defaults: _finalize
@@ -29,7 +29,7 @@ using Dates
 using TimerOutputs: TimerOutput, @timeit
 
 import QuantumLattices: expand
-import MPSKit: propagator, dot, correlator, transfer_left, transfer_right, AC_hamiltonian, AC2_hamiltonian, C_hamiltonian, DerivativeOperator, timestep, timestep!, integrate as mps_integrate
+import MPSKit: FiniteMPO, propagator, dot, correlator, transfer_left, transfer_right, AC_hamiltonian, AC2_hamiltonian, C_hamiltonian, DerivativeOperator, timestep, timestep!, integrate as mps_integrate
 import MPSKitModels: S_plus, S_min, S_z
 
 # ── includes ──
@@ -77,12 +77,12 @@ export dmrg2!, dmrg2, dmrg2_sweep!
 export dmrg1_cbe!, dmrg1_cbe
 export TDVP1_CBE
 export idmrg2
-export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates
+export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates, GrandPotential
 
 export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorrelation, OneSiteCorrelation, site_indices, correlator
 export evolve_mps, dcorrelator, sweep_dot
 export conductivity
-export fourier_kw, fourier_rw, static_structure_factor
+export fourier_kw, fourier_rw, fourier_rz, fourier_riw, static_structure_factor
 
 function __init__()
     BLAS.set_num_threads(1)

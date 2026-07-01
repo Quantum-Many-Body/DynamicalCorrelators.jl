@@ -10,11 +10,11 @@ states are written to `filename` for every index in `save_id` with keys
 `"t=\$(ts[i])"`. For finite-temperature `dcorrelator`, save every requested
 real-time slice, for example `save_id = eachindex(times)`.
 """
-function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H)); 
-                    filename::String="default_expiHt_ψ.jld2", 
-                    save_id::AbstractArray=[length(ts),], 
-                    verbose::Bool=true, 
-                    n::Integer=3, 
+function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H));
+                    filename::String="default_expiHt_ψ.jld2",
+                    save_id::AbstractArray=[length(ts),],
+                    verbose::Bool=true,
+                    n::Integer=3,
                     tdvp1 = myTDVP(),
                     tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3))
                     )
@@ -57,11 +57,11 @@ corresponding parameter values are written to `filename` with keys
 `"t=\$(ts[i])"` and `"mu_t=\$(ts[i])"`. For finite-temperature `dcorrelator`,
 save every requested real-time slice, for example `save_id = eachindex(times)`.
 """
-function evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H(mus[1]))); 
-                    filename::String="default_expiHt_ψ.jld2", 
-                    save_id::AbstractArray=[length(ts),], 
-                    verbose::Bool=true, 
-                    n::Integer=3, 
+function evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H(mus[1])));
+                    filename::String="default_expiHt_ψ.jld2",
+                    save_id::AbstractArray=[length(ts),],
+                    verbose::Bool=true,
+                    n::Integer=3,
                     tdvp1 = myTDVP(),
                     tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3))
                     )
@@ -183,17 +183,128 @@ function _dcorrelator_load_rho(rho_path::AbstractString, t)
     return load(rho_path, _dcorrelator_rho_key(t))
 end
 
+const _DCORRELATOR_GORKOV_KEYS = (:G11, :G12, :G21, :G22)
+
+function _dcorrelator_gorkov_filename(gf_path::AbstractString, tstart, tend, id::Integer)
+    return joinpath(gf_path, "gf_start=$(tstart)_end=$(tend)_id=$(id)_gorkov.jld2")
+end
+
+function _dcorrelator_gorkov_vectors(id::Integer, L::Integer, gsenergy, t, sd, sd_anomalous)
+    phase_forward = exp(im * gsenergy * t)
+    phase_backward = exp(-im * gsenergy * t)
+    if id <= L
+        return (
+            -im * phase_forward .* sd,
+            -im * phase_backward .* conj.(sd_anomalous),
+            -im * phase_forward .* sd_anomalous,
+            -im * phase_backward .* conj.(sd),
+        )
+    else
+        return (
+            -im * phase_backward .* conj.(sd),
+            -im * phase_forward .* sd_anomalous,
+            -im * phase_backward .* conj.(sd_anomalous),
+            -im * phase_forward .* sd,
+        )
+    end
+end
+
+function _dcorrelator_save_gorkov_slice!(filename::String, r::Integer, G11, G12, G21, G22)
+    jldopen(filename, "a") do f
+        f["G11_$(r)"] = G11
+        f["G12_$(r)"] = G12
+        f["G21_$(r)"] = G21
+        f["G22_$(r)"] = G22
+    end
+end
+
+function _dcorrelator_load_gorkov_complete!(G11, G12, G21, G22, filename::String, nrecords::Integer; verbose::Bool=false)
+    isfile(filename) || return false
+    gfb = load(filename)
+    iscomplete = all(all("$(key)_$(r)" in keys(gfb) for key in _DCORRELATOR_GORKOV_KEYS) for r in 1:nrecords)
+    if iscomplete
+        for r in 1:nrecords
+            G11[:, r] = gfb["G11_$(r)"]
+            G12[:, r] = gfb["G12_$(r)"]
+            G21[:, r] = gfb["G21_$(r)"]
+            G22[:, r] = gfb["G22_$(r)"]
+        end
+        verbose && println("$(basename(filename)) has existed!")
+        verbose && flush(stdout)
+        return true
+    end
+    @warn "$(filename) is incomplete; recomputing it"
+    return false
+end
+
+function _dcorrelator_load_gorkov_complete!(G11, G12, G21, G22, filename::String, nrecords::Integer, d::Integer; verbose::Bool=false)
+    isfile(filename) || return false
+    gfb = load(filename)
+    iscomplete = all(all("$(key)_$(r)" in keys(gfb) for key in _DCORRELATOR_GORKOV_KEYS) for r in 1:nrecords)
+    if iscomplete
+        for r in 1:nrecords
+            G11[:, d, r] = gfb["G11_$(r)"]
+            G12[:, d, r] = gfb["G12_$(r)"]
+            G21[:, d, r] = gfb["G21_$(r)"]
+            G22[:, d, r] = gfb["G22_$(r)"]
+        end
+        verbose && println("$(basename(filename)) has existed!")
+        verbose && flush(stdout)
+        return true
+    end
+    @warn "$(filename) is incomplete; recomputing it"
+    return false
+end
+
 """
     dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian,
                 op::AbstractTensorMap, id::Integer; kwargs...)
 
 Compute a zero-temperature dynamical correlation from one source site.
 
-`id` selects the source channel. Values `1:length(H)` use the forward
-operator channel, while `length(H)+1:2length(H)` use the conjugated channel.
+    Gorkov Green's function:
+
+    G_ij(t) =-i[
+                ⟨{c_i(t),  c_j†(0)}⟩     ⟨{c_i(t),  c_j(0)}⟩
+                ⟨{c_i†(t), c_j†(0)}⟩     ⟨{c_i†(t), c_j(0)}⟩]
+
+    G11_ij(t) = -i(⟨c_i(t)c_j†(0)⟩ + ⟨c_j†(0)c_i(t)⟩)
+            = -im*(exp(iE₀t)*dot(c_i†|0⟩, exp(-iHt)c_j†|0⟩) + exp(-iE₀t)*dot(exp(-iHt)c_j|0⟩, c_i|0⟩))
+            = -im*(exp(iE₀t)*dot(c_i†|0⟩, exp(-iHt)c_j†|0⟩) + exp(-iE₀t)*conj(dot(c_i|0⟩, exp(-iHt)c_j|0⟩)))
+
+    G12_ij(t) = -i(⟨c_i(t)c_j(0)⟩ + ⟨c_j(0)c_i(t)⟩)
+            = -im*(exp(iE₀t)*dot(c_i†|0⟩, exp(-iHt)c_j|0⟩) + exp(-iE₀t)*dot(exp(-iHt)c_j†|0⟩, c_i|0⟩))
+            = -im*(exp(iE₀t)*dot(c_i†|0⟩, exp(-iHt)c_j|0⟩) + exp(-iE₀t)*conj(dot(c_i|0⟩, exp(-iHt)c_j†|0⟩)))
+
+    G21_ij(t) = -i(⟨c_i†(t)c_j†(0)⟩ + ⟨c_j†(0)c_i†(t)⟩)
+            = -im*(exp(iE₀t)*dot(c_i|0⟩, exp(-iHt)c_j†|0⟩) + exp(-iE₀t)*dot(exp(-iHt)c_j|0⟩, c_i†|0⟩))
+            = -im*(exp(iE₀t)*dot(c_i|0⟩, exp(-iHt)c_j†|0⟩) + exp(-iE₀t)*conj(dot(c_i†|0⟩, exp(-iHt)c_j|0⟩)))
+
+    G22_ij(t) = -i(⟨c_i†(t)c_j(0)⟩ + ⟨c_j(0)c_i†(t)⟩)
+            = -im*(exp(iE₀t)*dot(c_i|0⟩, exp(-iHt)c_j|0⟩) + exp(-iE₀t)*dot(exp(-iHt)c_j†|0⟩, c_i†|0⟩))
+            = -im*(exp(iE₀t)*dot(c_i|0⟩, exp(-iHt)c_j|0⟩) + exp(-iE₀t)*conj(dot(c_i†|0⟩, exp(-iHt)c_j†|0⟩)))
+
+`id` selects the source channel. Values `1:length(H)` use the greater
+contribution, while `length(H)+1:2length(H)` use the lesser term in the
+retarded combination.
 Only `record_indices` are returned, and the evolution stops at the last
 requested record. This single-source method uses ordinary arrays and does not
-start a distributed `SharedArray` calculation.
+start a distributed `SharedArray` calculation. When `anomalous` is a TensorMap,
+the same evolved source ket is projected with both `op` and `anomalous`, and a
+NamedTuple `(G11, G12, G21, G22)` is returned.
+
+    Note:  the relation for spin-U(1) Green' function and spin-SU(2) Green's function
+            assuming the form of spin-U(1) Green' function is:
+        G_ij(t) =-i[
+                    ⟨{c_i↓(t),  c_j†↓(0)}⟩         0                         0              ⟨{c_i↓(t),  c_j↑(0)}⟩
+                                0           ⟨{c_i↑(t),  c_j†↑(0)}⟩  ⟨{c_i↑(t),  c_j↓(0)}⟩            0
+                                            ⟨{c_i†↓(t),  c_j†↑(0)}⟩ ⟨{c_i†↓(t),  c_j↓(0)}⟩           0
+                    ⟨{c_i†↑(t),  c_j†↓(0)}⟩        0                        0               ⟨{c_i†↑(t),  c_j↑(0)}⟩]
+            then we have:
+            Gu₁[1,1] + Gu₁[2,2] == Gsu₂[1,1]; Gsu₂[1,1]/2 == Gu₁[1,1]
+            Gu₁[2,3] - Gu₁[1,4] == Gsu₂[1,2]; Gsu₂[1,2]/2 == Gu₁[2,3]
+            Gu₁[3,2] - Gu₁[4,1] == Gsu₂[2,1]; Gsu₂[2,1]/2 == Gu₁[3,2]
+            Gu₁[3,3] + Gu₁[4,4] == Gsu₂[2,2]; Gsu₂[3,3]/2 == Gu₁[2,2]
 """
 function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap, id::Integer;
                     verbose=true,
@@ -201,6 +312,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                     times::AbstractRange=0:0.05:5.0,
                     record_indices::AbstractArray=1:length(times),
                     n::Integer=3,
+                    anomalous::Union{Nothing, AbstractTensorMap}=nothing,
                     approxalg = myDMRG2(),
                     tdvp1 = myTDVP(),
                     tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3))
@@ -210,10 +322,23 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     idx = _dcorrelator_site(id, L)
     record_indices, record_first, record_last = _dcorrelator_record_window(times, record_indices)
     gsenergy = expectation_value(gs, H)
-    gf = zeros(ComplexF64, L, length(record_indices))
+    gf = isnothing(anomalous) ? zeros(ComplexF64, L, length(record_indices)) : nothing
     filename = joinpath(gf_path, "gf_start=$(times[record_first])_end=$(times[record_last])_id=$(id).jld2")
 
-    _dcorrelator_load_complete!(gf, filename, length(record_indices); verbose=verbose) && return gf
+    if !isnothing(anomalous)
+        G11 = zeros(ComplexF64, L, length(record_indices))
+        G12 = similar(G11)
+        G21 = similar(G11)
+        G22 = similar(G11)
+        gorkov_filename = _dcorrelator_gorkov_filename(gf_path, times[record_first], times[record_last], id)
+        if _dcorrelator_load_gorkov_complete!(G11, G12, G21, G22, gorkov_filename, length(record_indices); verbose=verbose)
+            return (G11=G11, G12=G12, G21=G21, G22=G22)
+        end
+    end
+
+    if isnothing(anomalous)
+        _dcorrelator_load_complete!(gf, filename, length(record_indices); verbose=verbose) && return gf
+    end
 
     timer = TimerOutput()
     ket = @timeit timer "setup / chargedMPS" chargedMPS(op, gs, idx, approxalg)
@@ -221,14 +346,32 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     if record_first == 1
         phase = id <= L ? exp(im*gsenergy*times[1]) : exp(-im*gsenergy*times[1])
         sd = @timeit timer "sweep_dot" sweep_dot(gs, op, ket)
-        gf[:, 1] = id <= L ? -im * phase .* sd : -im * phase .* conj.(sd)
+        if isnothing(anomalous)
+            gf[:, 1] = id <= L ? -im * phase .* sd : -im * phase .* conj.(sd)
+        else
+            sd_anomalous = @timeit timer "sweep_dot / anomalous" sweep_dot(gs, anomalous, ket)
+            G11[:, 1], G12[:, 1], G21[:, 1], G22[:, 1] =
+                _dcorrelator_gorkov_vectors(id, L, gsenergy, times[1], sd, sd_anomalous)
+        end
     end
-    jldopen(filename, "w") do f
-        f["times"] = times
-        f["record_indices"] = record_indices
-        f["id"] = id
+    if isnothing(anomalous)
+        jldopen(filename, "w") do f
+            f["times"] = times
+            f["record_indices"] = record_indices
+            f["id"] = id
+            if record_first == 1
+                f["pro_1"] = gf[:, 1]
+            end
+        end
+    else
+        jldopen(gorkov_filename, "w") do f
+            f["times"] = times
+            f["record_indices"] = record_indices
+            f["id"] = id
+            f["gorkov_keys"] = string.(_DCORRELATOR_GORKOV_KEYS)
+        end
         if record_first == 1
-            f["pro_1"] = gf[:, 1]
+            _dcorrelator_save_gorkov_slice!(gorkov_filename, 1, G11[:, 1], G12[:, 1], G21[:, 1], G22[:, 1])
         end
     end
     verbose && _progress_start(1, length(times), "time evolves 0.0 of ket$(id)")
@@ -245,9 +388,16 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             r = k - record_first + 1
             phase = id <= L ? exp(im*gsenergy*times[k]) : exp(-im*gsenergy*times[k])
             sd = @timeit timer "sweep_dot" sweep_dot(gs, op, ket)
-            gf[:, r] = id <= L ? -im * phase .* sd : -im * phase .* conj.(sd)
-            jldopen(filename, "a") do f
-                f["pro_$(r)"] = gf[:, r]
+            if isnothing(anomalous)
+                gf[:, r] = id <= L ? -im * phase .* sd : -im * phase .* conj.(sd)
+                jldopen(filename, "a") do f
+                    f["pro_$(r)"] = gf[:, r]
+                end
+            else
+                sd_anomalous = @timeit timer "sweep_dot / anomalous" sweep_dot(gs, anomalous, ket)
+                G11[:, r], G12[:, r], G21[:, r], G22[:, r] =
+                    _dcorrelator_gorkov_vectors(id, L, gsenergy, times[k], sd, sd_anomalous)
+                _dcorrelator_save_gorkov_slice!(gorkov_filename, r, G11[:, r], G12[:, r], G21[:, r], G22[:, r])
             end
         end
         start_time = current_time
@@ -257,7 +407,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     envs = nothing
     GC.gc()
     verbose && _progress_end(wall_start, timer)
-    return gf
+    return isnothing(anomalous) ? gf : (G11=G11, G12=G12, G21=G21, G22=G22)
 end
 
 """
@@ -269,7 +419,9 @@ Compute zero-temperature dynamical correlations for many source channels.
 The source channels in `indices` are evaluated in parallel with Distributed and
 stored in a `SharedArray`. The result has size
 `(length(H), length(indices), length(record_indices))`. Completed per-source
-JLD2 files are reused; incomplete files are recomputed.
+JLD2 files are reused; incomplete files are recomputed. When `anomalous` is a
+TensorMap, the result is a NamedTuple `(G11, G12, G21, G22)`, each with this
+same array shape.
 """
 function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
                     verbose=true,
@@ -277,6 +429,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                     times::AbstractRange=0:0.05:5.0,
                     record_indices::AbstractArray=1:length(times),
                     n::Integer=3,
+                    anomalous::Union{Nothing, AbstractTensorMap}=nothing,
                     approxalg = myDMRG2(),
                     tdvp1 = myTDVP(),
                     tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3))
@@ -290,12 +443,22 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         throw(ArgumentError("record_indices must be inside 1:$(length(times))"))
     record_first, record_last = record_indices[1], record_indices[end]
     gsenergy = expectation_value(gs, H)
-    gf = SharedArray{ComplexF64, 3}(length(H), length(indices), length(record_indices))
+    if isnothing(anomalous)
+        gf = SharedArray{ComplexF64, 3}(length(H), length(indices), length(record_indices))
+        G11 = G12 = G21 = G22 = nothing
+    else
+        gf = nothing
+        G11 = SharedArray{ComplexF64, 3}(length(H), length(indices), length(record_indices))
+        G12 = SharedArray{ComplexF64, 3}(length(H), length(indices), length(record_indices))
+        G21 = SharedArray{ComplexF64, 3}(length(H), length(indices), length(record_indices))
+        G22 = SharedArray{ComplexF64, 3}(length(H), length(indices), length(record_indices))
+    end
     @sync @distributed for d in eachindex(indices)
         id = indices[d]
         idx = id <= length(H) ? id : (id - length(H))
         filename = joinpath(gf_path, "gf_start=$(times[record_first])_end=$(times[record_last])_id=$(id).jld2")
-        if isfile(filename)
+        gorkov_filename = _dcorrelator_gorkov_filename(gf_path, times[record_first], times[record_last], id)
+        if isnothing(anomalous) && isfile(filename)
             gfb = load(filename)
             iscomplete = all("pro_$(r)" in keys(gfb) for r in 1:length(record_indices))
             if iscomplete
@@ -308,17 +471,39 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             end
             @warn "$(filename) is incomplete; recomputing it"
         end
+        if !isnothing(anomalous) &&
+                _dcorrelator_load_gorkov_complete!(G11, G12, G21, G22, gorkov_filename, length(record_indices), d; verbose=verbose)
+            continue
+        end
         timer = TimerOutput()
         ket = @timeit timer "setup / chargedMPS" chargedMPS(op, gs, idx, approxalg)
         start_time, wall_start = now(), now()
         if record_first == 1
             phase = id <= length(H) ? exp(im*gsenergy*times[1]) : exp(-im*gsenergy*times[1])
             sd = @timeit timer "sweep_dot" sweep_dot(gs, op, ket)
-            gf[:,d,1] = id <= length(H) ? -im * phase .* sd : -im * phase .* conj.(sd)
+            if isnothing(anomalous)
+                gf[:,d,1] = id <= length(H) ? -im * phase .* sd : -im * phase .* conj.(sd)
+            else
+                sd_anomalous = @timeit timer "sweep_dot / anomalous" sweep_dot(gs, anomalous, ket)
+                G11[:, d, 1], G12[:, d, 1], G21[:, d, 1], G22[:, d, 1] =
+                    _dcorrelator_gorkov_vectors(id, length(H), gsenergy, times[1], sd, sd_anomalous)
+            end
         end
-        jldopen(filename, "w") do f
+        if isnothing(anomalous)
+            jldopen(filename, "w") do f
+                if record_first == 1
+                    f["pro_1"] = gf[:,d,1]
+                end
+            end
+        else
+            jldopen(gorkov_filename, "w") do f
+                f["times"] = times
+                f["record_indices"] = record_indices
+                f["id"] = id
+                f["gorkov_keys"] = string.(_DCORRELATOR_GORKOV_KEYS)
+            end
             if record_first == 1
-                f["pro_1"] = gf[:,d,1]
+                _dcorrelator_save_gorkov_slice!(gorkov_filename, 1, G11[:, d, 1], G12[:, d, 1], G21[:, d, 1], G22[:, d, 1])
             end
         end
         verbose && _progress_start(1, length(times), "time evolves 0.0 of ket$(id)")
@@ -331,12 +516,22 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                 r = k - record_first + 1
                 phase = id <= length(H) ? exp(im*gsenergy*times[k]) : exp(-im*gsenergy*times[k])
                 sd = @timeit timer "sweep_dot" sweep_dot(gs, op, ket)
-                gf[:,d,r] = id <= length(H) ? -im * phase .* sd : -im * phase .* conj.(sd)
+                if isnothing(anomalous)
+                    gf[:,d,r] = id <= length(H) ? -im * phase .* sd : -im * phase .* conj.(sd)
+                else
+                    sd_anomalous = @timeit timer "sweep_dot / anomalous" sweep_dot(gs, anomalous, ket)
+                    G11[:, d, r], G12[:, d, r], G21[:, d, r], G22[:, d, r] =
+                        _dcorrelator_gorkov_vectors(id, length(H), gsenergy, times[k], sd, sd_anomalous)
+                end
                 current_time = now()
                 verbose && _progress_step(k, length(times), "time evolves $(times[k]) of ket$(id)", current_time - start_time)
                 flush(stdout)
-                jldopen(filename, "a") do f
-                    f["pro_$(r)"] = gf[:,d,r]
+                if isnothing(anomalous)
+                    jldopen(filename, "a") do f
+                        f["pro_$(r)"] = gf[:,d,r]
+                    end
+                else
+                    _dcorrelator_save_gorkov_slice!(gorkov_filename, r, G11[:, d, r], G12[:, d, r], G21[:, d, r], G22[:, d, r])
                 end
             else
                 current_time = now()
@@ -349,6 +544,17 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         envs = nothing
         GC.gc()
         verbose && _progress_end(wall_start, timer)
+    end
+    if !isnothing(anomalous)
+        G11s = zeros(ComplexF64, length(H), length(indices), length(record_indices))
+        G12s = similar(G11s)
+        G21s = similar(G11s)
+        G22s = similar(G11s)
+        G11s .= G11
+        G12s .= G12
+        G21s .= G21
+        G22s .= G22
+        return (G11=G11s, G12=G12s, G21=G21s, G22=G22s)
     end
     gfs = zeros(ComplexF64, length(H), length(indices), length(record_indices))
     gfs .= gf
@@ -369,10 +575,10 @@ multiplied by `-im` before returning.
 """
 function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTensorMap, id::Integer;
                     verbose=true,
-                    gf_path::String="./",   
-                    times::AbstractRange=0:0.05:5.0, 
+                    gf_path::String="./",
+                    times::AbstractRange=0:0.05:5.0,
                     beta::Union{Number, Missing}=missing,
-                    n::Integer=3, 
+                    n::Integer=3,
                     tdvp1 = myTDVP(),
                     tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3)),
                     )
@@ -438,11 +644,11 @@ ket, its environment, and the current loaded `rho(t)` in memory. Completed
 per-source JLD2 files are loaded and skipped; incomplete files are recomputed.
 """
 function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTensorMap, indices::AbstractArray;
-                    verbose=true, 
-                    gf_path::String="./",   
-                    times::AbstractRange=0:0.05:5.0, 
+                    verbose=true,
+                    gf_path::String="./",
+                    times::AbstractRange=0:0.05:5.0,
                     beta::Union{Number, Missing}=missing,
-                    n::Integer=3, 
+                    n::Integer=3,
                     tdvp1 = myTDVP(),
                     tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3)),
                     )
