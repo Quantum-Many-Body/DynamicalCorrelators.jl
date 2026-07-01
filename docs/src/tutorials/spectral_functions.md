@@ -49,8 +49,8 @@ gf_rt_site = dcorrelator(gs, H, sp, div(N, 2); times, tdvp1 = tdvp_cbe)
 ```
 
 The current `dcorrelator` interface evolves one source operator at a time.
-Source ids `1:N` select the forward channel, while `N+1:2N` select the
-conjugated channel.
+Source ids `1:N` select the greater contribution, while `N+1:2N` select the
+lesser contribution term used in the retarded combination.
 
 ## Momentum-Frequency Transform
 

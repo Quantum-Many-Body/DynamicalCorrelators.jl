@@ -73,24 +73,43 @@ function extended_hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}
 end
 
 """
-    hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
+    hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
                     lattice::CustomLattice; kwargs...)
     fℤ₂ × SU(2) × U(1)  Hubbard model
 """
-function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
-                        lattice::CustomLattice;
-                        t = 1.0, 
-                        t2 = 0.0, 
-                        th = 1.0, 
-                        th2 = 0.0, 
-                        U = 6.0, 
-                        mu = 0.0, 
-                        pinning = nothing,
-                        filling=(1,1))
+function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
+                        lattice::CustomLattice; t=1.0, t2=0.0, th=0.0, th2=0.0, U=6.0, mu=0.0, filling=(1,1))
     hop1 = cdagc(elt, SU2Irrep, U1Irrep; filling=filling)
     hop2 = ccdag(elt, SU2Irrep, U1Irrep; filling=filling)
     onc = onsiteCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
     num = number(elt, SU2Irrep, U1Irrep; filling=filling)
+    terms = hubbard_terms(lattice; hop1=hop1, hop2=hop2, onc=onc, num=num, t=t, t2=t2, th=th, th2=th2, U=U, mu=mu)
+    I = ProductSector{Tuple{FermionParity, SU2Irrep, U1Irrep}}
+    P, Q = filling
+    pspace = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1//2,Q-P) => 1)
+    return FiniteMPOHamiltonian(fill(pspace, sum(length,lattice.indices)), terms...)
+end
+
+"""
+    hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice::CustomLattice; kwargs...)
+    fℤ₂ × SU(2) Hubbard model
+        default parameters: t=0.0, t2=0.0, th=0.0, th2=0.0, U=0.0, se=0.0, mu=0.0
+"""
+function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep},
+                        lattice::CustomLattice; kwargs...)
+    hop1 = cdagc(elt, SU2Irrep)
+    hop2 = ccdag(elt, SU2Irrep)
+    onc = onsiteCoulomb(elt, SU2Irrep)
+    num = number(elt, SU2Irrep)
+    sld = singlet_dagger(elt, SU2Irrep; side=:L)
+    sl = singlet(elt, SU2Irrep; side=:L)
+    terms = hubbard_terms(lattice; hop1=hop1, hop2=hop2, onc=onc, num=num, sld=sld, sl=sl, kwargs...)
+    pspace = Vect[(FermionParity ⊠ SU2Irrep)]((0, 0) => 2, (1, 1/2) => 1)
+    return FiniteMPOHamiltonian(fill(pspace, sum(length,lattice.indices)), terms...)
+end
+
+function hubbard_terms(lattice::CustomLattice; hop1, hop2, onc, num, sld=0, sl=0,
+                        t=0.0, t2=0.0, th=0.0, th2=0.0, U=0.0, se=0.0, mu=0.0)
     terms = []
     if length(lattice.lattice[1]) == 3
         tb = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
@@ -124,44 +143,41 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
                 push!(terms, tb2[i]=>t2*hop1+t2'*hop2)
             end
         end
+        if !iszero(se)
+            for i in eachindex(tb)
+                push!(terms, tb[i]=>se*sl + se'*sld)
+            end
+        end
     end
     ob = onesite_bonds(lattice, 1)
     for i in eachindex(ob)
         if !iszero(mu)
-            push!(terms, ob[i]=>-mu*num) 
+            push!(terms, ob[i]=>-mu*num)
         end
         push!(terms, ob[i]=>U*onc)
     end
-    if !isnothing(pinning)
-        for i in eachindex(pinning[1])
-            push!(terms, pinning[1][i] => pinning[2][i]*num)
-        end
-    end
-    I = ProductSector{Tuple{FermionParity, SU2Irrep, U1Irrep}}
-    P, Q = filling
-    pspace = Vect[I]((0,0,-P) => 1, (0,0,2*Q-P) => 1, (1,1//2,Q-P) => 1)
-    return FiniteMPOHamiltonian(fill(pspace, sum(length,lattice.indices)), terms...)
+    return terms
 end
 """
-    hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
+    hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
                     lattice=BilayerSquare(2, 2; norbit=2); kwargs...)
     fℤ₂ × SU(2) × U(1) two-band bilayer square lattice Hubbard model.
     For La3Ni2O7 thin films, kwargs include the parameters:
         tzz10 = -0.126, tzz20 = -0.016, txx10 = -0.466, txx20 = 0.062,
         tzz1z = -0.439, tzz2z = 0.033, txx1z = 0.005, txx2z = 0.0,
         txz10 =  0.229, txz2z = -0.032, tzz40 = -0.014, txx40 = -0.064,
-        txz40 = 0.026, txx80 = -0.015, muz = 0.351, mux = 0.870, 
+        txz40 = 0.026, txx80 = -0.015, muz = 0.351, mux = 0.870,
         Uz = 3.51, Ux = 4.03, Up = 2.65, J = 0.56, Vz = 1.31, Vx = 1.04, Vxz = 1.13,
         J1 = -0.56*2, J2 = 0.56, UpJ2 = 2.65 - 0.56/2
     and the bulk La3Ni2O7  parameters are as follow:
-        tzz10 = -0.11, tzz20 = -0.017, txx10 = -0.483, txx20 = 0.069, 
+        tzz10 = -0.11, tzz20 = -0.017, txx10 = -0.483, txx20 = 0.069,
         tzz1z = -0.635, tzz2z = 0.0, txx1z = 0.0, txx2z = 0.0,
-        txz10 = 0.239, txz2z = -0.034, tzz40 = 0.0, txx40 = 0.0, 
-        txz40 = 0.0, txx80 = 0.0, muz = 0.409, mux = 0.776, 
-        Uz = 3.7, Ux = 3.7, Up = 2.5, J = 0.6, Vz = 0.0, Vx = 0.0, Vxz = 0.0, 
+        txz10 = 0.239, txz2z = -0.034, tzz40 = 0.0, txx40 = 0.0,
+        txz40 = 0.0, txx80 = 0.0, muz = 0.409, mux = 0.776,
+        Uz = 3.7, Ux = 3.7, Up = 2.5, J = 0.6, Vz = 0.0, Vx = 0.0, Vxz = 0.0,
         J1 = -0.6*2, J2 = 0.6, UpJ2 = 2.5 - 0.6/2
 """
-function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}, 
+function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep},
                         lattice=BilayerSquare(2, 2; norbit=2); filling=(3,4), kwargs...)
     hop = hopping(elt, SU2Irrep, U1Irrep; filling=filling)
     onc = onsiteCoulomb(elt, SU2Irrep, U1Irrep; filling=filling)
@@ -176,7 +192,7 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1I
     return FiniteMPOHamiltonian(fill(pspace, sum(length,lattice.indices)), terms...)
 end
 
-function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep}, 
+function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep},
                         lattice=BilayerSquare(2, 2; norbit=2); kwargs...)
     hop = hopping(elt, SU2Irrep)
     onc = onsiteCoulomb(elt, SU2Irrep)
@@ -184,14 +200,16 @@ function hubbard_bilayer_2band(elt::Type{<:Number}, ::Type{SU2Irrep},
     nbc = neiborCoulomb(elt, SU2Irrep)
     sf = heisenberg(elt, SU2Irrep)
     ph = pairhopping(elt, SU2Irrep)
-    terms = hubbard_bilayer_2band_terms(lattice; hop=hop, onc=onc, num=num, nbc=nbc, sf=sf, ph=ph, kwargs...)
+    sld = singlet_dagger(elt, SU2Irrep; side=:L)
+    sl = singlet(elt, SU2Irrep; side=:L)
+    terms = hubbard_bilayer_2band_terms(lattice; hop=hop, onc=onc, num=num, nbc=nbc, sf=sf, ph=ph, sld=sld, sl=sl, kwargs...)
     pspace = Vect[(FermionParity ⊠ SU2Irrep)]((0, 0) => 2, (1, 1/2) => 1)
     return FiniteMPOHamiltonian(fill(pspace, sum(length,lattice.indices)), terms...)
 end
 
-function hubbard_bilayer_2band_terms(lattice; hop, onc, num, nbc, sf, ph,
-                        tzz10=0.0, tzz20=0.0, txx10=0.0, txx20=0.0, tzz1z=0.0, tzz2z=0.0, txx1z=0.0, txx2z=0.0, txz10=0.0, txz2z=0.0, tzz40=0.0,
-                        txx40=0.0, txz40=0.0, txx80=0.0, muz=0.0, mux=0.0, Uz=0.0, Ux=0.0, Up=0.0, J=0.0, Vz=0.0, Vx=0.0, Vxz=0.0, J1=0.0, J2=0.0, UpJ2=0.0)
+function hubbard_bilayer_2band_terms(lattice; hop, onc, num, nbc, sf, ph, sld=0, sl=0,
+                        tzz10=0.0, tzz20=0.0, txx10=0.0, txx20=0.0, tzz1z=0.0, tzz2z=0.0, txx1z=0.0, txx2z=0.0, txz10=0.0, txz2z=0.0, tzz40=0.0, txx40=0.0, txz40=0.0, txx80=0.0,
+                        muz=0.0, mux=0.0, Uz=0.0, Ux=0.0, Up=0.0, J=0.0, Vz=0.0, Vx=0.0, Vxz=0.0, J1=0.0, J2=0.0, UpJ2=0.0, spmz=0.0, spmx=0.0)
     terms = []
     if !iszero(tzz10)
         zz10 = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>1))
@@ -204,7 +222,7 @@ function hubbard_bilayer_2band_terms(lattice; hop, onc, num, nbc, sf, ph,
         for i in eachindex(zz20)
             push!(terms, zz20[i]=>tzz20*hop)
         end
-        
+
     end
     if !iszero(txx10)
         xx10 = twosite_bonds(lattice, 2, 2; intralayer=true, neighbors=Neighbors(1=>1))
@@ -215,7 +233,7 @@ function hubbard_bilayer_2band_terms(lattice; hop, onc, num, nbc, sf, ph,
     if !iszero(txx20)
         xx20 = twosite_bonds(lattice, 2, 2; intralayer=true, neighbors=Neighbors(2=>sqrt(2)))
         for i in eachindex(xx20)
-            push!(terms, xx20[i]=>txx20*hop) 
+            push!(terms, xx20[i]=>txx20*hop)
         end
     end
     if !iszero(tzz1z)
@@ -265,19 +283,19 @@ function hubbard_bilayer_2band_terms(lattice; hop, onc, num, nbc, sf, ph,
                 push!(terms, xz2z[i]=>-txz2z*hop)
             else
                 throw(ArgumentError("Invalid n2 xz bond"))
-            end 
+            end
         end
     end
     if !iszero(tzz40)
         zz40 = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(4=>2.0))
         for i in eachindex(zz40)
-            push!(terms, zz40[i]=>tzz40*hop) 
+            push!(terms, zz40[i]=>tzz40*hop)
         end
     end
     if !iszero(txx40)
         xx40 = twosite_bonds(lattice, 2, 2; intralayer=true, neighbors=Neighbors(4=>2.0))
         for i in eachindex(xx40)
-            push!(terms, xx40[i]=>txx40*hop) 
+            push!(terms, xx40[i]=>txx40*hop)
         end
     end
     if !iszero(txz40)
@@ -290,18 +308,18 @@ function hubbard_bilayer_2band_terms(lattice; hop, onc, num, nbc, sf, ph,
                 push!(terms, xz40[i]=>-txz40*hop)
             else
                 throw(ArgumentError("Invalid n4 xz bond"))
-            end 
+            end
         end
     end
     if !iszero(txx80)
         xx80 = twosite_bonds(lattice, 2, 2; intralayer=true, neighbors=Neighbors(8=>3.0))
         for i in eachindex(xx80)
-            push!(terms, xx80[i]=>txx80*hop) 
+            push!(terms, xx80[i]=>txx80*hop)
         end
     end
     a = onesite_bonds(lattice, 1)
     for i in eachindex(a)
-        push!(terms, a[i]=>muz*num) 
+        push!(terms, a[i]=>muz*num)
         if !iszero(Uz)
             push!(terms, a[i]=>Uz*onc)
         end
@@ -341,6 +359,18 @@ function hubbard_bilayer_2band_terms(lattice; hop, onc, num, nbc, sf, ph,
         zx1z = [twosite_bonds(lattice, 1, 2; intralayer=false, neighbors=Neighbors(1=>1)); twosite_bonds(lattice, 2, 1; intralayer=false, neighbors=Neighbors(1=>1))]
         for i in eachindex(zx1z)
             push!(terms, zx1z[i]=>Vxz*nbc)
+        end
+    end
+    if !iszero(spmz)
+        zz1z = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>1))
+        for i in eachindex(zz1z)
+            push!(terms, zz1z[i]=>spmz*sl + spmz'*sld)
+        end
+    end
+    if !iszero(spmx)
+        xx1z = twosite_bonds(lattice, 2, 2; intralayer=false, neighbors=Neighbors(1=>1))
+        for i in eachindex(xx1z)
+            push!(terms, xx1z[i]=>spmx*sl + spmx'*sld)
         end
     end
     return terms
