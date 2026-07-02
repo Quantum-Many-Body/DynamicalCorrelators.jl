@@ -83,14 +83,25 @@ at a single momentum point `k`.
 - `k`: momentum vector.
 - `regroup`: array of index groups for orbital regrouping (default: all sites in one group).
 """
-function fourier_kt(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, k::AbstractArray{<:Number}; regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),])
-    dest = zeros(ComplexF64, length(regroup), length(regroup), size(gf_rt, 3))
-    for x in eachindex(regroup), y in eachindex(regroup), l in axes(gf_rt, 3)
-        for j in eachindex(regroup[x]), i in eachindex(regroup[y])
-            dest[x, y, l] += gf_rt[regroup[x][j], regroup[y][i], l]*cis(-dot(k, rs[regroup[y][i]]-rs[regroup[x][j]]))
+function fourier_kt(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, k::AbstractArray{<:Number}; regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),], center)
+    if isnothing(center)
+        dest = zeros(ComplexF64, length(regroup), length(regroup), size(gf_rt, 3))
+        for x in eachindex(regroup), y in eachindex(regroup), l in axes(gf_rt, 3)
+            for j in eachindex(regroup[x]), i in eachindex(regroup[y])
+                dest[x, y, l] += gf_rt[regroup[x][j], regroup[y][i], l]*cis(-dot(k, rs[regroup[y][i]]-rs[regroup[x][j]]))
+            end
         end
+        return dest
+    else
+        @assert size(gf_rt, 2) == length(center) "Invalid length of center and size(gf_rt, 2)!"
+        dest = zeros(ComplexF64, length(regroup), length(center), size(gf_rt, 3))
+        for x in eachindex(regroup), y in eachindex(center), l in axes(gf_rt, 3)
+            for j in eachindex(regroup[x])
+                dest[x, y, l] += gf_rt[regroup[x][j], y, l]*cis(-dot(k, rs[center[y]]-rs[regroup[x][j]]))
+            end
+        end
+        return dest
     end
-    return dest
 end
 
 """
@@ -128,12 +139,12 @@ momenta `ks` and frequencies `ws`. Multi-threaded over frequencies.
 Matrix of shape `(length(ws), length(ks))` containing `G(k, ω)/(4π²)`.
 """
 function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts::AbstractRange, ks::AbstractArray{<:AbstractArray}, ws::AbstractArray{<:Number};
-                    mthreads::Integer=Threads.nthreads(), broadentype=(0.05, "G"), regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),])
+                    mthreads::Integer=Threads.nthreads(), broadentype=(0.05, "G"), regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),], center::Union{Nothing,AbstractArray{<:Integer}}=nothing)
     @assert size(gf_rt, 1) == length(rs) "Dimension mismatch: the length of site positions 'rs' must equal to the size of green function matrix 'gf_rt'!"
     dampings = [damping(t, broadentype) for t in ts]
     gf_kw = Matrix(undef, length(ws), length(ks))
     for k in eachindex(ks)
-        gf_kt = fourier_kt(gf_rt, rs, ks[k]; regroup=regroup)
+        gf_kt = fourier_kt(gf_rt, rs, ks[k]; regroup=regroup, center=center)
         # Multi-threaded frequency loop using atomic counter
         idx = Threads.Atomic{Int}(1)
         Threads.@sync for _ in 1:mthreads
