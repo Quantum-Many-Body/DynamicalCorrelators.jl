@@ -93,7 +93,7 @@ end
 """
     hubbard(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice::CustomLattice; kwargs...)
     fℤ₂ × SU(2) Hubbard model
-        default parameters: t=0.0, t2=0.0, th=0.0, th2=0.0, U=0.0, se=0.0, mu=0.0
+        default parameters: t=0.0, t2=0.0, th=0.0, th2=0.0, U=0.0, se=0.0, dw=0.0, mu=0.0
 """
 function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep},
                         lattice::CustomLattice; kwargs...)
@@ -109,7 +109,7 @@ function hubbard(elt::Type{<:Number}, ::Type{SU2Irrep},
 end
 
 function hubbard_terms(lattice::CustomLattice; hop1, hop2, onc, num, sld=0, sl=0,
-                        t=0.0, t2=0.0, th=0.0, th2=0.0, U=0.0, se=0.0, mu=0.0)
+                        t=0.0, t2=0.0, th=0.0, th2=0.0, U=0.0, se=0.0, dw=0.0, mu=0.0)
     terms = []
     if length(lattice.lattice[1]) == 3
         tb = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
@@ -146,6 +146,18 @@ function hubbard_terms(lattice::CustomLattice; hop1, hop2, onc, num, sld=0, sl=0
         if !iszero(se)
             for i in eachindex(tb)
                 push!(terms, tb[i]=>se*sl + se'*sld)
+            end
+        end
+        if !iszero(dw)
+            for i in eachindex(tb)
+                a, b = find_position(lattice.indices, tb[i][1]), find_position(lattice.indices, tb[i][2])
+                if (lattice.lattice[a] - lattice.lattice[b])[2] ≈ 0
+                    push!(terms, tb[i]=>dw*sl + dw'*sld)
+                elseif (lattice.lattice[a] - lattice.lattice[b])[1] ≈ 0
+                    push!(terms, tb[i]=>-dw*sl - dw'*sld)
+                else
+                    throw(ArgumentError("Invalid n1 bond"))
+                end
             end
         end
     end

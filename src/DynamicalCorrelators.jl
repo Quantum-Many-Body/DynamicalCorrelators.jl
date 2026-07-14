@@ -77,7 +77,7 @@ export dmrg2!, dmrg2, dmrg2_sweep!
 export dmrg1_cbe!, dmrg1_cbe
 export TDVP1_CBE
 export idmrg2
-export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates, GrandPotential
+export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates, GrandPotential, OrderParameters
 
 export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorrelation, OneSiteCorrelation, site_indices, correlator
 export evolve_mps, dcorrelator, sweep_dot

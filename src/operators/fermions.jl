@@ -16,7 +16,7 @@ function fZ(operator::AbstractTensorMap)
         vspace = codomain(operator)[1]
         pspace = domain(operator)[1]
     end
-    return TensorMap(BraidingTensor(pspace, vspace))
+    return TensorMap(BraidingTensor{scalartype(operator)}(pspace, vspace))
 end
 
 #===========================================================================================
