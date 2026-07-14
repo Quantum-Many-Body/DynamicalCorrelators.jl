@@ -215,6 +215,7 @@ end
 """
 function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap, i::NTuple{1, Integer}, j::NTuple{1, Integer})
     i, j = i[1], j[1]
+    T = promote_type(scalartype(state), scalartype(O₁), scalartype(O₂))
     if (length(domain(O₁)) == 2)&&(length(codomain(O₂)) == 2)
         if i == j 
             O = contract_onesite(O₁, O₂)
@@ -229,7 +230,7 @@ function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::Abs
             end
             G = @plansor Vₗ[2 3; 5] * state.AR[j][5 6; 7] * O₂[3 4; 6] * conj(state.AR[j][2 4; 7])
         else
-            iso₂ = isomorphism(flip(codomain(O₂, 1)), codomain(O₂, 1))
+            iso₂ = isomorphism(T, flip(codomain(O₂, 1)), codomain(O₂, 1))
             @plansor Vₗ[-1 -2; -3] := state.AC[j][3 4; -3] * O₂[2 1; 4] * iso₂[6; 2] * τ[6 5; 1 -2] * conj(state.AC[j][3 5; -1])
             ctr = j + 1
             if i > ctr
@@ -237,7 +238,7 @@ function correlator(state::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::Abs
                 midsites = ctr:(i - 1)
                 Vₗ = Vₗ * TransferMatrix(state.AR[midsites], fill(Z, length(midsites)), state.AR[midsites])
             end
-            iso₁ = isomorphism(codomain(O₂, 1), flip(codomain(O₂, 1)))
+            iso₁ = isomorphism(T, codomain(O₂, 1), flip(codomain(O₂, 1)))
             G = @plansor Vₗ[1 2; 3] * state.AR[i][3 4; 8] * τ[2 5; 4 6] * iso₁[9; 6] * O₁[7; 5 9] * conj(state.AR[i][1 7; 8])
         end
     elseif (length(domain(O₁)) == 1)&&(length(codomain(O₂)) == 1)

@@ -9,6 +9,50 @@ as a pure MPS in a doubled Hilbert space. In this package that state has type
 \exp(-\beta H / 2)|\mathbb{I}\rangle .
 ```
 
+Here ``|\mathbb{I}\rangle`` is the vectorized infinite-temperature density
+matrix. If ``\rho : \mathcal{H}\to\mathcal{H}`` is regarded as an operator, the
+purified state ``|\rho\rangle`` lives in
+``\mathcal{H}\otimes\mathcal{H}^*``. The physical Hilbert-space leg is evolved
+by ``H`` while the auxiliary leg stores the second index of the density matrix.
+
+For a fermionic Green's function, the finite-temperature trace can be written
+symmetrically as
+
+```math
+G_{ij}(\beta,t) =
+\frac{
+\mathrm{Tr}\left(
+e^{-\beta H/2} e^{iHt} c_i e^{-iHt} c_j^\dagger e^{-\beta H/2}
+\right)}
+{\mathrm{Tr}\left(e^{-\beta H}\right)} .
+```
+
+After vectorization this becomes an overlap between two pure states,
+
+```math
+G_{ij}(\beta,t) =
+\frac{
+\left\langle
+e^{-\beta H/2} e^{iHt} c_i
+\middle|
+e^{-iHt} c_j^\dagger e^{-\beta H/2}
+\right\rangle}
+{Z_\beta},
+\qquad
+Z_\beta = \langle \rho_\beta | \rho_\beta\rangle .
+```
+
+This is the formula implemented by the finite-temperature `dcorrelator`
+methods. `identityMPS(H)` constructs ``|\mathbb{I}\rangle``. The first
+`evolve_mps` call prepares ``|\rho_\beta\rangle`` from that state. The second
+`evolve_mps` call saves the real-time trajectory
+``|\rho_\beta(t)\rangle = e^{-iHt}|\rho_\beta\rangle`` in a JLD2 file. During
+`dcorrelator`, `chargedMPS(op, rho, j)` builds the source state
+``c_j^\dagger|\rho_\beta\rangle`` or its analogue for `op`, that source state
+is evolved in real time, and `sweep_dot(rho_t, op, ket)` evaluates all sink
+sites ``i`` at the current time slice. The normalization is computed as
+`Z = dot(rho, rho)`.
+
 ## Prepare the Purification
 
 Start from the infinite-temperature identity MPS:
@@ -74,7 +118,9 @@ gf_site = dcorrelator(rho_path, H, sp, div(N, 2);
 
 This method evolves only the charged source ket in memory and loads the
 corresponding `rho(t)` from `rho_path` for each time slice. It returns an array
-of size `(length(H), length(times))`.
+of size `(length(H), length(times))`. The returned values include the package's
+real-time Green-function prefactor `-im`, so the stored overlap is converted to
+the same convention used by the zero-temperature `dcorrelator` interface.
 
 ## Multi-Source Finite-T Correlators
 
@@ -101,5 +147,8 @@ one loaded thermal state at a time.
   normalization.
 - The finite-temperature `dcorrelator` methods take `rho_path` as their first
   argument and expect keys of the form `"t=$(times[k])"`.
+- The `rho_path` trajectory must contain every time requested by `times`,
+  because `dcorrelator` loads the saved ``|\rho_\beta(t)\rangle`` slice by
+  slice instead of evolving it again.
 - CBE-TDVP1 is useful here for the same reason as at zero temperature: it lets
   the one-site time-evolution path expand bonds in a controlled way.
