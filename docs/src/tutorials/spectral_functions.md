@@ -28,7 +28,7 @@ H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
     t = 1.0, U = 8.0, filling = filling)
 
 ψ0 = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling)
-gs, envs, ϵ = dmrg2(ψ0, H, [128, 256, 512]; alg = myDMRG2())
+gs, envs, ϵ = dmrg2(ψ0, H, [128, 256, 512])
 
 times = 0:0.05:20
 tdvp_cbe = myTDVP1_CBE(D = 512)

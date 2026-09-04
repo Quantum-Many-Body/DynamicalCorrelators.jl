@@ -22,7 +22,7 @@ function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=co
     start_time, record_start = now(), now()
     verbose && _progress_start(1, length(ts), "t = $(ts[1])")
     flush(stdout)
-    envs = environments(rho_mps, H)
+    envs = environments(rho_mps, H, rho_mps)
     jldopen(filename, "w") do f
         f["ts"] = ts
         if 1 in save_id
@@ -70,7 +70,7 @@ function evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mp
     verbose && _progress_start(1, length(ts), "t = $(ts[1])")
     flush(stdout)
     H0 = @timeit timer "build Hamiltonian" H(mus[1])
-    envs = environments(rho_mps, H0)
+    envs = environments(rho_mps, H0, rho_mps)
     jldopen(filename, "w") do f
         f["ts"] = ts
         if 1 in save_id
@@ -136,8 +136,11 @@ end
 
 function _timed_timestep(timer::TimerOutput, ψ, H, t, dt, alg, envs)
     @timeit timer "time loop / timestep" begin
-        if alg isa TDVP1_CBE
-            return timestep(ψ, H, t, dt, alg, envs; timer)
+        # `timestep` copies the state (and promotes real states to complex on the
+        # first call); once the state is complex, evolve in place with
+        # `timestep!` to avoid a full-MPS copy per step
+        if scalartype(ψ) <: Complex
+            return timestep!(ψ, H, t, dt, alg, envs)
         else
             return timestep(ψ, H, t, dt, alg, envs)
         end
@@ -377,7 +380,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     verbose && _progress_start(1, length(times), "time evolves 0.0 of ket$(id)")
     verbose && flush(stdout)
 
-    envs = environments(ket, H)
+    envs = environments(ket, H, ket)
     for k in 2:record_last
         alg = k > n ? tdvp1 : tdvp2
         ket, envs = _timed_timestep(timer, ket, H, 0, times[k] - times[k - 1], alg, envs)
@@ -508,7 +511,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         end
         verbose && _progress_start(1, length(times), "time evolves 0.0 of ket$(id)")
         flush(stdout)
-        envs = environments(ket, H)
+        envs = environments(ket, H, ket)
         for k in 2:record_last
             alg = k > n ? tdvp1 : tdvp2
             ket, envs = _timed_timestep(timer, ket, H, 0, times[k]-times[k-1], alg, envs)
@@ -594,7 +597,7 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
     rho = @timeit timer "load rho" _dcorrelator_load_rho(rho_path, times[1])
     Z = dot(rho, rho)
     ket = @timeit timer "setup / chargedMPS" chargedMPS(op, rho, idx)
-    ket_env = environments(ket, H)
+    ket_env = environments(ket, H, ket)
     wall_start = now()
 
     jldopen(filename, "w") do f
@@ -680,7 +683,7 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
         rho = @timeit timer "load rho" _dcorrelator_load_rho(rho_path, times[1])
         Z = dot(rho, rho)
         ket = @timeit timer "setup / chargedMPS" chargedMPS(op, rho, idx)
-        ket_env = environments(ket, H)
+        ket_env = environments(ket, H, ket)
         wall_start = now()
 
         jldopen(filename, "w") do f

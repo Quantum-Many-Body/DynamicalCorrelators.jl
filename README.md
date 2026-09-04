@@ -12,6 +12,112 @@ Please type `]` in the REPL to use the package mode, then type this command:
 add DynamicalCorrelators
 ```
 
+# DynamicalCorrelators.jl v0.14.0 Release Notes
+
+## Highlights
+
+v0.14.0 is a **migration and performance release** tracking the MPSKit.jl main
+branch (with TensorKit v0.17.1). MPSKit main now natively supports Controlled
+Bond Expansion through the `alg_expand` keyword of `DMRG` and `TDVP`
+(`OptimalExpand`, `SketchedExpand`, `RandExpand`), so the hand-written CBE
+overrides in this package have been removed in favor of the upstream
+implementations. On top of them, v0.14.0 adds schedule-driven DMRG drivers
+with explicit per-sweep bond-dimension control, thread-parallel sparse
+Jordan-MPO effective Hamiltonians for finite systems, and adaptive local
+eigensolvers by default.
+
+## Migration to MPSKit main
+
+- MPSKit is tracked on the `main` branch (post-0.13.13, with the bond-expansion
+  and prepared-derivative rework); TensorKit is pinned to `0.17.1` and
+  BlockTensorKit to `0.3.16`. TimerOutputs accepts both `0.5.29` and `1.x`
+  (QuantumLattices needs a compat that allows TimerOutputs `1.x`).
+- Removed the custom rewrites that upstream now covers: `dmrg1_cbe!` /
+  `dmrg1_cbe`, the `TDVP1_CBE` algorithm type, `idmrg2`, and the old
+  multithreaded Hamiltonian overrides.
+- `myDMRG1_CBE` and `myTDVP1_CBE` are now thin constructors around
+  `DMRG(; alg_expand = OptimalExpand(...), trunc = ...)` and
+  `TDVP(; alg_expand = ..., trunc = ...)`.
+- Follow upstream renames: `SvdCut(; trscheme)` -> `SvdCut(; trunc)`,
+  `DMRG2(; trscheme)` -> `DMRG2(; trunc)`, and `environments(ψ, H)` ->
+  `environments(ψ, H, ψ)`.
+
+## Schedule-driven DMRG drivers
+
+- New `dmrg1!`/`dmrg1`, `dmrg2!`/`dmrg2`, and hybrid `dmrg_mix!`/`dmrg_mix`
+  drivers run an explicit `truncdims` schedule: `truncdims[i]` is exactly the
+  kept bond dimension after sweep `i`, and the number of sweeps is exactly
+  `length(truncdims)`.
+- They are built on MPSKit's per-update `local_update!` (the same building
+  block `find_groundstate` uses), so one-site sweeps support
+  `alg_expand = OptimalExpand`/`SketchedExpand`/`RandExpand`, an instance, or a
+  factory `D -> alg`, with `delta` controlling the per-update expansion budget.
+- `dmrg_mix` combines a robust two-site warmup at small D with cheap one-site
+  CBE sweeps at large D, in a single run with continuous sweep numbering and
+  checkpointing:
+
+```julia
+ψ, envs, E0 = dmrg_mix(ψ0, H, [64, 128, 256], [512, 1024, 1024]; delta = 0.3)
+# or equivalently with a switch point
+ψ, envs, E0 = dmrg_mix(ψ0, H, [64, 128, 256, 512, 1024, 1024]; switch_D = 256)
+```
+
+- Per-move logging (`verbose = 2`), per-sweep summaries (`verbose = 1`),
+  `TimerOutput` breakdowns, and JLD2 checkpoints via `filename`/`save_iters`
+  are shared by all drivers.
+
+## Threaded Jordan-MPO effective Hamiltonians
+
+- For finite `MPOHamiltonian{<:JordanMPOTensor}` problems, the sparse
+  continuing `A`/`AA` blocks of the one- and two-site effective Hamiltonians
+  are evaluated as independent channels across Julia threads (per-task local
+  accumulation, no BLAS oversubscription).
+- This applies transparently to `dmrg1`/`dmrg2`/`dmrg_mix`, `find_groundstate`,
+  and TDVP paths whenever `Threads.nthreads() > 1`, and falls back to MPSKit's
+  prepared operators for single-threaded runs or Hamiltonians with at most one
+  continuing channel.
+- Toggle with `set_threaded_hamiltonian!(false)`.
+- On the 4x6 Hubbard strip benchmark, the threaded drivers recover and exceed
+  the previous custom implementation's performance (e.g. CBE-DMRG1 schedules
+  run about 1.4x faster with `OptimalExpand` and about 2.8x faster with
+  `SketchedExpand` than the default MPSKit path).
+
+## Adaptive local eigensolvers
+
+- DMRG local eigensolves now default to MPSKit's `AdaptiveKrylov`, which
+  retunes the tolerance, Krylov dimension, and restart count per local update
+  from the measured decay rate, Galerkin errors, and truncation errors.
+- Pin the previous fixed behavior with `adaptive = false` (plus `krylovdim`),
+  or pass `alg_eigsolve` explicitly:
+
+```julia
+alg = myDMRG1_CBE(; D = 1024)                               # adaptive (default)
+alg = myDMRG2(; trunc = truncrank(1024), adaptive = false)  # fixed one-step Lanczos
+```
+
+- TDVP time integrators intentionally remain fixed `Lanczos`: the Krylov
+  dimension needed by `exponentiate` is set by `dt` times the spectral width
+  and does not drift during the evolution.
+
+## Time-evolution memory usage
+
+- `dcorrelator`/`evolve_mps` now evolve in place via `timestep!` once the state
+  is complex, instead of copying the whole MPS at every step. At large bond
+  dimensions this removes a full-MPS allocation per time step.
+
+## API Changes
+
+- Removed exports: `TDVP1_CBE`, `dmrg1_cbe!`/`dmrg1_cbe`, `idmrg2`,
+  `dmrg2_sweep!`, `myDMRG1CBE_eigsolve`.
+- New exports: `dmrg1`/`dmrg1!`, `dmrg2`/`dmrg2!`, `dmrg_mix`/`dmrg_mix!`,
+  `set_threaded_hamiltonian!`.
+- `myTDVP1_CBE` keeps its name but now returns MPSKit's `TDVP` configured with
+  `alg_expand = OptimalExpand(...)`; its `cbe_tol`/`project_error` keywords
+  were removed (the upstream expansion is parameterized by `trunc` and
+  `delta`).
+- `myDMRG`/`myDMRG2`/`myDMRG1_CBE` accept the `adaptive` and `alg_eigsolve`
+  keywords.
+
 # DynamicalCorrelators.jl v0.13.0 Release Notes
 
 ## Highlights

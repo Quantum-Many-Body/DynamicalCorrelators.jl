@@ -69,7 +69,7 @@ H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
     t = 1.0, U = 8.0, filling = filling)
 
 psi0 = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling)
-gs, envs, eps = dmrg2(psi0, H, [128, 256, 512]; alg = myDMRG2())
+gs, envs, eps = dmrg2(psi0, H, [128, 256, 512])
 
 times = 0:0.05:20
 tdvp_cbe = myTDVP1_CBE(D = 512)
@@ -298,7 +298,7 @@ The first `n` steps use two-site TDVP and later steps use one-site TDVP. In
 long-time calculations, CBE-TDVP1 is often the preferred path:
 
 ```julia
-tdvp_cbe = myTDVP1_CBE(D = 512, delta = 0.1, cbe_tol = 1e-10)
+tdvp_cbe = myTDVP1_CBE(D = 512, delta = 0.1)
 
 dcorrelator(gs, H, op, indices;
     times,

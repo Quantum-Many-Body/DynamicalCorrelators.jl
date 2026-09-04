@@ -19,13 +19,12 @@ The package is built around three layers:
 DynamicalCorrelators.jl provides convenience wrappers for the common pieces of
 finite-MPS dynamical-correlation workflows:
 
-- `dmrg1_cbe!` implements one-site DMRG with Controlled Bond Expansion (CBE),
-  including the direct CBE projector.
-- `TDVP1_CBE` and `myTDVP1_CBE` add CBE-assisted one-site TDVP. This lets
-  single-site TDVP grow bonds through CBE while keeping the cheaper one-site
-  time-evolution sweep.
-- finite Jordan-MPO `AC_hamiltonian` and `AC2_hamiltonian` are specialized with
-  sparse-channel multithreading for the dominant `A` and `AA` channel work.
+- `myDMRG1_CBE` configures one-site DMRG with Controlled Bond Expansion (CBE)
+  through MPSKit's `DMRG(; alg_expand = OptimalExpand(...))`.
+- `myTDVP1_CBE` configures CBE-assisted one-site TDVP through MPSKit's
+  `TDVP(; alg_expand = OptimalExpand(...), trunc = ...)`. This lets single-site
+  TDVP grow bonds through CBE while keeping the cheaper one-site time-evolution
+  sweep.
 - `dcorrelator` supports single-source and multi-source checkpointed
   real-time correlator calculations.
 - finite-temperature correlators read a saved `rho(t)` trajectory one slice at
@@ -53,7 +52,7 @@ H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
     t = 1.0, U = 8.0, filling = filling)
 
 ψ0 = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling)
-gs, envs, ϵ = dmrg2(ψ0, H, [128, 256, 512]; alg = myDMRG2())
+gs, envs, E = dmrg2(ψ0, H, [128, 256, 512])
 
 times = 0:0.05:10
 sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
@@ -79,8 +78,8 @@ gf_site = dcorrelator(gs, H, sp, div(N, 2);
 
 - [Getting Started](tutorials/getting_started.md): the package layout and a
   compact end-to-end workflow.
-- [Ground State with DMRG](tutorials/dmrg.md): `dmrg2`, `dmrg1_cbe!`, and the
-  default algorithm constructors.
+- [Ground State with DMRG](tutorials/dmrg.md): `dmrg1`/`dmrg2` with explicit
+  `truncdims` schedules and the default algorithm constructors.
 - [Dynamical Correlations](tutorials/dynamical_correlations.md):
   zero-temperature real-time correlators and CBE-TDVP1.
 - [Spectral Functions](tutorials/spectral_functions.md): real-space/time to
@@ -101,8 +100,8 @@ and utility functions. Start with:
 ## Compatibility Note
 
 Before v1.0, minor versions may change APIs when the internal workflow improves.
-Use the exported `my*` constructors (`myDMRG2`, `myTDVP`, `myTDVP1_CBE`,
-`myTDVP2`) for the package's default algorithm configurations.
+Use the exported `my*` constructors (`myDMRG2`, `myDMRG1_CBE`, `myTDVP`,
+`myTDVP1_CBE`, `myTDVP2`) for the package's default algorithm configurations.
 
 ## Acknowledgments
 

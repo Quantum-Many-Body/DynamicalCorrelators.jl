@@ -1,50 +1,50 @@
 """
-    myDMRG(; tol=1e-6, maxiter=100, krylovdim=16)
+    myDMRG(; tol=1e-6, maxiter=100, krylovdim=16, adaptive=true, alg_eigsolve=nothing)
 
 Construct the default one-site DMRG algorithm used by this package.
 
-The eigensolver is a one-step Lanczos solver with modified Gram-Schmidt
-orthogonalization. Use `tol`, `maxiter`, and `krylovdim` to tune the outer DMRG
-stopping tolerance, sweep count, and local Krylov dimension.
+The local eigensolver is adaptive by default (`AdaptiveKrylov`: tolerance,
+Krylov dimension and restart count are retuned per local update from the
+measured convergence behavior). Set `adaptive = false` to pin a one-step
+`Lanczos` with the given `krylovdim`, or pass `alg_eigsolve` explicitly for
+full manual control. `tol` and `maxiter` tune the outer DMRG stopping criterion
+and sweep count.
 """
-myDMRG(;tol=1e-6, maxiter=100, krylovdim=16) = DMRG(; tol=tol, maxiter=maxiter, verbosity=3,
-            alg_eigsolve= Lanczos(;
-            krylovdim = krylovdim,
-            maxiter = 1,
-            tol = 1e-8,
-            orth = ModifiedGramSchmidt(),
-            eager = true,
-            verbosity = 0))
+myDMRG(; tol=1e-6, maxiter=100, krylovdim=16, adaptive::Bool=true, alg_eigsolve=nothing) =
+    DMRG(; tol=tol, maxiter=maxiter, verbosity=3,
+            alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim))
 
 """
-    myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16)
+    myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16, adaptive=true, alg_eigsolve=nothing)
 
 Construct the default two-site DMRG algorithm.
 
 `trunc` is passed as the SVD truncation scheme, so callers can use either a
 fixed-rank rule such as `truncrank(D)` or a tolerance-based rule. The default
-keeps at most 4096 states.
+keeps at most 4096 states. The local eigensolver is adaptive by default
+(`AdaptiveKrylov`); set `adaptive = false` to pin a one-step `Lanczos` with the
+given `krylovdim`, or pass `alg_eigsolve` explicitly for full manual control.
 """
-myDMRG2(;tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16) = DMRG2(; tol=tol, maxiter=maxiter, verbosity=3,
-            alg_eigsolve= Lanczos(;
-                krylovdim = krylovdim,
-                maxiter = 1,
-                tol = 1e-8,
-                orth = ModifiedGramSchmidt(),
-                eager = true,
-                verbosity = 0),
+myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16, adaptive::Bool=true, alg_eigsolve=nothing) =
+    DMRG2(; tol=tol, maxiter=maxiter, verbosity=3,
+            alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim),
             alg_svd= LAPACK_DivideAndConquer(),
-            trscheme=trunc)
+            trunc=trunc)
 
 """
-    myTDVP(; krylovdim=32)
+    myTDVP(; krylovdim=24)
 
 Construct the default single-site TDVP algorithm for finite-MPS time evolution.
 
 This is the fixed-bond-dimension TDVP path from MPSKit. `krylovdim` controls the
 dimension of the Lanczos Krylov subspace used by the local time integrator.
+Unlike the DMRG eigensolvers, the time integrator is intentionally *not*
+adaptive: MPSKit's `integrate` dispatches on a concrete `Lanczos`/`Arnoldi`,
+and the required Krylov dimension (roughly `dt` x spectral width) barely changes
+during the evolution. Watch for "integrator failed to converge" warnings when
+taking large `dt`.
 """
-myTDVP(; krylovdim = 32) = TDVP(;
+myTDVP(; krylovdim = 24) = TDVP(;
             integrator = Lanczos(;
                 krylovdim = krylovdim,
                 maxiter = 1,
@@ -56,17 +56,19 @@ myTDVP(; krylovdim = 32) = TDVP(;
             gaugemaxiter = 200)
 
 """
-    myTDVP1_CBE(; D=4096, cbe_tol=1e-10, delta=0.1,
-                project_error=false, krylovdim=32)
+    myTDVP1_CBE(; D=4096, delta=0.1, krylovdim=24)
 
-Construct the default CBE + single-site TDVP algorithm.
+Construct the default single-site TDVP algorithm with Controlled Bond Expansion.
 
-`D` is the target bond dimension after each CBE-assisted one-site update.
-`delta` controls the temporary CBE overexpansion factor, and `cbe_tol` is the
-absolute tolerance used in the CBE selection SVD. Set `project_error=true` to
-measure the direct CBE projection error during expansion.
+This is a thin wrapper around MPSKit's `TDVP` with
+`alg_expand = OptimalExpand(...)`: ahead of each one-site evolution the moving
+bond is enlarged by up to `ceil(Int, delta*D)` directions selected from the
+projected two-site update, and the truncating gauge (`trunc = truncrank(D)`)
+cuts the enlarged bond back to `D` when the center moves. Note that the `trunc`
+of `OptimalExpand` counts the directions *added* per bond, so the former
+overexpansion factor `delta` enters through `ceil(Int, delta*D)`.
 """
-myTDVP1_CBE(; D=4096, cbe_tol=1e-10, delta=0.1, project_error=false, krylovdim=32) = TDVP1_CBE(;
+myTDVP1_CBE(; D=4096, delta=0.1, krylovdim=24) = TDVP(;
             integrator = Lanczos(;
                 krylovdim = krylovdim,
                 maxiter = 1,
@@ -74,11 +76,11 @@ myTDVP1_CBE(; D=4096, cbe_tol=1e-10, delta=0.1, project_error=false, krylovdim=3
                 orth = ModifiedGramSchmidt(),
                 eager = true,
                 verbosity = 0),
+            alg_expand = OptimalExpand(;
+                alg_svd = LAPACK_DivideAndConquer(),
+                trunc = truncrank(ceil(Int, delta*D))),
             alg_svd = LAPACK_DivideAndConquer(),
-            D = D,
-            cbe_tol = cbe_tol,
-            delta = delta,
-            project_error = project_error)
+            trunc = truncrank(D))
 
 """
     myTDVP2(; trunc=truncrank(4096), krylovdim=16)
@@ -100,18 +102,31 @@ myTDVP2(; trunc = truncrank(4096), krylovdim = 16) = TDVP2(;
             tolgauge =  1e-13,
             gaugemaxiter = 200,
             alg_svd = LAPACK_DivideAndConquer(),
-            trscheme=trunc)
+            trunc=trunc)
 
 """
-    myDMRG1CBE_eigsolve
+    myDMRG1_CBE(; tol=1e-6, maxiter=100, D=4096, delta=0.1, krylovdim=16, adaptive=true, alg_eigsolve=nothing)
 
-Default eigensolver for CBE + 1-site DMRG. Uses larger krylovdim than 2-site DMRG
-because the 1-site effective Hamiltonian has less variational freedom.
+Construct the default one-site DMRG algorithm with Controlled Bond Expansion.
+
+This is a thin wrapper around MPSKit's `DMRG` with
+`alg_expand = OptimalExpand(...)`: ahead of each one-site eigensolve the moving
+bond is enlarged by up to `ceil(Int, delta*D)` directions selected from the
+projected two-site update, and the truncating gauge (`trunc = truncrank(D)`)
+cuts the enlarged bond back to `D` when the center moves. Note that the `trunc`
+of `OptimalExpand` counts the directions *added* per bond, so the former
+overexpansion factor `delta` enters through `ceil(Int, delta*D)`. The local
+eigensolver is adaptive by default (`AdaptiveKrylov`); set `adaptive = false`
+to pin a one-step `Lanczos` with the given `krylovdim`, or pass `alg_eigsolve`
+explicitly for full manual control.
 """
-myDMRG1CBE_eigsolve = Lanczos(;
-            krylovdim = 16,
-            maxiter = 1,
-            tol = 1e-8,
-            orth = ModifiedGramSchmidt(),
-            eager = true,
-            verbosity = 0)
+myDMRG1_CBE(; tol=1e-6, maxiter=100, D=4096, delta=0.1, krylovdim=16, adaptive::Bool=true, alg_eigsolve=nothing) = DMRG(;
+            tol = tol,
+            maxiter = maxiter,
+            verbosity = 3,
+            alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim),
+            alg_expand = OptimalExpand(;
+                alg_svd = LAPACK_DivideAndConquer(),
+                trunc = truncrank(ceil(Int, delta*D))),
+            alg_svd = LAPACK_DivideAndConquer(),
+            trunc = truncrank(D))
