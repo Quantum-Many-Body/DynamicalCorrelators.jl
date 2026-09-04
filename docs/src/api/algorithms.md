@@ -1,24 +1,22 @@
 # Algorithms
 
 All core algorithms (DMRG, TDVP, IDMRG) are provided by
-[MPSKit.jl](https://github.com/QuantumKitHub/MPSKit.jl).
-The functions below are convenience wrappers that add progress logging,
-automatic JLD2 file saving, and multi-sweep truncation management.
+[MPSKit.jl](https://github.com/QuantumKitHub/MPSKit.jl), including Controlled
+Bond Expansion through the `alg_expand` keyword of `DMRG` and `TDVP`
+(`OptimalExpand`, `SketchedExpand`, `RandExpand`). The functions below are
+convenience constructors for the package's default algorithm configurations;
+drive them through MPSKit's `find_groundstate`, `timestep`/`timestep!`, and
+`time_evolve`.
 
-## DMRG
+## DMRG drivers with bond-dimension schedules
 
 ```@docs
+dmrg1!
+dmrg1
 dmrg2!
 dmrg2
-dmrg2_sweep!
-dmrg1_cbe!
-dmrg1_cbe
-```
-
-## Infinite DMRG
-
-```@docs
-idmrg2
+dmrg_mix!
+dmrg_mix
 ```
 
 ## Default Algorithm Configurations
@@ -26,10 +24,10 @@ idmrg2
 ```@docs
 myDMRG
 myDMRG2
+myDMRG1_CBE
 myTDVP
 myTDVP1_CBE
 myTDVP2
-TDVP1_CBE
 ```
 
 ## Cluster Perturbation Theory (CPT)

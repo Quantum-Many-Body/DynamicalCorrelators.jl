@@ -52,25 +52,22 @@ symmetry and filling conventions.
 
 ## Find a Ground State
 
-For a quick calculation, use the DMRG2 wrapper:
+For a quick calculation, use the two-site DMRG driver with an explicit
+bond-dimension schedule (one sweep per entry):
 
 ```julia
-truncdims = [128, 256, 512]
-gs, envs, ϵ = dmrg2(ψ0, H, truncdims; alg = myDMRG2())
-E0 = expectation_value(gs, H, envs)
+gs, envs, E0 = dmrg2(ψ0, H, [128, 256, 512])
 ```
 
 For larger sparse Jordan-MPO calculations, one-site CBE-DMRG is often the more
 useful production path:
 
 ```julia
-gs, envs, ϵ = dmrg1_cbe(ψ0, H, truncdims;
-    cbe_method = :direct,
-    filename = "dmrg1_cbe.jld2",
-)
+gs, envs, E0 = dmrg1(ψ0, H, [128, 256, 512]; delta = 0.1)
 ```
 
-`dmrg1_cbe!` mutates the input state; `dmrg1_cbe` works on a copy.
+Both mutate the state in place when called as `dmrg2!`/`dmrg1!`, and both write
+JLD2 checkpoints per sweep (keyword `filename`).
 
 ## Choose Operators
 

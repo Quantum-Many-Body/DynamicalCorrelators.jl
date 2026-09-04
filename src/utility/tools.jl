@@ -164,5 +164,5 @@ function contract_MPO(mpo1::FiniteMPO{<:MPOTensor}, mpo2::FiniteMPO{<:MPOTensor}
     @plansor O₁[-1; -2 -3] :=  mpo2[1][1 2; -2 3] * mpo1[1][1 -1; 2 4] * conj(F1[-3; 3 4])
     @plansor O₂[-3 -1; -2] := F2[-3; 3 4] * mpo2[end][3 2; -2 1] * mpo1[end][4 -1; 2 1]
     O₁, O₂ = add_single_util_leg(O₁), add_single_util_leg(O₂)
-    return changebonds!(FiniteMPO([O₁;ops;O₂]), SvdCut(; trscheme=notrunc()))
+    return changebonds!(FiniteMPO([O₁;ops;O₂]), SvdCut(; trunc=notrunc()))
 end

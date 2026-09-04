@@ -64,7 +64,7 @@ function chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::I
         return a
     end
     trscheme = trunctol(; atol = eps(real(T)))
-    return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
+    return changebonds!(FiniteMPS(A2), SvdCut(; trunc = trscheme); normalize = false)
 end
 
 """
@@ -85,7 +85,7 @@ function chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::I
         return a
     end
     trscheme = trunctol(; atol = eps(real(T)))
-    return changebonds!(FiniteMPS(A2), SvdCut(; trscheme); normalize = false)
+    return changebonds!(FiniteMPS(A2), SvdCut(; trunc = trscheme); normalize = false)
 end
 
 """
