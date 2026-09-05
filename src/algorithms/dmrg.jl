@@ -45,8 +45,10 @@ enforced per sweep by rebuilding MPSKit's `DMRG` algorithm object with
   (which cannot grow the bond).
 - `delta`: overexpansion factor used by the default `OptimalExpand` path
   (default: `0.1`)
+- `save`: controls JLD2 checkpointing (default: `true`). `save = false` writes
+  no file at all; `save = true` stores only the final sweep; a vector of sweep
+  indices (e.g. `save = [2, 4, 6]`) stores exactly those sweeps
 - `filename`: JLD2 checkpoint file (default: `"default_dmrg1.jld2"`)
-- `save_iters`: which sweeps to save (default: all)
 - `verbose`: `0` silent, `1` per-sweep summary, `>1` also per-move lines
   (default: `true`)
 - `envs`: environment cache (default: `environments(ψ, H, ψ)`)
@@ -59,7 +61,7 @@ function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         alg_expand = OptimalExpand,
         delta::Real = 0.1,
         filename::String = "default_dmrg1.jld2",
-        save_iters::AbstractVector{<:Integer} = collect(eachindex(truncdims)),
+        save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
         envs = environments(ψ, H, ψ))
     delta >= 0 || throw(ArgumentError("delta must be nonnegative"))
@@ -69,7 +71,7 @@ function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
             alg_expand = _dmrg_expand_alg(alg_expand, Int(D), delta, alg_svd)
         )
     end
-    return _dmrg_run!("DMRG1", ψ, H, algs, envs; filename, save_iters, verbose)
+    return _dmrg_run!("DMRG1", ψ, H, algs, envs; filename, save, verbose)
 end
 
 """
@@ -95,8 +97,10 @@ update is MPSKit's `local_update!`.
   (default: adaptive [`AdaptiveKrylov`]; pass an explicit `Lanczos(...)` to pin
   fixed Krylov parameters)
 - `alg_svd`: SVD algorithm (default: `LAPACK_DivideAndConquer()`)
+- `save`: controls JLD2 checkpointing (default: `true`). `save = false` writes
+  no file at all; `save = true` stores only the final sweep; a vector of sweep
+  indices (e.g. `save = [2, 4, 6]`) stores exactly those sweeps
 - `filename`: JLD2 checkpoint file (default: `"default_dmrg2.jld2"`)
-- `save_iters`: which sweeps to save (default: all)
 - `verbose`: `0` silent, `1` per-sweep summary, `>1` also per-move lines
   (default: `true`)
 - `envs`: environment cache (default: `environments(ψ, H, ψ)`)
@@ -107,13 +111,13 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         alg_eigsolve = _default_alg_eigsolve(true, 16),
         alg_svd = LAPACK_DivideAndConquer(),
         filename::String = "default_dmrg2.jld2",
-        save_iters::AbstractVector{<:Integer} = collect(eachindex(truncdims)),
+        save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
         envs = environments(ψ, H, ψ))
     algs = map(truncdims) do D
         DMRG2(; alg_eigsolve, alg_svd, trunc = truncrank(Int(D)))
     end
-    return _dmrg_run!("DMRG2", ψ, H, algs, envs; filename, save_iters, verbose)
+    return _dmrg_run!("DMRG2", ψ, H, algs, envs; filename, save, verbose)
 end
 
 """
@@ -150,8 +154,10 @@ where the CBE expansion only has to refresh `delta*D` directions per sweep.
 - `alg_svd`: SVD algorithm (default: `LAPACK_DivideAndConquer()`)
 - `alg_expand`, `delta`: bond-expansion strategy for the one-site phase,
   exactly as in [`dmrg1!`](@ref)
+- `save`: controls JLD2 checkpointing (default: `true`). `save = false` writes
+  no file at all; `save = true` stores only the final sweep; a vector of sweep
+  indices (e.g. `save = [2, 4, 6]`) stores exactly those sweeps
 - `filename`: JLD2 checkpoint file (default: `"default_dmrg_mix.jld2"`)
-- `save_iters`: which sweeps to save (default: all)
 - `verbose`: `0` silent, `1` per-sweep summary, `>1` also per-move lines
 - `envs`: environment cache (default: `environments(ψ, H, ψ)`)
 
@@ -167,7 +173,7 @@ function dmrg_mix!(
         alg_expand = OptimalExpand,
         delta::Real = 0.1,
         filename::String = "default_dmrg_mix.jld2",
-        save_iters::AbstractVector{<:Integer} = 1:(length(truncdims_2site) + length(truncdims_1site)),
+        save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
         envs = environments(ψ, H, ψ))
     delta >= 0 || throw(ArgumentError("delta must be nonnegative"))
@@ -177,7 +183,7 @@ function dmrg_mix!(
             alg_expand = _dmrg_expand_alg(alg_expand, Int(D), delta, alg_svd))
             for D in truncdims_1site)...,
     ]
-    return _dmrg_run!("DMRG-mix", ψ, H, algs, envs; filename, save_iters, verbose)
+    return _dmrg_run!("DMRG-mix", ψ, H, algs, envs; filename, save, verbose)
 end
 
 function dmrg_mix!(
@@ -211,6 +217,18 @@ function _default_alg_eigsolve(adaptive::Bool, krylovdim::Integer)
         krylovdim = Int(krylovdim), maxiter = 1, tol = 1e-8,
         orth = ModifiedGramSchmidt(), eager = true, verbosity = 0
     )
+end
+
+# normalize the `save` keyword into the list of sweeps to checkpoint
+function _dmrg_save_iters(save::Bool, niters::Int)
+    save && return [niters]
+    return Int[]
+end
+function _dmrg_save_iters(save::AbstractVector{<:Integer}, niters::Int)
+    iters = collect(Int, save)
+    all(i -> 1 <= i <= niters, iters) ||
+        throw(ArgumentError("save indices must be inside 1:$niters"))
+    return iters
 end
 
 # `alg_eigsolve === nothing` → built from `adaptive`/`krylovdim`; an explicitly
@@ -262,11 +280,14 @@ end
 function _dmrg_run!(
         label::String, ψ::AbstractFiniteMPS, H,
         algs::AbstractVector{<:Union{DMRG, DMRG2}}, envs;
-        filename::String, save_iters, verbose
+        filename::String, save::Union{Bool, AbstractVector{<:Integer}}, verbose
     )
     N = length(ψ)
     niters = length(algs)
     isempty(algs) && throw(ArgumentError("truncdims cannot be empty"))
+    # `save === false` stores nothing; `save === true` stores only the final
+    # sweep; a vector stores the listed sweeps
+    save_iters = _dmrg_save_iters(save, niters)
     Tr = real(scalartype(ψ))
     # DMRG updates sites (n = N), DMRG2 updates bonds (n = N - 1); mixed drivers
     # size the bookkeeping arrays by the larger engine

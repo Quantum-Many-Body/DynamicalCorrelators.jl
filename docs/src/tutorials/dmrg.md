@@ -68,7 +68,9 @@ randomized single-site-cost selection, or `alg_expand = RandExpand(...)`. Pass
   `TimerOutput` summary is printed at the end.
 - `verbose = 2` additionally prints one line per local update (sweep direction,
   bond, current bond dimension, local errors, timestamp).
-- `filename` and `save_iters` control the JLD2 checkpointing.
+- `save` controls JLD2 checkpointing (`false` writes nothing, `true`
+  stores only the final sweep, a vector of sweep indices stores those
+  sweeps), together with `filename`.
 
 ## Hybrid Two-Site + One-Site (CBE) DMRG
 
@@ -106,10 +108,10 @@ The `my*` constructors remain available when you want a preconfigured MPSKit
 algorithm object for use with `find_groundstate` or `time_evolve` directly:
 
 ```julia
-alg_dmrg1 = myDMRG(; tol = 1e-8, maxiter = 100)                    # adaptive eigensolver
+alg_dmrg1 = myDMRG1(; tol = 1e-8, maxiter = 100)                    # adaptive eigensolver
 alg_dmrg2 = myDMRG2(; tol = 1e-6, maxiter = 50, trunc = truncrank(1024))
 alg_cbe = myDMRG1_CBE(; tol = 1e-6, maxiter = 100, D = 1024, delta = 0.1)
-alg_fixed = myDMRG(; tol = 1e-8, maxiter = 100, adaptive = false, krylovdim = 16)
+alg_fixed = myDMRG1(; tol = 1e-8, maxiter = 100, adaptive = false, krylovdim = 16)
 ```
 
 ## When to Use Which Method

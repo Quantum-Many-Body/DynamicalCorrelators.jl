@@ -115,7 +115,7 @@ alg = myDMRG2(; trunc = truncrank(1024), adaptive = false)  # fixed one-step Lan
   `alg_expand = OptimalExpand(...)`; its `cbe_tol`/`project_error` keywords
   were removed (the upstream expansion is parameterized by `trunc` and
   `delta`).
-- `myDMRG`/`myDMRG2`/`myDMRG1_CBE` accept the `adaptive` and `alg_eigsolve`
+- `myDMRG1`/`myDMRG2`/`myDMRG1_CBE` accept the `adaptive` and `alg_eigsolve`
   keywords.
 
 # DynamicalCorrelators.jl v0.13.0 Release Notes
@@ -399,10 +399,10 @@ ccdag(elt, SU2Irrep, U1Irrep; filling=(1, 1))
 ## Algorithm Defaults and API Changes
 
 - Package version bumped from `0.11.0` to `0.12.0`.
-- `myTDVP` is now a constructor:
+- `myTDVP1` is now a constructor:
 
 ```julia
-myTDVP(; krylovdim = 32)
+myTDVP1(; krylovdim = 32)
 ```
 
 - `myTDVP2` now uses keyword arguments and has its own default truncation:
@@ -421,9 +421,9 @@ dcorrelator(gs, H, op, 1:length(H);
 ```
 
 - `evolve_mps` defaults now construct algorithms as
-  `tdvp1 = myTDVP()` and
+  `tdvp1 = myTDVP1()` and
   `tdvp2 = myTDVP2(; trunc = truncerror(; rtol = 1e-3))`.
-- `myDMRG` now defaults to `tol = 1e-6`, matching the package's less aggressive
+- `myDMRG1` now defaults to `tol = 1e-6`, matching the package's less aggressive
   default one-site DMRG tolerance.
 
 ## Internal Fixes and Documentation
@@ -553,10 +553,10 @@ boundary charge.
 - Default algorithm configuration names were renamed:
   - `DefaultDMRG` -> `myDMRG2()` for the default two-site DMRG constructor.
   - `DefaultDMRG2(tol, krylovdim)` -> `myDMRG2(; tol, krylovdim, ...)`.
-  - `DefaultTDVP` -> `myTDVP`.
+  - `DefaultTDVP` -> `myTDVP1`.
   - `DefaultTDVP2(trscheme)` -> `myTDVP2(trscheme)`.
   - `DefaultDMRG1CBE_eigsolve` -> `myDMRG1CBE_eigsolve`.
-- Added `myDMRG()` for one-site DMRG and `myTDVP1_CBE()` for CBE-TDVP1.
+- Added `myDMRG1()` for one-site DMRG and `myTDVP1_CBE()` for CBE-TDVP1.
 - Exported `TDVP1_CBE` and `myTDVP1_CBE`.
 - Replaced old `truncerr(...)` defaults with `truncerror(...)` in the affected
   time-evolution and correlator APIs.

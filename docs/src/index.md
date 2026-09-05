@@ -100,7 +100,7 @@ and utility functions. Start with:
 ## Compatibility Note
 
 Before v1.0, minor versions may change APIs when the internal workflow improves.
-Use the exported `my*` constructors (`myDMRG2`, `myDMRG1_CBE`, `myTDVP`,
+Use the exported `my*` constructors (`myDMRG2`, `myDMRG1_CBE`, `myTDVP1`,
 `myTDVP1_CBE`, `myTDVP2`) for the package's default algorithm configurations.
 
 ## Acknowledgments

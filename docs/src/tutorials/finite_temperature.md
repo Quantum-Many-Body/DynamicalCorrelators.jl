@@ -79,7 +79,7 @@ Cool the state by imaginary-time evolution to `β/2`:
 
 rhoβ = evolve_mps(H, τs, rho0;
     filename = "rho_beta_2.jld2",
-    tdvp1 = myTDVP(),
+    tdvp1 = myTDVP1(),
     tdvp2 = myTDVP2(; trunc=truncrank(256)),
     n = 3,
 )
@@ -93,7 +93,7 @@ rho_path = "rho_beta_2_realtime.jld2"
 evolve_mps(H, times, rhoβ;
     filename = rho_path,
     save_id = eachindex(times),
-    tdvp1 = myTDVP(),
+    tdvp1 = myTDVP1(),
     tdvp2 = myTDVP2(; trunc=truncrank(256)),
     n = 3,
 )
