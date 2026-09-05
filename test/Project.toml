@@ -1,4 +1,6 @@
 [deps]
+DynamicalCorrelators = "7abe38c7-550a-49b0-ba99-33d1b5164ede"
+ExactDiagonalization = "52dcaa32-6da7-11e9-20ef-755843cf72eb"
 MPSKit = "bb1c41ca-d63c-52ed-829e-0820dda26502"
 MPSKitModels = "ca635005-6f8c-4cd1-b51d-8491250ef2ab"
 QuantumLattices = "78ae1a1f-1d5d-5174-b61c-66e31b2346dc"

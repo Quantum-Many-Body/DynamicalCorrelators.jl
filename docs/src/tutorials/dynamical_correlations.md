@@ -289,7 +289,7 @@ The standard pattern is:
 dcorrelator(gs, H, op, indices;
     times,
     n = 3,
-    tdvp1 = myTDVP(),
+    tdvp1 = myTDVP1(),
     tdvp2 = myTDVP2(; trunc = truncrank(512)),
 )
 ```

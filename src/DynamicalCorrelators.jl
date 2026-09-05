@@ -70,7 +70,7 @@ export chargedMPO, identityMPO, hamiltonian
 export FiniteNormalMPS, FiniteSuperMPS, chargedMPS, identityMPS, randFiniteMPS, randInfiniteMPS
 
 export add_single_util_leg, cart2polar, phase_by_polar, sort_by_distance, transfer_left, contract_MPO
-export myDMRG, myDMRG2, myTDVP, myTDVP1_CBE, myTDVP2, myDMRG1_CBE
+export myDMRG1, myDMRG2, myTDVP1, myTDVP1_CBE, myTDVP2, myDMRG1_CBE
 export dmrg1, dmrg1!, dmrg2, dmrg2!
 export dmrg_mix, dmrg_mix!
 export set_threaded_hamiltonian!

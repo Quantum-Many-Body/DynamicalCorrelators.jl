@@ -51,13 +51,13 @@ function chargedMPS(op::AbstractTensorMap{B,S,1,2}, mps::FiniteSuperMPS, site::I
             a = A1
         end
         if i == site 
-            τ2 = TensorMap(BraidingTensor(dual(codomain(A1,2)), domain(op, 2)))
+            τ2 = TensorMap(BraidingTensor{T}(dual(codomain(A1,2)), domain(op, 2)))
             F = fuser(A, domain(A1, 1), domain(op, 2))
             @plansor a[-1 -2 -3; -4] := A1[-1 1 3; 5] * op[-2; 1 2] * τ2[2 -3; 3 4] * conj(F[-4; 5 4])
         end
         if i > site
-            τ1 = TensorMap(BraidingTensor(codomain(A1,2), domain(op, 2)))
-            τ2 = TensorMap(BraidingTensor(dual(codomain(A1,2)), domain(op, 2)))
+            τ1 = TensorMap(BraidingTensor{T}(codomain(A1,2), domain(op, 2)))
+            τ2 = TensorMap(BraidingTensor{T}(dual(codomain(A1,2)), domain(op, 2)))
             Fl, Fr = fuser(A, codomain(A1, 1), domain(op, 2)), fuser(A, domain(A1, 1), domain(op, 2))
             @plansor a[-1 -2 -3; -4] := Fl[-1; 1 2] * A1[1 3 5; 7] * τ1[2 -2; 3 4] * τ2[4 -3; 5 6] * conj(Fr[-4; 7 6])
         end

@@ -1,5 +1,5 @@
 """
-    myDMRG(; tol=1e-6, maxiter=100, krylovdim=16, adaptive=true, alg_eigsolve=nothing)
+    myDMRG1(; tol=1e-6, maxiter=100, krylovdim=16, adaptive=true, alg_eigsolve=nothing)
 
 Construct the default one-site DMRG algorithm used by this package.
 
@@ -10,7 +10,7 @@ measured convergence behavior). Set `adaptive = false` to pin a one-step
 full manual control. `tol` and `maxiter` tune the outer DMRG stopping criterion
 and sweep count.
 """
-myDMRG(; tol=1e-6, maxiter=100, krylovdim=16, adaptive::Bool=true, alg_eigsolve=nothing) =
+myDMRG1(; tol=1e-6, maxiter=100, krylovdim=16, adaptive::Bool=true, alg_eigsolve=nothing) =
     DMRG(; tol=tol, maxiter=maxiter, verbosity=3,
             alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim))
 
@@ -32,7 +32,7 @@ myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16, adaptive::B
             trunc=trunc)
 
 """
-    myTDVP(; krylovdim=24)
+    myTDVP1(; krylovdim=24)
 
 Construct the default single-site TDVP algorithm for finite-MPS time evolution.
 
@@ -44,7 +44,7 @@ and the required Krylov dimension (roughly `dt` x spectral width) barely changes
 during the evolution. Watch for "integrator failed to converge" warnings when
 taking large `dt`.
 """
-myTDVP(; krylovdim = 24) = TDVP(;
+myTDVP1(; krylovdim = 24) = TDVP(;
             integrator = Lanczos(;
                 krylovdim = krylovdim,
                 maxiter = 1,
@@ -56,7 +56,7 @@ myTDVP(; krylovdim = 24) = TDVP(;
             gaugemaxiter = 200)
 
 """
-    myTDVP1_CBE(; D=4096, delta=0.1, krylovdim=24)
+    myTDVP1_CBE(; D=4096, delta=0.1, krylovdim=30)
 
 Construct the default single-site TDVP algorithm with Controlled Bond Expansion.
 
@@ -68,7 +68,7 @@ cuts the enlarged bond back to `D` when the center moves. Note that the `trunc`
 of `OptimalExpand` counts the directions *added* per bond, so the former
 overexpansion factor `delta` enters through `ceil(Int, delta*D)`.
 """
-myTDVP1_CBE(; D=4096, delta=0.1, krylovdim=24) = TDVP(;
+myTDVP1_CBE(; D=4096, delta=0.1, krylovdim=30) = TDVP(;
             integrator = Lanczos(;
                 krylovdim = krylovdim,
                 maxiter = 1,
@@ -83,7 +83,7 @@ myTDVP1_CBE(; D=4096, delta=0.1, krylovdim=24) = TDVP(;
             trunc = truncrank(D))
 
 """
-    myTDVP2(; trunc=truncrank(4096), krylovdim=16)
+    myTDVP2(; trunc=truncrank(4096), krylovdim=30)
 
 Construct the default two-site TDVP algorithm.
 
@@ -91,7 +91,7 @@ Construct the default two-site TDVP algorithm.
 fixed-rank rule such as `truncrank(D)` or a tolerance-based rule. `krylovdim`
 controls the Lanczos Krylov dimension for the two-site time integrator.
 """
-myTDVP2(; trunc = truncrank(4096), krylovdim = 16) = TDVP2(;
+myTDVP2(; trunc = truncrank(4096), krylovdim = 30) = TDVP2(;
             integrator = Lanczos(;
                 krylovdim = krylovdim,
                 maxiter = 1,

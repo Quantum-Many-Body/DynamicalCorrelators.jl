@@ -22,10 +22,10 @@ dmrg_mix
 ## Default Algorithm Configurations
 
 ```@docs
-myDMRG
+myDMRG1
 myDMRG2
 myDMRG1_CBE
-myTDVP
+myTDVP1
 myTDVP1_CBE
 myTDVP2
 ```
