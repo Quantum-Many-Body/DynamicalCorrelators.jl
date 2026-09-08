@@ -408,15 +408,57 @@ function kitaev_hubbard(elt::Type{<:Number}, ::Type{U1Irrep}, ::Type{U1Irrep}, l
 end
 
 """
-    heisenberg_model(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteChain(1); J=1.0)
+    heisenberg_model(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice::MLattice; J=1.0)
 """
-function heisenberg_model(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice=FiniteChain(1); J=1.0,  spin=1//2)
+function heisenberg_model(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice::MLattice; J=1.0,  spin=1//2)
     hei = heisenberg(elt, SU2Irrep, spin)
     return @mpoham begin
         sum(nearest_neighbours(lattice)) do (i, j)
             return J * hei{i, j}
         end
     end
+end
+
+function heisenberg_model(elt::Type{<:Number}, ::Type{SU2Irrep}, lattice::CustomLattice; J1=1.0, J2=0.0, Jh1=0.0, Jh2=0.0, spin=1//2)
+    hei = heisenberg(elt, SU2Irrep, spin)
+    terms = []
+    if length(lattice.lattice[1]) == 3
+        tb = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
+        tb2 = twosite_bonds(lattice, 1, 1; intralayer=true, neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
+        for i in eachindex(tb)
+            push!(terms, tb[i]=>J1*hei)
+        end
+        if !iszero(J2)
+            for i in eachindex(tb2)
+                push!(terms, tb2[i]=>J2*hei)
+            end
+        end
+        tf = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
+        tf2 = twosite_bonds(lattice, 1, 1; intralayer=false, neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
+        if !iszero(Jh1)
+            for i in eachindex(tf)
+                push!(terms, tf[i]=>Jh1*hei)
+            end
+        end
+        if !iszero(Jh2)
+            for i in eachindex(tf2)
+                push!(terms, tf2[i]=>Jh2*hei)
+            end
+        end
+    elseif length(lattice.lattice[1]) == 2
+        tb = twosite_bonds(lattice, 1, 1; neighbors=Neighbors(1=>Neighbors(lattice.lattice, 2)[1]))
+        tb2 = twosite_bonds(lattice, 1, 1; neighbors=Neighbors(2=>Neighbors(lattice.lattice, 2)[2]))
+        for i in eachindex(tb)
+            push!(terms, tb[i]=>J1*hei)
+        end
+        if !iszero(J2)
+            for i in eachindex(tb2)
+                push!(terms, tb2[i]=>J2*hei)
+            end
+        end
+    end
+    pspace = SU2Space(spin => 1)
+    return FiniteMPOHamiltonian(fill(pspace, sum(length,lattice.indices)), terms...)
 end
 
 """
