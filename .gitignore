@@ -4,6 +4,7 @@
 
 deps/deps.jl
 docs/build/
+docs/Manifest.toml
 test/*.png
 
 .ipynb_checkpoints/
@@ -12,7 +13,6 @@ test/*.png
 desktop.ini
 .DS_Store
 task/
-Manifest.toml
 .claude
 src/draft
 RELEASE.md
