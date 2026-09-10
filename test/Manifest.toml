@@ -2,7 +2,7 @@
 
 julia_version = "1.12.5"
 manifest_format = "2.0"
-project_hash = "ec9524f3246d39f3db96a6057ff5b3edd0b27503"
+project_hash = "880728a791636f227234755cb31e8d9bbf2e5e33"
 
 [[deps.AbstractTrees]]
 git-tree-sha1 = "2d9c9a55f9c93e8887ad391fbae72f8ef55e1177"
@@ -975,8 +975,8 @@ uuid = "ed4db957-447d-4319-bfb6-7fa9ae7ecf34"
 version = "0.1.3"
 
 [[deps.TensorKit]]
-deps = ["Adapt", "Dictionaries", "LRUCache", "LinearAlgebra", "MatrixAlgebraKit", "OhMyThreads", "PrecompileTools", "Preferences", "Printf", "Random", "ScopedValues", "Strided", "TensorKitSectors", "TensorOperations", "TupleTools", "VectorInterface"]
-git-tree-sha1 = "1936dc9da43ce0641061821787cb2625015a37b8"
+deps = ["Adapt", "Dictionaries", "LRUCache", "LinearAlgebra", "MatrixAlgebraKit", "OhMyThreads", "PrecompileTools", "Preferences", "Printf", "Random", "ScopedValues", "Strided", "TensorKitSectors", "TensorOperations", "TimerOutputs", "TupleTools", "VectorInterface"]
+git-tree-sha1 = "05f892f25d3bad788cafbdfdf1c2d940f9403851"
 repo-rev = "main"
 repo-url = "https://github.com/QuantumKitHub/TensorKit.jl.git"
 uuid = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
@@ -1217,6 +1217,6 @@ version = "17.7.0+0"
 
 [[deps.s2n_tls_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "f3a7831c8a44767ff9e36d41bb1f7b576bbce81c"
+git-tree-sha1 = "a968513a5d3b3f3c6e9cbc73edb0d9c05b9fe77e"
 uuid = "cddc5d3d-934d-5d3a-9747-62fc12ea3f48"
-version = "1.7.8+0"
+version = "1.7.9+0"
