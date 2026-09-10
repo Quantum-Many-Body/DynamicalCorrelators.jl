@@ -59,8 +59,8 @@ sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
 
 gf = dcorrelator(gs, H, sp, 1:N;
     times,
-    tdvp1 = myTDVP1_CBE(D = 512),
-    tdvp2 = myTDVP1_CBE(D = 512),
+    tdvp1 = myTDVP1(),
+    tdvp2 = myTDVP2(),
 )
 ```
 
@@ -70,7 +70,8 @@ For one source channel, pass an integer `id`:
 gf_site = dcorrelator(gs, H, sp, div(N, 2);
     times,
     record_indices = 1:101,
-    tdvp1 = myTDVP1_CBE(D = 512),
+    tdvp1 = myTDVP1(),
+    tdvp2 = myTDVP2(),
 )
 ```
 
@@ -86,6 +87,8 @@ gf_site = dcorrelator(gs, H, sp, div(N, 2);
   momentum-frequency transforms.
 - [Finite Temperature](tutorials/finite_temperature.md): purification,
   imaginary-time preparation, and finite-temperature correlators.
+- [The Finite Engine](tutorials/finite_engine.md): lazy/disk-backed
+  environments and the threading layout behind the DMRG and TDVP drivers.
 
 ## API Reference
 

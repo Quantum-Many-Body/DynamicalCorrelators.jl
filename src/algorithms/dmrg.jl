@@ -34,41 +34,64 @@ enforced per sweep by rebuilding MPSKit's `DMRG` algorithm object with
   (default: adaptive [`AdaptiveKrylov`]; pass an explicit `Lanczos(...)` to pin
   fixed Krylov parameters)
 - `alg_svd`: SVD algorithm (default: `LAPACK_DivideAndConquer()`)
-- `alg_expand`: bond-expansion strategy. The default `OptimalExpand` (the
-  *type*) builds a fresh `OptimalExpand(; trunc = truncrank(ceil(Int, delta*D)),
-  alg_svd)` for every sweep, adding up to `ceil(Int, delta*D)` directions ahead
-  of the eigensolve before the gauge truncates back to `D`. Pass an *instance*
-  such as `OptimalExpand(; trunc = truncrank(k))`, `SketchedExpand(;
-  trunc = ...)` or `RandExpand(; trunc = ...)` to use it as-is for every sweep,
-  or a callable `D -> alg` to rebuild the expansion algorithm from each sweep's
-  target `D`. Pass `nothing` for plain single-site DMRG without expansion
-  (which cannot grow the bond).
-- `delta`: overexpansion factor used by the default `OptimalExpand` path
-  (default: `0.1`)
+- `alg_expand`: bond-expansion strategy. The default is the callable
+  `D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1*D)), alg_svd)`, adding
+  up to 10% of each sweep's target `D` directions ahead of the eigensolve
+  before the gauge truncates back to `D`. Pass an *instance* such as
+  `OptimalExpand(; trunc = truncrank(k))` or `SketchedExpand(; trunc = ...,
+  oversampling = ...)` to use it as-is for every sweep, or your own callable
+  `D -> alg` to rebuild the expansion algorithm from each sweep's target `D`
+  (e.g. a different overexpansion factor). Pass `nothing` for plain
+  single-site DMRG without expansion (which cannot grow the bond).
 - `save`: controls JLD2 checkpointing (default: `true`). `save = false` writes
   no file at all; `save = true` stores only the final sweep; a vector of sweep
   indices (e.g. `save = [2, 4, 6]`) stores exactly those sweeps
 - `filename`: JLD2 checkpoint file (default: `"default_dmrg1.jld2"`)
 - `verbose`: `0` silent, `1` per-sweep summary, `>1` also per-move lines
   (default: `true`)
-- `envs`: environment cache (default: `environments(ψ, H, ψ)`)
+- `envs`: environment cache. The default `nothing` builds a
+  [`FastFiniteEnvironments`](@ref) (lazy construction + explicit freeing,
+  ~half the peak environment memory) and runs the fast sweep driver; the cache
+  type selects the driver, so pass an explicit `FastFiniteEnvironments` to
+  control its construction, or MPSKit's `environments(ψ, H, ψ)` to run the
+  reference driver (e.g. for cross-checks)
+- `disk`: environment disk backing when the driver builds the cache — `false`
+  (default) keeps environments in RAM, `true` serializes them under a fresh
+  random subdirectory of `tempdir()`, a string uses that directory as the root
+  (created when missing). Point this at fast node-local or burst-buffer
+  storage (e.g. `"/bbfs/scratch/<user>"`), not a shared network filesystem.
+  Must be `false` when `envs` is supplied
+- `manual_gc`: fast driver only (default: `true`): `GC.gc(false)` after every
+  local update plus a full `GC.gc(true)` and a memory report after every sweep
+  (FiniteMPS.jl-style memory pressure relief at large D). The fast driver also
+  always solves `H - E_prev` in each eigensolve of the next sweep (a spectral
+  shift is a Krylov no-op in exact arithmetic); the gauge uses block-parallel
+  SVD and the environment construction uses channel-split multithreading
+  whenever `Threads.nthreads() > 1`
 
 Returns `(ψ, envs, E₀)`; see also [`dmrg1`](@ref), [`dmrg2!`](@ref).
 """
 function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         alg_eigsolve = _default_alg_eigsolve(true, 16),
         alg_svd = LAPACK_DivideAndConquer(),
-        alg_expand = OptimalExpand,
-        delta::Real = 0.1,
+        alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
         filename::String = "default_dmrg1.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
-        envs = environments(ψ, H, ψ))
-    delta >= 0 || throw(ArgumentError("delta must be nonnegative"))
+        disk::Union{Bool, AbstractString} = false,
+        manual_gc::Bool = true,
+        envs = nothing)
     algs = map(truncdims) do D
         DMRG(;
             alg_eigsolve, alg_svd, trunc = truncrank(Int(D)),
-            alg_expand = _dmrg_expand_alg(alg_expand, Int(D), delta, alg_svd)
+            alg_expand = _dmrg_expand_alg(alg_expand, Int(D))
+        )
+    end
+    envs = _dmrg_resolve_envs(ψ, H, envs; disk)
+    if envs isa FastFiniteEnvironments
+        return _dmrg_run_fast!(
+            "DMRG1", ψ, H, algs, envs;
+            filename, save, verbose, manual_gc
         )
     end
     return _dmrg_run!("DMRG1", ψ, H, algs, envs; filename, save, verbose)
@@ -103,7 +126,25 @@ update is MPSKit's `local_update!`.
 - `filename`: JLD2 checkpoint file (default: `"default_dmrg2.jld2"`)
 - `verbose`: `0` silent, `1` per-sweep summary, `>1` also per-move lines
   (default: `true`)
-- `envs`: environment cache (default: `environments(ψ, H, ψ)`)
+- `envs`: environment cache. The default `nothing` builds a
+  [`FastFiniteEnvironments`](@ref) (lazy construction + explicit freeing,
+  ~half the peak environment memory) and runs the fast sweep driver; the cache
+  type selects the driver, so pass an explicit `FastFiniteEnvironments` to
+  control its construction, or MPSKit's `environments(ψ, H, ψ)` to run the
+  reference driver (e.g. for cross-checks)
+- `disk`: environment disk backing when the driver builds the cache — `false`
+  (default) keeps environments in RAM, `true` serializes them under a fresh
+  random subdirectory of `tempdir()`, a string uses that directory as the root
+  (created when missing). Point this at fast node-local or burst-buffer
+  storage (e.g. `"/bbfs/scratch/<user>"`), not a shared network filesystem.
+  Must be `false` when `envs` is supplied
+- `manual_gc`: fast driver only (default: `true`): `GC.gc(false)` after every
+  local update plus a full `GC.gc(true)` and a memory report after every sweep
+  (FiniteMPS.jl-style memory pressure relief at large D). The fast driver also
+  always solves `H - E_prev` in each eigensolve of the next sweep (a spectral
+  shift is a Krylov no-op in exact arithmetic); the gauge uses block-parallel
+  SVD and the environment construction uses channel-split multithreading
+  whenever `Threads.nthreads() > 1`
 
 Returns `(ψ, envs, E₀)`; see also [`dmrg2`](@ref), [`dmrg1!`](@ref).
 """
@@ -113,9 +154,18 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         filename::String = "default_dmrg2.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
-        envs = environments(ψ, H, ψ))
+        disk::Union{Bool, AbstractString} = false,
+        manual_gc::Bool = true,
+        envs = nothing)
     algs = map(truncdims) do D
         DMRG2(; alg_eigsolve, alg_svd, trunc = truncrank(Int(D)))
+    end
+    envs = _dmrg_resolve_envs(ψ, H, envs; disk)
+    if envs isa FastFiniteEnvironments
+        return _dmrg_run_fast!(
+            "DMRG2", ψ, H, algs, envs;
+            filename, save, verbose, manual_gc
+        )
     end
     return _dmrg_run!("DMRG2", ψ, H, algs, envs; filename, save, verbose)
 end
@@ -138,7 +188,7 @@ small-D stages of the schedule, one-site sweeps with bond expansion
 The rationale: two-site updates grow the bond by up to a factor of the physical
 dimension per update, so they deliver fast and robust bond growth at small D
 where sweeps are cheap; one-site updates are much cheaper per sweep at large D,
-where the CBE expansion only has to refresh `delta*D` directions per sweep.
+where the CBE expansion only has to refresh a small fraction of D per sweep.
 
 # Arguments / schedule forms
 - Two-vector form: `dmrg_mix!(ψ, H, [64, 128, 256], [512, 1024, 1024])` runs
@@ -152,14 +202,32 @@ where the CBE expansion only has to refresh `delta*D` directions per sweep.
   [`AdaptiveKrylov`]; pass an explicit `Lanczos(...)` to pin fixed Krylov
   parameters)
 - `alg_svd`: SVD algorithm (default: `LAPACK_DivideAndConquer()`)
-- `alg_expand`, `delta`: bond-expansion strategy for the one-site phase,
-  exactly as in [`dmrg1!`](@ref)
+- `alg_expand`: bond-expansion strategy for the one-site phase, exactly as in
+  [`dmrg1!`](@ref)
 - `save`: controls JLD2 checkpointing (default: `true`). `save = false` writes
   no file at all; `save = true` stores only the final sweep; a vector of sweep
   indices (e.g. `save = [2, 4, 6]`) stores exactly those sweeps
 - `filename`: JLD2 checkpoint file (default: `"default_dmrg_mix.jld2"`)
 - `verbose`: `0` silent, `1` per-sweep summary, `>1` also per-move lines
-- `envs`: environment cache (default: `environments(ψ, H, ψ)`)
+- `envs`: environment cache. The default `nothing` builds a
+  [`FastFiniteEnvironments`](@ref) (lazy construction + explicit freeing,
+  ~half the peak environment memory) and runs the fast sweep driver; the cache
+  type selects the driver, so pass an explicit `FastFiniteEnvironments` to
+  control its construction, or MPSKit's `environments(ψ, H, ψ)` to run the
+  reference driver (e.g. for cross-checks)
+- `disk`: environment disk backing when the driver builds the cache — `false`
+  (default) keeps environments in RAM, `true` serializes them under a fresh
+  random subdirectory of `tempdir()`, a string uses that directory as the root
+  (created when missing). Point this at fast node-local or burst-buffer
+  storage (e.g. `"/bbfs/scratch/<user>"`), not a shared network filesystem.
+  Must be `false` when `envs` is supplied
+- `manual_gc`: fast driver only (default: `true`): `GC.gc(false)` after every
+  local update plus a full `GC.gc(true)` and a memory report after every sweep
+  (FiniteMPS.jl-style memory pressure relief at large D). The fast driver also
+  always solves `H - E_prev` in each eigensolve of the next sweep (a spectral
+  shift is a Krylov no-op in exact arithmetic); the gauge uses block-parallel
+  SVD and the environment construction uses channel-split multithreading
+  whenever `Threads.nthreads() > 1`
 
 Returns `(ψ, envs, E₀)`; see also [`dmrg_mix`](@ref), [`dmrg2!`](@ref),
 [`dmrg1!`](@ref).
@@ -170,19 +238,26 @@ function dmrg_mix!(
         truncdims_1site::AbstractVector{<:Integer};
         alg_eigsolve = _default_alg_eigsolve(true, 16),
         alg_svd = LAPACK_DivideAndConquer(),
-        alg_expand = OptimalExpand,
-        delta::Real = 0.1,
+        alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
         filename::String = "default_dmrg_mix.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
-        envs = environments(ψ, H, ψ))
-    delta >= 0 || throw(ArgumentError("delta must be nonnegative"))
+        disk::Union{Bool, AbstractString} = false,
+        manual_gc::Bool = true,
+        envs = nothing)
     algs = Union{DMRG, DMRG2}[
         (DMRG2(; alg_eigsolve, alg_svd, trunc = truncrank(Int(D))) for D in truncdims_2site)...,
         (DMRG(; alg_eigsolve, alg_svd, trunc = truncrank(Int(D)),
-            alg_expand = _dmrg_expand_alg(alg_expand, Int(D), delta, alg_svd))
+            alg_expand = _dmrg_expand_alg(alg_expand, Int(D)))
             for D in truncdims_1site)...,
     ]
+    envs = _dmrg_resolve_envs(ψ, H, envs; disk)
+    if envs isa FastFiniteEnvironments
+        return _dmrg_run_fast!(
+            "DMRG-mix", ψ, H, algs, envs;
+            filename, save, verbose, manual_gc
+        )
+    end
     return _dmrg_run!("DMRG-mix", ψ, H, algs, envs; filename, save, verbose)
 end
 
@@ -236,19 +311,18 @@ end
 _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim) =
     something(alg_eigsolve, _default_alg_eigsolve(adaptive, krylovdim))
 
-# Per-sweep expansion algorithm: `OptimalExpand` (the type) triggers the default
-# delta-scaled CBE path; an instance is used as-is; a callable `D -> alg` is
-# invoked with each sweep's target `D`; `nothing` disables expansion.
-function _dmrg_expand_alg(alg_expand, D::Int, delta::Real, alg_svd)
+# Per-sweep expansion algorithm: an instance is used as-is; a callable
+# `D -> alg` is invoked with each sweep's target `D` (the default is
+# `D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1*D)), alg_svd)`);
+# `nothing` disables expansion.
+function _dmrg_expand_alg(alg_expand, D::Int)
     alg_expand === nothing && return nothing
-    alg_expand === OptimalExpand &&
-        return OptimalExpand(; trunc = truncrank(ceil(Int, delta * D)), alg_svd)
     alg_expand isa Algorithm && return alg_expand
     alg_expand isa Function && return alg_expand(D)
     return throw(ArgumentError(
-        "alg_expand must be `nothing`, the type `OptimalExpand`, an expansion " *
-        "algorithm instance (e.g. `OptimalExpand(; trunc = ...)`, " *
-        "`SketchedExpand(; trunc = ...)`), or a callable `D -> alg`"
+        "alg_expand must be `nothing`, an expansion algorithm instance " *
+        "(e.g. `OptimalExpand(; trunc = truncrank(k))`, `SketchedExpand(; " *
+        "trunc = ..., oversampling = ...)`), or a callable `D -> alg`"
     ))
 end
 
@@ -260,7 +334,11 @@ _move_bond(::DMRG2, ::Val{:left}, pos::Int) = pos
 
 function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, ϵ_local, ϵ_trunc, wpos::Int, wD::Int) where {D}
     b = _move_bond(alg, dir, pos)
-    Db = dim(right_virtualspace(ψ, b))
+    # One-site R2L: the gauge just truncated the LEFT leg of AR[pos] (bond
+    # pos-1). right_virtualspace(ψ, pos-1) would instead show the CBE-expanded
+    # leg of AL[pos-1], which keeps the enlarged space until the next L2R pass
+    # re-truncates it — same convention as MPSKit, but confusing in the log.
+    Db = alg isa DMRG && D === :left ? dim(left_virtualspace(ψ, pos)) : dim(right_virtualspace(ψ, b))
     arrow = D === :right ? "=>" : "<="
     tag = D === :right ? "SweepL2R" : "SweepR2L"
     @printf(
@@ -352,6 +430,163 @@ function _dmrg_run!(
         Dmax = _dmrg_max_bond_dim(ψ)
         wD = max(wD, ndigits(Dmax))
         current_time = now()
+        if Int(verbose) > 0
+            println(
+                "[", lpad(iter, witer), "/", niters, "] ", label, "/",
+                nameof(typeof(alg)), " sweep | duration: ",
+                Dates.canonicalize(current_time - start_time)
+            )
+            @printf(
+                "  E₀ = %.10f | D = %*d | ΔE = %.3e | max ϵ = %.3e | max ϵtr = %.3e\n",
+                E₀, wD, Dmax, ΔE,
+                maximum(view(ϵ_locals, positions)), maximum(view(ϵ_truncs, positions))
+            )
+            flush(stdout)
+        end
+        if iter in save_iters
+            mode = (iter == first(save_iters) ? "w" : "a")
+            jldopen(filename, mode) do f
+                f["sweep_$(iter)_ψ"] = ψ
+                f["sweep_$(iter)_E"] = E₀
+                f["sweep_$(iter)_ΔE"] = ΔE
+                f["sweep_$(iter)_ϵ"] = ϵ_locals
+                f["sweep_$(iter)_ϵtrunc"] = ϵ_truncs
+                f["sweep_$(iter)_D"] = Dmax
+            end
+        end
+        start_time = current_time
+    end
+
+    record_end = now()
+    if Int(verbose) > 0
+        println(
+            "Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"),
+            " | total duration: ", Dates.canonicalize(record_end - record_start)
+        )
+        println(timer)
+    end
+    return ψ, envs, E_prev
+end
+
+# ---------------------------------------------------------------------------
+# fast engine: environment resolution + sweep driver
+# ---------------------------------------------------------------------------
+
+# Environment resolution: `envs === nothing` builds the fast manager (the
+# default); an explicit cache selects the sweep driver by its type — a
+# FastFiniteEnvironments runs the fast driver, MPSKit's FiniteEnvironments
+# (built via `environments(ψ, H, ψ)`) runs the reference driver used for
+# cross-checks.
+function _dmrg_resolve_envs(ψ, H, envs; disk::Union{Bool, AbstractString})
+    envs === nothing && return FastFiniteEnvironments(ψ, H; disk)
+    disk !== false && throw(ArgumentError(
+        "`disk` has no effect when `envs` is supplied — build disk backing " *
+        "into the cache instead: FastFiniteEnvironments(ψ, H; disk = ...)"
+    ))
+    envs isa Union{FastFiniteEnvironments, FiniteEnvironments} ||
+        throw(ArgumentError(
+            "envs must be a FastFiniteEnvironments cache or MPSKit's " *
+            "FiniteEnvironments (built via `environments(ψ, H, ψ)`)"
+        ))
+    return envs
+end
+
+# Sweep driver for the fast engine. Mirrors `_dmrg_run!` (same bookkeeping,
+# logging, checkpointing and adaptive-solver statistics) with:
+#   * `fast_local_update!` (returns the local eigenvalue λ)
+#   * per-update environment freeing (`_free_after_move!`)
+#   * per-sweep energy from the λ of the LAST update of the sweep (the
+#     variational energy of the normalized state), so no full
+#     `expectation_value` rebuild is needed; ΔE of the first sweep is NaN
+#   * spectral shift: the previous sweep's energy is subtracted from the
+#     effective Hamiltonian of every eigensolve (a pure shift leaves the Krylov
+#     subspace unchanged, so this is always safe)
+#   * `manual_gc`: `GC.gc(false)` after every update and `GC.gc(true)` with an
+#     RSS/environment memory report after every sweep (FiniteMPS.jl style)
+function _dmrg_run_fast!(
+        label::String, ψ::AbstractFiniteMPS, H,
+        algs::AbstractVector{<:Union{DMRG, DMRG2}}, envs::FastFiniteEnvironments;
+        filename::String, save::Union{Bool, AbstractVector{<:Integer}}, verbose,
+        manual_gc::Bool
+    )
+    N = length(ψ)
+    niters = length(algs)
+    isempty(algs) && throw(ArgumentError("truncdims cannot be empty"))
+    save_iters = _dmrg_save_iters(save, niters)
+    Tr = real(scalartype(ψ))
+    n = maximum(alg -> _num_updates(alg, ψ), algs)
+    ϵ_locals = ones(Tr, n)
+    ϵ_truncs = zeros(Tr, n)
+    decay_rates = zeros(n)
+    ϵ_global = one(Tr)
+    allocator = default_allocator(ψ, SerialScheduler())
+    timer = TimerOutput()
+    wpos = ndigits(N)
+    witer = ndigits(niters)
+    wD = 4
+
+    E_prev = NaN
+    E₀ = NaN
+    λ = zero(Tr)   # assigned inside the sweep loops; pre-declare so it is
+                   # visible after them (loop bodies are their own scope)
+    start_time, record_start = now(), now()
+    Int(verbose) > 0 && println("$label Sweep Started (fast engine): ", Dates.format(start_time, "d.u yyyy HH:MM"))
+    Int(verbose) > 0 && flush(stdout)
+
+    for iter in 1:niters
+        alg = algs[iter]
+        fwd, bwd = _sweep_ranges(alg, ψ)
+        positions = union(fwd, bwd)
+        # spectral shift for this sweep's eigensolves
+        shift = isnan(E_prev) ? 0.0 : E_prev
+
+        @timeit timer "L2R sweep" begin
+            for pos in fwd
+                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], decay_rates[pos] =
+                    fast_local_update!(
+                        pos, Val(:right), ψ, H, alg, envs,
+                        ϵ_global, ϵ_truncs[pos], decay_rates[pos],
+                        iter, timer, allocator;
+                        energy_shift = shift
+                    )
+                _free_after_move!(envs, alg, Val(:right), pos)
+                manual_gc && GC.gc(false)
+                ϵ_global = maximum(view(ϵ_locals, positions))
+                if Int(verbose) > 1
+                    _dmrg_log_move(alg, Val(:right), pos, ψ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD)
+                    flush(stdout)
+                end
+            end
+        end
+        @timeit timer "R2L sweep" begin
+            for pos in bwd
+                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], decay_rates[pos] =
+                    fast_local_update!(
+                        pos, Val(:left), ψ, H, alg, envs,
+                        ϵ_global, ϵ_truncs[pos], decay_rates[pos],
+                        iter, timer, allocator;
+                        energy_shift = shift
+                    )
+                _free_after_move!(envs, alg, Val(:left), pos)
+                manual_gc && GC.gc(false)
+                ϵ_global = maximum(view(ϵ_locals, positions))
+                if Int(verbose) > 1
+                    _dmrg_log_move(alg, Val(:left), pos, ψ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD)
+                    flush(stdout)
+                end
+            end
+        end
+
+        E₀ = real(λ)   # λ of the last R2L update = variational energy
+        ΔE = abs(E₀ - E_prev)
+        E_prev = E₀
+        Dmax = _dmrg_max_bond_dim(ψ)
+        wD = max(wD, ndigits(Dmax))
+        current_time = now()
+        if manual_gc
+            GC.gc(true)
+            Int(verbose) > 0 && _print_mem("sweep $iter done", envs)
+        end
         if Int(verbose) > 0
             println(
                 "[", lpad(iter, witer), "/", niters, "] ", label, "/",

@@ -258,7 +258,7 @@ uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.7.0"
 
 [[deps.DynamicalCorrelators]]
-deps = ["BlockTensorKit", "Dates", "Distributed", "JLD2", "KrylovKit", "LinearAlgebra", "MPSKit", "MPSKitModels", "NumericalIntegration", "Preferences", "Printf", "QuantumLattices", "SharedArrays", "TensorKit", "TensorOperations", "TimerOutputs"]
+deps = ["BlockTensorKit", "Dates", "Distributed", "JLD2", "KrylovKit", "LinearAlgebra", "MPSKit", "MPSKitModels", "MatrixAlgebraKit", "NumericalIntegration", "Preferences", "Printf", "QuantumLattices", "SerializedElementArrays", "SharedArrays", "TensorKit", "TensorOperations", "TimerOutputs"]
 path = ".."
 uuid = "7abe38c7-550a-49b0-ba99-33d1b5164ede"
 version = "0.14.0"
@@ -837,6 +837,12 @@ version = "1.6.2"
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 version = "1.11.0"
+
+[[deps.SerializedElementArrays]]
+deps = ["Serialization"]
+git-tree-sha1 = "8e73e49eaebf73486446a3c1eede403bff259826"
+uuid = "d3ce8812-9567-47e9-a7b5-65a6d70a3065"
+version = "0.1.0"
 
 [[deps.SharedArrays]]
 deps = ["Distributed", "Mmap", "Random", "Serialization"]

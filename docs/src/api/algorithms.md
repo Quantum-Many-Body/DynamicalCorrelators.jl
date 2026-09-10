@@ -30,6 +30,21 @@ myTDVP1_CBE
 myTDVP2
 ```
 
+## Fast Finite Engine
+
+The finite-system drivers run on the package's lazy, optionally disk-backed
+environment manager; see [The Finite Engine](../tutorials/finite_engine.md)
+for the memory model and threading layout.
+
+```@docs
+FastFiniteEnvironments
+fast_timestep!
+configure_finite_engine!
+set_threaded_hamiltonian!
+set_prefused_hamiltonian!
+env_memory_bytes
+```
+
 ## Cluster Perturbation Theory (CPT)
 
 ```@docs

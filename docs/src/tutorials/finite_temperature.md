@@ -140,6 +140,11 @@ Completed source files are loaded from `gf_path`; unfinished source channels are
 evaluated independently, and distributed workers each keep one charged ket and
 one loaded thermal state at a time.
 
+Both `evolve_mps` and the finite-temperature `dcorrelator` methods run on the
+fast finite engine and accept `disk = true` (or a directory path) to offload
+the TDVP environments from RAM; sharing one `disk` root across distributed
+workers is safe. See [The Finite Engine](finite_engine.md).
+
 ## Notes
 
 - `identityMPS(H)` constructs the purified infinite-temperature state.

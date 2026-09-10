@@ -24,7 +24,9 @@ overrides in this package have been removed in favor of the upstream
 implementations. On top of them, v0.14.0 adds schedule-driven DMRG drivers
 with explicit per-sweep bond-dimension control, thread-parallel sparse
 Jordan-MPO effective Hamiltonians for finite systems, and adaptive local
-eigensolvers by default.
+eigensolvers by default. The finite-system DMRG and TDVP drivers share a new
+lazy, optionally disk-backed environment manager (the fast finite engine)
+that removes the dominant memory bottleneck of large-bond-dimension runs.
 
 ## Migration to MPSKit main
 
@@ -48,16 +50,25 @@ eigensolvers by default.
   drivers run an explicit `truncdims` schedule: `truncdims[i]` is exactly the
   kept bond dimension after sweep `i`, and the number of sweeps is exactly
   `length(truncdims)`.
-- They are built on MPSKit's per-update `local_update!` (the same building
-  block `find_groundstate` uses), so one-site sweeps support
-  `alg_expand = OptimalExpand`/`SketchedExpand`/`RandExpand`, an instance, or a
-  factory `D -> alg`, with `delta` controlling the per-update expansion budget.
+- They run on the fast finite engine by default and keep MPSKit's per-update
+  structure, so one-site sweeps support
+  `alg_expand = OptimalExpand(...)`/`SketchedExpand(...)`/`RandExpand(...)`
+  instances or a factory `D -> alg`; the default
+  `D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1*D)))` overexpands each
+  bond by 10% of the sweep target ahead of the eigensolve.
+- Engine keywords shared by all drivers: `disk` (`false`, `true` for a
+  `tempdir()` subdirectory, or a directory path) backs the environments by
+  disk; `manual_gc` (default `true`) collects garbage per update and reports
+  memory per sweep; `envs` accepts an explicit environment manager — pass
+  MPSKit's `environments(ψ, H, ψ)` to run the reference full-cache driver for
+  cross-checks.
 - `dmrg_mix` combines a robust two-site warmup at small D with cheap one-site
   CBE sweeps at large D, in a single run with continuous sweep numbering and
   checkpointing:
 
 ```julia
-ψ, envs, E0 = dmrg_mix(ψ0, H, [64, 128, 256], [512, 1024, 1024]; delta = 0.3)
+ψ, envs, E0 = dmrg_mix(ψ0, H, [64, 128, 256], [512, 1024, 1024];
+                       alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.3*D))))
 # or equivalently with a switch point
 ψ, envs, E0 = dmrg_mix(ψ0, H, [64, 128, 256, 512, 1024, 1024]; switch_D = 256)
 ```
@@ -82,6 +93,27 @@ eigensolvers by default.
   run about 1.4x faster with `OptimalExpand` and about 2.8x faster with
   `SketchedExpand` than the default MPSKit path).
 
+## Fast finite engine
+
+- The finite DMRG drivers and the TDVP time evolution behind
+  `dcorrelator`/`evolve_mps` share a lazy environment manager
+  (`FastFiniteEnvironments`): each environment is built on first query, freed
+  right after its last use within a sweep, and invalidated automatically via
+  object-identity tracking when local tensors change. Peak environment storage
+  drops from `2(N+1)` cached tensors (MPSKit's `FiniteEnvironments`) to about
+  `N+O(1)` — the difference that makes large-D SU(2) runs fit in memory.
+- `disk = true` (or a directory path) serializes the environments to disk, one
+  file per entry, deleting each file when its entry is freed. Sharing one
+  `disk` root across distributed workers is safe (every environment array gets
+  its own random subdirectory).
+- When `Threads.nthreads() > 1`, environment construction and the truncated
+  SVDs (DMRG/TDVP gauge steps, the TDVP2 split) are parallelized across Julia
+  threads automatically, on top of the threaded effective Hamiltonians; BLAS
+  stays pinned to one thread. `configure_finite_engine!()` sets and prints the
+  recommended layout.
+- `fast_timestep!` is the engine's in-place TDVP entry point for finite MPS;
+  the state must be complex before its environments are constructed.
+
 ## Adaptive local eigensolvers
 
 - DMRG local eigensolves now default to MPSKit's `AdaptiveKrylov`, which
@@ -101,16 +133,20 @@ alg = myDMRG2(; trunc = truncrank(1024), adaptive = false)  # fixed one-step Lan
 
 ## Time-evolution memory usage
 
-- `dcorrelator`/`evolve_mps` now evolve in place via `timestep!` once the state
-  is complex, instead of copying the whole MPS at every step. At large bond
-  dimensions this removes a full-MPS allocation per time step.
+- `dcorrelator`/`evolve_mps` evolve in place with `fast_timestep!` on the fast
+  finite engine: the state is promoted to complex once up front instead of
+  copying the whole MPS at every step, environments follow the lazy `N+O(1)`
+  memory model, and the `disk` keyword offloads them to disk at the largest
+  bond dimensions.
 
 ## API Changes
 
 - Removed exports: `TDVP1_CBE`, `dmrg1_cbe!`/`dmrg1_cbe`, `idmrg2`,
   `dmrg2_sweep!`, `myDMRG1CBE_eigsolve`.
 - New exports: `dmrg1`/`dmrg1!`, `dmrg2`/`dmrg2!`, `dmrg_mix`/`dmrg_mix!`,
-  `set_threaded_hamiltonian!`.
+  `set_threaded_hamiltonian!`, `set_prefused_hamiltonian!`,
+  `FastFiniteEnvironments`, `fast_timestep!`, `configure_finite_engine!`,
+  `free_left!`/`free_right!`, `env_memory_bytes`.
 - `myTDVP1_CBE` keeps its name but now returns MPSKit's `TDVP` configured with
   `alg_expand = OptimalExpand(...)`; its `cbe_tol`/`project_error` keywords
   were removed (the upstream expansion is parameterized by `trunc` and
