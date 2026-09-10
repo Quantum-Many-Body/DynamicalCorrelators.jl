@@ -21,6 +21,7 @@ makedocs(;
             "Dynamical Correlations" => "tutorials/dynamical_correlations.md",
             "Spectral Functions" => "tutorials/spectral_functions.md",
             "Finite Temperature" => "tutorials/finite_temperature.md",
+            "The Finite Engine" => "tutorials/finite_engine.md",
         ],
         "API Reference" => [
             "Models & Lattices" => "api/models.md",

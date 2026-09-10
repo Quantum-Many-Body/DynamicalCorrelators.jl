@@ -309,6 +309,11 @@ dcorrelator(gs, H, op, indices;
 
 With this choice, bond growth is controlled by `D` in the CBE algorithm.
 
+The time evolution runs in place on the fast finite engine, so its
+environments follow the lazy `N+O(1)` memory model and can be offloaded to
+disk with `disk = true` (or a directory path) at large bond dimensions; see
+[The Finite Engine](finite_engine.md).
+
 ## Checkpointing
 
 Each source channel is saved to a JLD2 file under `gf_path`. Re-running the same

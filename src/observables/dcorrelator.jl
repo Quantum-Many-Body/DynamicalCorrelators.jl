@@ -10,12 +10,17 @@ states are written to `filename` for every index in `save_id` with keys
 `"t=\$(ts[i])"`. Set `save = false` to disable all file output. For
 finite-temperature `dcorrelator`, save every requested
 real-time slice, for example `save_id = eachindex(times)`.
+
+The TDVP environments are managed by the fast finite engine
+(`FastFiniteEnvironments`); pass `disk = true` (or a directory path) to back
+them by disk instead of RAM.
 """
 function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H));
                     filename::String="default_expiHt_ψ.jld2",
                     save::Bool=true,
                     save_id::AbstractArray=[length(ts),],
                     verbose::Bool=true,
+                    disk::Union{Bool,AbstractString}=false,
                     n::Integer=3,
                     tdvp1 = myTDVP1(),
                     tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3))
@@ -24,7 +29,10 @@ function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=co
     start_time, record_start = now(), now()
     verbose && _progress_start(1, length(ts), "t = $(ts[1])")
     flush(stdout)
-    envs = environments(rho_mps, H, rho_mps)
+    # the fast engine evolves the state in place, so promote it to complex once,
+    # up front (MPSKit's non-mutating `timestep` used to do this on the first call)
+    scalartype(rho_mps) <: Complex || (rho_mps = complex(rho_mps))
+    envs = FastFiniteEnvironments(rho_mps, H; disk)
     save && jldopen(filename, "w") do f
         f["ts"] = ts
         if 1 in save_id
@@ -59,12 +67,19 @@ corresponding parameter values are written to `filename` with keys
 `"t=\$(ts[i])"` and `"mu_t=\$(ts[i])"`. Set `save = false` to disable all
 file output. For finite-temperature `dcorrelator`, save every requested
 real-time slice, for example `save_id = eachindex(times)`.
+
+The TDVP environments are managed by the fast finite engine
+(`FastFiniteEnvironments`); pass `disk = true` (or a directory path) to back
+them by disk instead of RAM. Note that the environments are built once from
+`H(mus[1])` and kept for the whole evolution — the same behavior as before,
+when MPSKit's environments were reused across the changing Hamiltonian.
 """
 function evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H(mus[1])));
                     filename::String="default_expiHt_ψ.jld2",
                     save::Bool=true,
                     save_id::AbstractArray=[length(ts),],
                     verbose::Bool=true,
+                    disk::Union{Bool,AbstractString}=false,
                     n::Integer=3,
                     tdvp1 = myTDVP1(),
                     tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3))
@@ -74,7 +89,8 @@ function evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mp
     verbose && _progress_start(1, length(ts), "t = $(ts[1])")
     flush(stdout)
     H0 = @timeit timer "build Hamiltonian" H(mus[1])
-    envs = environments(rho_mps, H0, rho_mps)
+    scalartype(rho_mps) <: Complex || (rho_mps = complex(rho_mps))
+    envs = FastFiniteEnvironments(rho_mps, H0; disk)
     save && jldopen(filename, "w") do f
         f["ts"] = ts
         if 1 in save_id
@@ -138,16 +154,11 @@ function _progress_end(start_time, timer::TimerOutput)
     println(timer)
 end
 
-function _timed_timestep(timer::TimerOutput, ψ, H, t, dt, alg, envs)
+function _timed_timestep(timer::TimerOutput, ψ, H, t, dt, alg, envs::FastFiniteEnvironments)
     @timeit timer "time loop / timestep" begin
-        # `timestep` copies the state (and promotes real states to complex on the
-        # first call); once the state is complex, evolve in place with
-        # `timestep!` to avoid a full-MPS copy per step
-        if scalartype(ψ) <: Complex
-            return timestep!(ψ, H, t, dt, alg, envs)
-        else
-            return timestep(ψ, H, t, dt, alg, envs)
-        end
+        # fast engine only: the state is complex (promoted once before the
+        # environments were built) and evolves in place
+        return fast_timestep!(ψ, H, t, dt, alg, envs)
     end
 end
 
@@ -265,6 +276,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                     verbose=true,
                     save::Bool=true,
                     gf_path::String="./",
+                    disk::Union{Bool,AbstractString}=false,
                     times::AbstractRange=0:0.05:5.0,
                     record_indices::AbstractArray=1:length(times),
                     n::Integer=3,
@@ -328,7 +340,8 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     verbose && _progress_start(1, length(times), "time evolves 0.0 of ket$(id)")
     verbose && flush(stdout)
 
-    envs = environments(ket, H, ket)
+    scalartype(ket) <: Complex || (ket = complex(ket))
+    envs = FastFiniteEnvironments(ket, H; disk)
     for k in 2:record_last
         alg = k > n ? tdvp1 : tdvp2
         ket, envs = _timed_timestep(timer, ket, H, 0, times[k] - times[k - 1], alg, envs)
@@ -378,6 +391,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                     verbose=true,
                     save::Bool=true,
                     gf_path::String="./",
+                    disk::Union{Bool,AbstractString}=false,
                     times::AbstractRange=0:0.05:5.0,
                     record_indices::AbstractArray=1:length(times),
                     n::Integer=3,
@@ -445,7 +459,8 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         end
         verbose && _progress_start(1, length(times), "time evolves 0.0 of ket$(id)")
         flush(stdout)
-        envs = environments(ket, H, ket)
+        scalartype(ket) <: Complex || (ket = complex(ket))
+        envs = FastFiniteEnvironments(ket, H; disk)
         for k in 2:record_last
             alg = k > n ? tdvp1 : tdvp2
             ket, envs = _timed_timestep(timer, ket, H, 0, times[k]-times[k-1], alg, envs)
@@ -516,6 +531,7 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
                     verbose=true,
                     save::Bool=true,
                     gf_path::String="./",
+                    disk::Union{Bool,AbstractString}=false,
                     times::AbstractRange=0:0.05:5.0,
                     beta::Union{Number, Missing}=missing,
                     n::Integer=3,
@@ -532,7 +548,8 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
     rho = @timeit timer "load rho" _dcorrelator_load_rho(rho_path, times[1])
     Z = dot(rho, rho)
     ket = @timeit timer "setup / chargedMPS" chargedMPS(op, rho, idx)
-    ket_env = environments(ket, H, ket)
+    scalartype(ket) <: Complex || (ket = complex(ket))
+    ket_env = FastFiniteEnvironments(ket, H; disk)
     wall_start = now()
 
     save && jldopen(filename, "w") do f
@@ -586,6 +603,7 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
                     verbose=true,
                     save::Bool=true,
                     gf_path::String="./",
+                    disk::Union{Bool,AbstractString}=false,
                     times::AbstractRange=0:0.05:5.0,
                     beta::Union{Number, Missing}=missing,
                     n::Integer=3,
@@ -606,7 +624,8 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
         rho = @timeit timer "load rho" _dcorrelator_load_rho(rho_path, times[1])
         Z = dot(rho, rho)
         ket = @timeit timer "setup / chargedMPS" chargedMPS(op, rho, idx)
-        ket_env = environments(ket, H, ket)
+        scalartype(ket) <: Complex || (ket = complex(ket))
+        ket_env = FastFiniteEnvironments(ket, H; disk)
         wall_start = now()
 
         save && jldopen(filename, "w") do f

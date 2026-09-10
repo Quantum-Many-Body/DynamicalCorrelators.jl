@@ -18,6 +18,10 @@
 # is on (see `set_threaded_hamiltonian!`); otherwise MPSKit's default operator is
 # returned. Note that contractions inside spawned tasks intentionally use the
 # default allocator: MPSKit's scratch BufferAllocator is not thread-safe.
+#
+# BEFORE writing any new contraction here, read
+# docs/tensorkit-plansor-conventions.md (the @plansor planar leg-order rules)
+# and confirm the index scheme with the user first.
 
 """
     set_threaded_hamiltonian!(enable::Bool) -> Bool
@@ -30,6 +34,22 @@ default (prepared, fused) operators. Returns the new setting.
 set_threaded_hamiltonian!(enable::Bool) = (_THREADED_HAMILTONIAN[] = enable)
 
 const _THREADED_HAMILTONIAN = Ref{Bool}(true)
+
+"""
+    set_prefused_hamiltonian!(enable::Bool) -> Bool
+
+Enable or disable prefused one-site channels (default: disabled). When enabled,
+each continuing `A` channel `(GLᵢ, Wᵢⱼ, GRⱼ)` of the threaded effective
+Hamiltonian is partially contracted once up front, `P = GLᵢ ⊗ Wᵢⱼ`, so every
+Krylov matvec saves re-contracting the environment with the MPO tensor. This
+trades a bigger per-channel tensor for a cheaper matvec; worthwhile when the
+effective Hamiltonian is applied many times per local update. Only the one-site
+(AC) operator is prefused; the two-site operator is left as an extension point.
+Returns the new setting.
+"""
+set_prefused_hamiltonian!(enable::Bool) = (_PREFUSED_HAMILTONIAN[] = enable)
+
+const _PREFUSED_HAMILTONIAN = Ref{Bool}(false)
 
 _threading_enabled() = _THREADED_HAMILTONIAN[] && Threads.nthreads() > 1
 
@@ -78,6 +98,26 @@ function _apply_AA_channel(ch::_AAChannel, x)
     @plansor tmp[-1 -2; -3 -4] :=
         ch.leftenv[-1 2; 1] * x[1 3; 7 5] * ch.localop1[2 -2; 3 4] *
         ch.localop2[4 -4; 5 6] * ch.rightenv[7 6; -3]
+    return tmp
+end
+
+"""One-site channel with the environment prefused into the MPO tensor: `P = GLᵢ ⊗ Wᵢⱼ`."""
+struct _PrefusedAChannel{P, R}
+    fused::P
+    rightenv::R
+end
+
+function _prefuse_A_channel(ch::_AChannel)
+    # leg order exactly as MPSKit's `prepare_operator!!` (mpo_derivatives.jl:224):
+    # P cod = (env virtual, physical bra, MPO right virtual), dom = (env virtual, physical ket)
+    @plansor P[-1 -2 -3; -4 -5] := ch.leftenv[-1 5; -4] * ch.localop[5 -2; -5 -3]
+    return _PrefusedAChannel(P, ch.rightenv)
+end
+
+function _apply_A_channel(ch::_PrefusedAChannel, x)
+    # inverse substitution of the fusion: contracts P's domain with x and P's
+    # MPO-virtual codomain leg with the right environment (planar)
+    @plansor tmp[-1 -2; -3] := ch.fused[-1 -2 3; 4 2] * x[4 2; 1] * ch.rightenv[1 3; -3]
     return tmp
 end
 
@@ -138,6 +178,11 @@ end
 function ThreadedJordanMPO_AC_Hamiltonian(H0::JordanMPO_AC_Hamiltonian)
     channels = ismissing(H0.A) ? _AChannel[] :
         _collect_A_channels(H0.A.leftenv, H0.A.operators[1], H0.A.rightenv)
+    if _PREFUSED_HAMILTONIAN[] && !isempty(channels)
+        return ThreadedJordanMPO_AC_Hamiltonian(
+            H0.D, H0.I, H0.E, H0.C, H0.B, map(_prefuse_A_channel, channels)
+        )
+    end
     return ThreadedJordanMPO_AC_Hamiltonian(H0.D, H0.I, H0.E, H0.C, H0.B, channels)
 end
 

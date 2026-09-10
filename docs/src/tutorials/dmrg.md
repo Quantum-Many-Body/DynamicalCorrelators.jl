@@ -1,8 +1,9 @@
 # Ground State with DMRG
 
-DynamicalCorrelators.jl provides two finite-system DMRG drivers, `dmrg2` and
-`dmrg1`, built on MPSKit's per-site update machinery. Both take an explicit
-`truncdims` schedule that fixes the number of sweeps and the target bond
+DynamicalCorrelators.jl provides three finite-system DMRG drivers, `dmrg2`,
+`dmrg1` and the hybrid `dmrg_mix`, running on the package's fast finite
+engine (lazy, optionally disk-backed environments). All take explicit
+`truncdims` schedules that fix the number of sweeps and the target bond
 dimension of each sweep, print per-move and per-sweep diagnostics, and write
 JLD2 checkpoints along the way.
 
@@ -43,23 +44,27 @@ JLD2 file, which is useful for long runs on a cluster.
 
 One-site DMRG is cheaper than two-site DMRG, but it cannot grow the bond space
 by itself. `dmrg1` therefore runs MPSKit's one-site `DMRG` update with a bond
-expansion ahead of each eigensolve. With the default `alg_expand =
-OptimalExpand` setting, each bond is enlarged ahead of the one-site eigensolve
-by up to `ceil(Int, delta*D)` directions selected from the projected two-site
-update, and truncated back to `D = truncdims[iter]` by the gauge step:
+expansion ahead of each eigensolve. The default `alg_expand` is the factory
+`D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1*D)))`: ahead of each
+one-site eigensolve the moving bond is enlarged by up to 10% of the sweep
+target `D = truncdims[iter]` with directions selected from the projected
+two-site update, and the gauge step truncates the enlarged bond back to `D`:
 
 ```julia
 gs, envs, E0 = dmrg1(ψ0, H, truncdims;
-    delta = 0.1,
     filename = "dmrg1.jld2",
     verbose = 2,
 )
 ```
 
-Any bond-expansion algorithm defined by MPSKit can be plugged in by passing an
-instance, e.g. `alg_expand = SketchedExpand(; trunc = truncrank(64))` for the
-randomized single-site-cost selection, or `alg_expand = RandExpand(...)`. Pass
-`alg_expand = nothing` for plain single-site DMRG (which cannot grow the bond).
+Any bond-expansion algorithm defined by MPSKit can be plugged in through
+`alg_expand`, either as an instance applied at every sweep or as a factory
+`D -> alg` built from the sweep target, e.g.
+`alg_expand = D -> SketchedExpand(; trunc = truncrank(ceil(Int, 0.1*D)), oversampling = 10)`
+for the randomized single-site-cost selection, or `alg_expand = RandExpand(...)`.
+Pass `alg_expand = nothing` for plain single-site DMRG (which cannot grow the
+bond). Note that for `OptimalExpand`/`SketchedExpand` the inner `trunc` counts
+the directions *added* per bond, not the resulting bond dimension.
 
 ## Logging and Checkpoints
 
@@ -72,6 +77,24 @@ randomized single-site-cost selection, or `alg_expand = RandExpand(...)`. Pass
   stores only the final sweep, a vector of sweep indices stores those
   sweeps), together with `filename`.
 
+## Environment Memory and Disk Backing
+
+All three drivers run on the package's fast finite engine: environments are
+cached lazily, freed right after their last use within each sweep, and can be
+serialized to disk when RAM is the bottleneck:
+
+```julia
+gs, envs, E0 = dmrg1(ψ0, H, truncdims;
+    disk = true,                # or a directory path, e.g. "/scratch/myuser"
+    manual_gc = true,           # default; per-update GC + per-sweep memory report
+    verbose = 1,
+)
+```
+
+See [The Finite Engine](finite_engine.md) for the memory model, the threading
+layout, and the `envs` keyword (pass MPSKit's `environments(ψ, H, ψ)` to fall
+back to the reference full-cache driver).
+
 ## Hybrid Two-Site + One-Site (CBE) DMRG
 
 Two-site updates grow the bond by up to a factor of the physical dimension per
@@ -82,7 +105,7 @@ checkpointing:
 
 ```julia
 ψ, envs, E0 = dmrg_mix(ψ0, H, [64, 128, 256], [512, 1024, 1024];
-    delta = 0.1, filename = "dmrg_mix.jld2")
+    filename = "dmrg_mix.jld2")
 ```
 
 or with a single schedule and a switch point (entries `≤ switch_D` run
@@ -145,8 +168,9 @@ gs∞, envs∞, ϵ∞ = find_groundstate(ψ∞, H∞, IDMRG2(; trunc = truncrank
   The package sets BLAS threads to one at initialization.
 - Checkpoint files are ordinary JLD2 files. You can inspect sweep energies,
   truncation errors, and saved states without rerunning the calculation.
-- The CBE parameters `D` and `delta` should be chosen together: `D` is the
-  target kept dimension, while `delta` controls the temporary working space.
+- The CBE parameters `D` and `delta` of the `myDMRG1_CBE`/`myTDVP1_CBE`
+  constructors should be chosen together: `D` is the target kept dimension,
+  while `delta` controls the temporary working space.
 - MPSKit's sweeps allocate their local-update scratch space from a dedicated
   allocator by default; see `MPSKit.Defaults.set_buffering!` and
   `MPSKit.Defaults.set_scheduler!` for memory/threading controls.

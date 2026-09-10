@@ -63,7 +63,7 @@ For larger sparse Jordan-MPO calculations, one-site CBE-DMRG is often the more
 useful production path:
 
 ```julia
-gs, envs, E0 = dmrg1(ψ0, H, [128, 256, 512]; delta = 0.1)
+gs, envs, E0 = dmrg1(ψ0, H, [128, 256, 512])
 ```
 
 Both mutate the state in place when called as `dmrg2!`/`dmrg1!`, and both write
