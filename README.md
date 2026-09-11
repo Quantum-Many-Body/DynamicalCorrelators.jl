@@ -4,6 +4,129 @@
 
 See documents: https://Quantum-Many-Body.github.io/DynamicalCorrelators.jl
 
+## Basic Workflow on HPC
+
+### Ground state (`gs.jl`)
+
+```julia
+using Pkg
+Pkg.activate("$(ENV["HOME"])/envs/userenv/")   # the project environment with
+                                               # DynamicalCorrelators & co.
+
+using TensorKit
+using MPSKit
+using DynamicalCorrelators
+using QuantumLattices
+using JLD2: save, load
+
+configure_finite_engine!(; blas_threads = 1,
+                         transformer_threads = nothing,
+                         manipulation_threads = nothing,
+                         verbose = true)
+
+# 6x6 square Hubbard with SU(2) spin x U(1) particle symmetry
+coords = snake_2D([[1.0, 0.0], [0.0, 1.0]], vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
+lattice = Lattice(coords...)
+sq = Custom(lattice)
+elt = Float64
+t, u, filling = 1.0, 8.0, (1, 1)
+H = hubbard(elt, SU2Irrep, U1Irrep, sq; t, U = u, filling)
+
+ψ = randFiniteMPS(elt, SU2Irrep, U1Irrep, length(H); md = 20, filling)
+
+trunc2 = [64, 1024, 4096, 8192]
+trunc1 = [8192 for _ in 1:10]
+
+ψ, envs, E0 = dmrg_mix!(ψ, H, trunc2, trunc1;
+    alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1 * D))),
+    filename = "/bbfs/fsa/username/jobname/hubbard_L=$(length(H))_t=$(t)_U=$(u).jld2",
+    save = true,
+    disk = "/bbfs/scratch/username/jobname",
+    manual_gc = true,
+    verbose = 2)
+```
+
+Submit the whole node to a single multi-threaded Julia process 
+
+```bash
+bsub -q queue_name -m node_name -n 36 \
+    -o "output/gs_%J" \
+    julia -t 36 gs.jl
+```
+
+### Dynamical correlation (`gf.jl`)
+
+
+```julia
+using Pkg
+Pkg.activate("$(ENV["HOME"])/envs/userenv/")  
+using Distributed
+using TensorKit
+using MPSKit
+using DynamicalCorrelators
+using QuantumLattices
+using JLD2: save, load
+
+i = parse(Int, ARGS[1])          # job-array index: which batch this job runs
+elt = Float64
+t, u, filling = 1.0, 8.0, (1, 1)
+L = 36
+
+# reload the converged ground state from the checkpoint written by gs.jl
+gs = load("/bbfs/fsa/username/jobname/hubbard_L=$(L)_t=$(t)_U=$(u).jld2", "sweep_14_ψ")
+
+coords = snake_2D([[1.0, 0.0], [0.0, 1.0]], vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
+lattice = Lattice(coords...)
+H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t, U = u, filling)
+
+cp = e_plus(elt, SU2Irrep, U1Irrep; side = :L, filling)
+cm = e_min(elt, SU2Irrep, U1Irrep; side = :L, filling)
+
+addprocs(18; exeflags = `--threads=4`)
+
+@everywhere begin
+    using Pkg
+    Pkg.activate("$(ENV["HOME"])/envs/userenv/")
+    using TensorKit
+    using MPSKit
+    using DynamicalCorrelators
+    using JLD2: save, load
+end
+
+# batch i of this job: which source sites and which operator
+as = [1:18, 19:36, 37:54, 55:72]   # source-site batches (greater + lesser parts)
+op = [cp, cp, cm, cm]
+
+gf = dcorrelator(gs, H, op[i], as[i];
+    approxalg = myDMRG2(; tol = 1e-6, maxiter = 50, trunc = truncrank(8192)),
+    tdvp2 = myTDVP2(; trunc = truncrank(8192)),
+    tdvp1 = myTDVP1(),
+    n = 3,
+    times = 0:0.1:100,
+    gf_path = "/bbfs/fsa/username/jobname/gf_L=$(L)_U=$(u)_tmax=100/",
+    # disk-backed environments, per-worker subdirectories (never collide)
+    disk = "/bbfs/scratch/username",
+)
+
+save("/bbfs/fsa/username/jobname/gf_L=$(L)_U=$(u)_tmax=100/gf_xt_$(i).jld2", "gf", gf)
+```
+
+Submit one job per batch (72 cores = 18 workers × 4 threads; the main
+process itself is nearly idle, so `julia` here needs no `-t` flag — the
+workers get theirs from `addprocs(...; exeflags = `--threads=4`)`):
+
+```bash
+for i in {1..4}; do
+    bsub -q queue_name -m node_name -n 72 \
+        -o "output/output_${i}_%J" \
+        julia gf.jl "$i"
+done
+```
+
+Afterwards, transform the real-space/time data to spectra with `fourier_kw`
+or `fourier_rw` (see [Spectral Functions](tutorials/spectral_functions.md)).
+
+
 ## Installation
 
 Please type `]` in the REPL to use the package mode, then type this command:
