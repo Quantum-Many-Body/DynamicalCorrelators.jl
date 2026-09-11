@@ -30,50 +30,178 @@ finite-MPS dynamical-correlation workflows:
 - finite-temperature correlators read a saved `rho(t)` trajectory one slice at
   a time and use sweep contractions against the active charged ket.
 
-## Basic Workflow
+## Basic Workflow on HPC
 
-A typical zero-temperature calculation is:
+A production zero-temperature run splits into two scripts: one DMRG job for
+the ground state, then one job per operator/source batch for the dynamical
+correlator. Both are submitted through the cluster scheduler (LSF `bsub`
+below; translate to `sbatch` on SLURM), giving Julia all the cores of the
+node — the finite engine parallelizes over Julia threads, so BLAS stays
+pinned to one thread per task.
 
-1. Build an MPO Hamiltonian.
-2. Find a ground state with DMRG or CBE-DMRG1.
-3. Build local operators such as `e_plus`, `e_min`, or `S_plus`.
-4. Compute real-space/time correlators with `dcorrelator`.
-5. Transform to spectra with `fourier_kw` or `fourier_rw`.
+### Ground state (`gs.jl`)
 
 ```julia
+using Pkg
+Pkg.activate("$(ENV["HOME"])/envs/userenv/")   # the project environment with
+                                               # DynamicalCorrelators & co.
+
 using TensorKit
 using MPSKit
-using MPSKitModels: FiniteChain
 using DynamicalCorrelators
+using QuantumLattices
+using JLD2: save, load
 
-N = 24
-filling = (1, 1)
-H = hubbard(Float64, SU2Irrep, U1Irrep, FiniteChain(N);
-    t = 1.0, U = 8.0, filling = filling)
+# blas_threads = 1: the engine parallelizes above BLAS (Hamiltonian channels,
+# SVD blocks), so multi-threaded BLAS only adds contention.
+# transformer_threads / manipulation_threads = nothing leaves TensorKit's own
+# SU(2) recoupling thread pools unchanged; enable them only if profiling
+# shows the fusion-tree transforms, not the contractions, dominate.
+configure_finite_engine!(; blas_threads = 1,
+                         transformer_threads = nothing,
+                         manipulation_threads = nothing,
+                         verbose = true)
 
-ψ0 = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling)
-gs, envs, E = dmrg2(ψ0, H, [128, 256, 512])
+# 6x6 square Hubbard with SU(2) spin x U(1) particle symmetry
+coords = snake_2D([[1.0, 0.0], [0.0, 1.0]], vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
+lattice = Lattice(coords...)
+sq = Custom(lattice)
+elt = Float64
+t, u, filling = 1.0, 8.0, (1, 1)
+H = hubbard(elt, SU2Irrep, U1Irrep, sq; t, U = u, filling)
 
-times = 0:0.05:10
-sp = S_plus(Float64, SU2Irrep, U1Irrep; filling)
+# random initial state in the target charge sector; md is the (small)
+# starting bond dimension — dmrg_mix grows it through the schedule
+ψ = randFiniteMPS(elt, SU2Irrep, U1Irrep, length(H); md = 20, filling)
 
-gf = dcorrelator(gs, H, sp, 1:N;
-    times,
-    tdvp1 = myTDVP1(),
-    tdvp2 = myTDVP2(),
+# dmrg_mix: cheap two-site sweeps first (truncdims_2site, they adapt the bond
+# dimension to the entanglement structure), then polished by one-site sweeps
+# with CBE bond expansion (truncdims_1site, one entry per sweep).
+# trunc2 ramps 64 -> 8192; trunc1 then holds 8192 for 10 sweeps to converge.
+trunc2 = [64, 1024, 4096, 8192]
+trunc1 = [8192 for _ in 1:10]
+
+ψ, envs, E0 = dmrg_mix!(ψ, H, trunc2, trunc1;
+    # one-site sweeps cannot grow bonds by themselves: OptimalExpand adds up
+    # to 10% new directions per bond ahead of each update. Increase the
+    # fraction for frustrated/critical systems, decrease if runtime dominates.
+    alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1 * D))),
+    # JLD2 checkpoint. save = true stores the final sweep; save = [2, 4, 6]
+    # stores exactly those sweeps — restart a crashed job with
+    # load(filename, "sweep_k_ψ") and feed it back as the initial state.
+    filename = "/bbfs/fsa/username/jobname/hubbard_L=$(length(H))_t=$(t)_U=$(u).jld2",
+    save = true,
+    # disk: false keeps environments in RAM; true serializes them under
+    # tempdir(); a string uses that directory. Essential at D ~ 4096+ on long
+    # chains — point it at node-local scratch or a burst buffer (clusters
+    # often mount one at /bbfs), not NFS.
+    disk = "/bbfs/scratch/username/jobname",
+    # GC after every local update + full collection per sweep (default true).
+    # Keep it on at large D; turn off only for small tests.
+    manual_gc = true,
+    # 0 silent, 1 per-sweep summary, 2 also per-move lines
+    verbose = 2,
 )
 ```
 
-For one source channel, pass an integer `id`:
+Submit the whole node to a single multi-threaded Julia process (`-q` picks
+the queue, `-m` the node, `-n 36` cores for `julia -t 36` threads; `-o`
+names the log after the job ID):
+
+```bash
+bsub -q queue_name -m node_name -n 36 \
+    -o "output/gs_%J" \
+    julia -t 36 gs.jl
+```
+
+### Dynamical correlation (`gf.jl`)
+
+The correlator of one operator for a batch of source sites runs on
+Distributed workers — one charged ket per worker. Submit one job per batch
+(here `i = parse(Int, ARGS[1])` selects the batch, e.g. from a job array).
 
 ```julia
-gf_site = dcorrelator(gs, H, sp, div(N, 2);
-    times,
-    record_indices = 1:101,
+using Pkg
+Pkg.activate("$(ENV["HOME"])/envs/userenv/")   # the project environment with
+                                               # DynamicalCorrelators & co.
+
+using Distributed
+i = parse(Int, ARGS[1])          # job-array index: which batch this job runs
+
+using TensorKit
+using MPSKit
+using DynamicalCorrelators
+using QuantumLattices
+using JLD2: save, load
+
+elt = Float64
+t, u, filling = 1.0, 8.0, (1, 1)
+L = 36
+
+# reload the converged ground state from the checkpoint written by gs.jl
+gs = load("/bbfs/fsa/username/jobname/hubbard_L=$(L)_t=$(t)_U=$(u).jld2", "sweep_14_ψ")
+
+coords = snake_2D([[1.0, 0.0], [0.0, 1.0]], vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
+lattice = Lattice(coords...)
+H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t, U = u, filling)
+
+cp = e_plus(elt, SU2Irrep, U1Irrep; side = :L, filling)
+cm = e_min(elt, SU2Irrep, U1Irrep; side = :L, filling)
+
+# 18 worker processes, each with 4 Julia threads: worker count is limited by
+# RAM (each worker holds a full charged ket + its environments), threads per
+# worker drive the engine's channel/SVD parallelism inside each worker
+addprocs(18; exeflags = `--threads=4`)
+
+# workers start as bare Julia processes: they must activate the project
+# environment themselves before loading packages
+@everywhere begin
+    using Pkg
+    Pkg.activate("$(ENV["HOME"])/envs/userenv/")
+    using TensorKit
+    using MPSKit
+    using DynamicalCorrelators
+    using JLD2: save, load
+end
+
+# batch i of this job: which source sites and which operator
+as = [1:18, 19:36, 37:54, 55:72]   # source-site batches (greater + lesser parts)
+op = [cp, cp, cm, cm]
+
+gf = dcorrelator(gs, H, op[i], as[i];
+    # variational compression of the charged ket op|gs⟩ before evolving it;
+    # match its trunc to the ground-state bond dimension you can afford
+    approxalg = myDMRG2(; tol = 1e-6, maxiter = 50, trunc = truncrank(8192)),
+    # first n = 3 time steps run the two-site tdvp2 (grows the charged ket's
+    # bond dimension), later steps the cheaper one-site tdvp1
+    tdvp2 = myTDVP2(; trunc = truncrank(8192)),
     tdvp1 = myTDVP1(),
-    tdvp2 = myTDVP2(),
+    n = 3,
+    times = 0:0.1:100,
+    # per-channel checkpoints gf_*_id=$(id).jld2 land under gf_path; existing
+    # files are overwritten, never reused
+    gf_path = "/bbfs/fsa/username/jobname/gf_L=$(L)_U=$(u)_tmax=100/",
+    # disk-backed environments, per-worker subdirectories (never collide)
+    disk = "/bbfs/scratch/username",
 )
+
+save("/bbfs/fsa/username/jobname/gf_L=$(L)_U=$(u)_tmax=100/gf_xt_$(i).jld2", "gf", gf)
 ```
+
+Submit one job per batch (72 cores = 18 workers × 4 threads; the main
+process itself is nearly idle, so `julia` here needs no `-t` flag — the
+workers get theirs from `addprocs(...; exeflags = `--threads=4`)`):
+
+```bash
+for i in {1..4}; do
+    bsub -q queue_name -m node_name -n 72 \
+        -o "output/output_${i}_%J" \
+        julia gf.jl "$i"
+done
+```
+
+Afterwards, transform the real-space/time data to spectra with `fourier_kw`
+or `fourier_rw` (see [Spectral Functions](tutorials/spectral_functions.md)).
 
 ## Guide
 
