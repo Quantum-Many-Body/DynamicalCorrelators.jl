@@ -68,11 +68,11 @@ lattice = Lattice(coords...)
 sq = Custom(lattice)
 elt = Float64
 t, u, filling = 1.0, 8.0, (1, 1)
-H = hubbard(elt, SU2Irrep, U1Irrep, sq; t, U = u, filling)
+H = hubbard(elt, SU2Irrep, U1Irrep, sq; t=t, U=u, filling=filling)
 
 # random initial state in the target charge sector; md is the (small)
 # starting bond dimension — dmrg_mix grows it through the schedule
-ψ = randFiniteMPS(elt, SU2Irrep, U1Irrep, length(H); md = 20, filling)
+ψ = randFiniteMPS(elt, SU2Irrep, U1Irrep, length(H); md=20, filling=filling)
 
 # dmrg_mix: cheap two-site sweeps first (truncdims_2site, they adapt the bond
 # dimension to the entanglement structure), then polished by one-site sweeps
@@ -143,10 +143,10 @@ gs = load("/bbfs/fsa/username/jobname/hubbard_L=$(L)_t=$(t)_U=$(u).jld2", "sweep
 
 coords = snake_2D([[1.0, 0.0], [0.0, 1.0]], vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
 lattice = Lattice(coords...)
-H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t, U = u, filling)
+H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t=t, U=u, filling=filling)
 
-cp = e_plus(elt, SU2Irrep, U1Irrep; side = :L, filling)
-cm = e_min(elt, SU2Irrep, U1Irrep; side = :L, filling)
+cp = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+cm = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
 
 # 18 worker processes, each with 4 Julia threads: worker count is limited by
 # RAM (each worker holds a full charged ket + its environments), threads per
