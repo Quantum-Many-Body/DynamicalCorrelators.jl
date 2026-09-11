@@ -236,6 +236,15 @@ that removes the dominant memory bottleneck of large-bond-dimension runs.
   recommended layout.
 - `fast_timestep!` is the engine's in-place TDVP entry point for finite MPS;
   the state must be complex before its environments are constructed.
+- The zero-temperature `chargedMPS(op, gs, site, alg)` compression runs the
+  same variational sweep on the fast engine (`fast_approximate!` /
+  `chargedMPS!`): mixed `⟨gs|O|ψ⟩` environments with the lazy `N+O(1)`
+  storage model and the same `disk` keyword. The initial state is a zip-up
+  warm start — one streaming MPO-MPS contraction sweep truncated with `alg`'s
+  own gauge — rather than a random MPS, so the polish typically converges
+  within a few sweeps. Override it with the `alg_zipup` keyword (e.g.
+  `Zipup(; trunc = (truncrank(2D), truncrank(D)))`), or bring a custom
+  initial state through `chargedMPS!`.
 
 ## Adaptive local eigensolvers
 

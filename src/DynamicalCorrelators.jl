@@ -25,7 +25,7 @@ using MPSKit: local_update!, _sweep_ranges, _num_updates, default_allocator, Ser
 using MPSKit: JordanMPOTensor, JordanMPO_AC_Hamiltonian, JordanMPO_AC2_Hamiltonian, prepare_operator!!
 # unexported internals called (not extended) by the fast finite engine
 using MPSKit: site_type, calc_galerkin, changebond!, _update_alg_gauge, AC2, project_complement!, fixedpoint, gauge!, gauge2!, _transpose_tail, _transpose_front
-using MPSKit: AC_projection, AC2_projection, inner_alg_gauge
+using MPSKit: AC_projection, AC2_projection, inner_alg_gauge, Zipup, approximate
 using MPSKit: C_hamiltonian
 # MPSKit's TDVP local integrator; aliased because `integrate` is already
 # imported from NumericalIntegration (same pattern as `disk as serialize_disk`)
