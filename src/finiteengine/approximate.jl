@@ -153,21 +153,46 @@ function chargedMPS!(
     return fast_approximate!(ψ, (O, gs), alg, envs; kwargs...)
 end
 
+# Zip-up warm start for the variational polish: a single streaming MPO-MPS
+# contraction sweep (MPSKit's `Zipup`; Stoudenmire & White, New J. Phys. 12
+# (2010); Paeckel et al., Ann. Phys. 411 (2019)) that needs neither
+# environments nor an initial guess. The truncation is inherited from the
+# polish algorithm's own gauge, so the warm start lands directly on the target
+# bond dimension — far better conditioned than the random initial state
+# MPSKit's `chargedMPS` uses, and typically converged within a few sweeps.
+_default_zipup_alg(alg::DMRG2) = Zipup(inner_alg_gauge(alg))
+function _default_zipup_alg(alg::DMRG)
+    alg_gauge = inner_alg_gauge(alg)
+    alg_gauge isa TruncatedAlgorithm && return Zipup(alg_gauge)
+    throw(ArgumentError(
+        "cannot derive a zip-up warm start from the non-truncating gauge " *
+        "`$(alg_gauge)`: pass an explicit `alg_zipup` (e.g. " *
+        "`Zipup(; trunc = truncrank(D))`) to `chargedMPS`, or supply your own " *
+        "initial state through `chargedMPS!`."
+    ))
+end
+
 """
-    chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS, site::Integer, alg; disk = false)
+    chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS, site::Integer, alg; disk = false, alg_zipup = ...)
 
 Approximate `chargedMPO(op, site, length(gs)) * gs` with the supplied MPSKit
 algorithm `alg` (single-site `DMRG` or two-site `DMRG2`), running on the fast
-finite engine. The initial state is a random finite MPS in the charge sector
-implied by `op` and with internal bond spaces inherited from `gs`. Pass
-`disk = true` (or a directory) to back the compression environments by disk
-instead of RAM. See [`chargedMPS!`](@ref) for the in-place form.
+finite engine. The initial state is a zip-up warm start: the MPO-MPS product
+is contracted in a single streaming sweep and truncated on the fly with
+`alg`'s own truncated gauge, instead of the random state used by MPSKit's
+`chargedMPS`. Override the warm start with `alg_zipup` (e.g. a Paeckel-style
+two-pass `Zipup(; trunc = (truncrank(2D), truncrank(D)))`, required for a
+`DMRG` polish whose gauge does not truncate), or bring a fully custom initial
+state through [`chargedMPS!`](@ref). Pass `disk = true` (or a directory) to
+back the compression environments by disk instead of RAM.
 """
 function chargedMPS(
         op::AbstractTensorMap, gs::AbstractFiniteMPS, site::Integer, alg;
-        disk::Union{Bool, AbstractString} = false, kwargs...
+        disk::Union{Bool, AbstractString} = false,
+        alg_zipup = _default_zipup_alg(alg),
+        kwargs...
     )
-    ψ₀ = randFiniteMPS(eltype(gs[1]), gs, op)
+    ψ₀, = approximate((chargedMPO(op, site, length(gs)), gs), alg_zipup)
     ψ, = chargedMPS!(ψ₀, op, gs, site, alg; disk, kwargs...)
     return ψ
 end

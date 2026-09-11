@@ -276,11 +276,13 @@ end
         @test abs(dot(ket_exact, ψ_ip)) ≈ norm(ket_exact) * norm(ψ_ip) atol=1e-10
         @test ϵ < 1e-6
 
-        # one-site compression keeps the initial bond spaces (lossy by
-        # construction, but must stay close at site 6) 
-        ket1 = chargedMPS(cm, gs, 6, myDMRG1(; maxiter=30))
+        # one-site compression cannot grow the bond dimension (lossy by
+        # construction, but must stay close at site 6): a `DMRG` polish has a
+        # non-truncating gauge, so the zip-up warm start needs an explicit
+        # truncation — the bonds are then capped by `alg_zipup`, not by `gs`
+        ket1 = chargedMPS(cm, gs, 6, myDMRG1(; maxiter=30); alg_zipup=Zipup(; trunc=truncrank(128)))
         ket_exact = chargedMPS(cm, gs, 6)
-        @test all(i -> dim(left_virtualspace(ket1, i)) <= dim(left_virtualspace(gs, i)), 1:N)
+        @test all(i -> dim(left_virtualspace(ket1, i)) <= 128, 1:N)
         @test abs(dot(ket_exact, ket1)) / (norm(ket_exact) * norm(ket1)) > 0.8
     end
 
