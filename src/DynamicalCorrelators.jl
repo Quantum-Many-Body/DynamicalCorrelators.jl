@@ -18,13 +18,14 @@ using SerializedElementArrays: SerializedElementArray, filename, disk as seriali
 using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG, DMRG2, changebonds!, SvdCut, OptimalExpand, left_virtualspace, right_virtualspace
 using MPSKit: add_util_leg, _firstspace, decompose_localmpo, TransferMatrix, environments, expectation_value, physicalspace
 using MPSKit: FiniteEnvironments
-using MPSKit: spacetype, fuse_mul_mpo, fuser, MPOTensor, approximate, LAPACK_DivideAndConquer, timestep, timestep!
+using MPSKit: spacetype, fuse_mul_mpo, fuser, MPOTensor, LAPACK_DivideAndConquer, timestep, timestep!
 using MPSKit: AbstractFiniteMPS, Algorithm, MPSTensor, MPSBondTensor, check_unambiguous_braiding, scalartype
 # unexported internals used by the sweep drivers in algorithms/dmrg.jl (called, not extended)
 using MPSKit: local_update!, _sweep_ranges, _num_updates, default_allocator, SerialScheduler, AdaptiveKrylov, adapt_solver
 using MPSKit: JordanMPOTensor, JordanMPO_AC_Hamiltonian, JordanMPO_AC2_Hamiltonian, prepare_operator!!
 # unexported internals called (not extended) by the fast finite engine
 using MPSKit: site_type, calc_galerkin, changebond!, _update_alg_gauge, AC2, project_complement!, fixedpoint, gauge!, gauge2!, _transpose_tail, _transpose_front
+using MPSKit: AC_projection, AC2_projection, inner_alg_gauge
 using MPSKit: C_hamiltonian
 # MPSKit's TDVP local integrator; aliased because `integrate` is already
 # imported from NumericalIntegration (same pattern as `disk as serialize_disk`)
@@ -67,6 +68,7 @@ include("finiteengine/environments.jl")
 include("finiteengine/factorizations.jl")
 include("finiteengine/localupdate.jl")
 include("finiteengine/timeevolution.jl")
+include("finiteengine/approximate.jl")
 
 include("algorithms/dmrg.jl")
 include("algorithms/hamiltonian_threaded.jl")
@@ -87,7 +89,7 @@ export fZ, e_plus, e_min, hopping, cdagc, ccdag, σz_hopping, number, onsiteCoul
 export singlet_dagger, singlet, triplet_dagger, triplet
 export chargedMPO, identityMPO, hamiltonian
 
-export FiniteNormalMPS, FiniteSuperMPS, chargedMPS, identityMPS, randFiniteMPS, randInfiniteMPS
+export FiniteNormalMPS, FiniteSuperMPS, chargedMPS, chargedMPS!, identityMPS, randFiniteMPS, randInfiniteMPS
 
 export add_single_util_leg, cart2polar, phase_by_polar, sort_by_distance, transfer_left, contract_MPO
 export myDMRG1, myDMRG2, myTDVP1, myTDVP1_CBE, myTDVP2, myDMRG1_CBE
@@ -95,7 +97,7 @@ export dmrg1, dmrg1!, dmrg2, dmrg2!
 export dmrg_mix, dmrg_mix!
 export set_threaded_hamiltonian!, set_prefused_hamiltonian!
 export FastFiniteEnvironments, free_left!, free_right!, env_memory_bytes, configure_finite_engine!
-export fast_timestep!
+export fast_timestep!, fast_approximate!
 export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates, GrandPotential, OrderParameters
 
 export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorrelation, OneSiteCorrelation, site_indices, correlator

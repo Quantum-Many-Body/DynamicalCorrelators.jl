@@ -88,21 +88,10 @@ function chargedMPS(op::AbstractTensorMap{S,B,1,1}, mps::FiniteSuperMPS, site::I
     return changebonds!(FiniteMPS(A2), SvdCut(; trunc = trscheme); normalize = false)
 end
 
-"""
-    chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS, site::Integer, alg)
-
-Approximate `chargedMPO(op, site, length(gs)) * gs` with the supplied MPSKit
-algorithm `alg`.
-
-The initial state is a random finite MPS in the charge sector implied by `op`
-and with internal bond spaces inherited from `gs`. This is useful for charged
-states whose exact MPO application would create an inconvenient bond
-dimension.
-"""
-function chargedMPS(op::AbstractTensorMap, gs::AbstractFiniteMPS, site::Integer, alg)
-    ψ, = approximate(randFiniteMPS(eltype(gs[1]), gs, op), (chargedMPO(op, site, length(gs)), gs), alg)
-    return ψ
-end
+# The variational-compression method `chargedMPS(op, gs, site, alg)` (and its
+# in-place form `chargedMPS!`) lives in finiteengine/approximate.jl — it runs
+# MPSKit's `approximate!` sweep on the fast finite engine with optional
+# disk-backed environments.
 
 """
     identityMPS(H::FiniteMPOHamiltonian)
