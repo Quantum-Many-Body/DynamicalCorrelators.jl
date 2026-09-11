@@ -28,7 +28,7 @@ given `krylovdim`, or pass `alg_eigsolve` explicitly for full manual control.
 myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16, adaptive::Bool=true, alg_eigsolve=nothing) =
     DMRG2(; tol=tol, maxiter=maxiter, verbosity=3,
             alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim),
-            alg_svd= LAPACK_DivideAndConquer(),
+            alg_svd= SafeDivideAndConquer(),
             trunc=trunc)
 
 """
@@ -77,9 +77,9 @@ myTDVP1_CBE(; D=4096, delta=0.1, krylovdim=30) = TDVP(;
                 eager = true,
                 verbosity = 0),
             alg_expand = OptimalExpand(;
-                alg_svd = LAPACK_DivideAndConquer(),
+                alg_svd = SafeDivideAndConquer(),
                 trunc = truncrank(ceil(Int, delta*D))),
-            alg_svd = LAPACK_DivideAndConquer(),
+            alg_svd = SafeDivideAndConquer(),
             trunc = truncrank(D))
 
 """
@@ -101,7 +101,7 @@ myTDVP2(; trunc = truncrank(4096), krylovdim = 30) = TDVP2(;
                 verbosity = 0),
             tolgauge =  1e-13,
             gaugemaxiter = 200,
-            alg_svd = LAPACK_DivideAndConquer(),
+            alg_svd = SafeDivideAndConquer(),
             trunc=trunc)
 
 """
@@ -126,7 +126,7 @@ myDMRG1_CBE(; tol=1e-6, maxiter=100, D=4096, delta=0.1, krylovdim=16, adaptive::
             verbosity = 3,
             alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim),
             alg_expand = OptimalExpand(;
-                alg_svd = LAPACK_DivideAndConquer(),
+                alg_svd = SafeDivideAndConquer(),
                 trunc = truncrank(ceil(Int, delta*D))),
-            alg_svd = LAPACK_DivideAndConquer(),
+            alg_svd = SafeDivideAndConquer(),
             trunc = truncrank(D))

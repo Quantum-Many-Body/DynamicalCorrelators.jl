@@ -12,13 +12,13 @@ using TensorKit: left_null, right_null!, catdomain, catcodomain, qr_compact!, le
 using TensorKit: ⊠, ⊗, permute, repartition, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum, id, zerovector, zerovector!, tensormaptype
 using TensorKit: diagview, ProductSpace, set_num_transformer_threads, set_num_manipulation_threads, get_num_transformer_threads, get_num_manipulation_threads
 using BlockTensorKit: nonzero_pairs, nonzero_length, SumSpace, BlockTensorMap
-using MatrixAlgebraKit: TruncatedAlgorithm, initialize_output, truncate, truncation_error
+using MatrixAlgebraKit: TruncatedAlgorithm, initialize_output, truncate, truncation_error, SafeDivideAndConquer
 # `disk` is aliased: the DMRG drivers use `disk` as a keyword name
 using SerializedElementArrays: SerializedElementArray, filename, disk as serialize_disk
 using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG, DMRG2, changebonds!, SvdCut, OptimalExpand, left_virtualspace, right_virtualspace
 using MPSKit: add_util_leg, _firstspace, decompose_localmpo, TransferMatrix, environments, expectation_value, physicalspace
 using MPSKit: FiniteEnvironments
-using MPSKit: spacetype, fuse_mul_mpo, fuser, MPOTensor, LAPACK_DivideAndConquer, timestep, timestep!
+using MPSKit: spacetype, fuse_mul_mpo, fuser, MPOTensor, timestep, timestep!
 using MPSKit: AbstractFiniteMPS, Algorithm, MPSTensor, MPSBondTensor, check_unambiguous_braiding, scalartype
 # unexported internals used by the sweep drivers in algorithms/dmrg.jl (called, not extended)
 using MPSKit: local_update!, _sweep_ranges, _num_updates, default_allocator, SerialScheduler, AdaptiveKrylov, adapt_solver

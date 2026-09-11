@@ -124,7 +124,7 @@ To pin it down, pass an explicit solver:
 ```julia
 alg_eigsolve = Lanczos(; krylovdim = 24, maxiter = 1, tol = 1e-8,
     orth = ModifiedGramSchmidt(), eager = true, verbosity = 0)
-gs, envs, E0 = dmrg1(ψ0, H, truncdims; alg_eigsolve, alg_svd = LAPACK_DivideAndConquer())
+gs, envs, E0 = dmrg1(ψ0, H, truncdims; alg_eigsolve)
 ```
 
 The `my*` constructors remain available when you want a preconfigured MPSKit

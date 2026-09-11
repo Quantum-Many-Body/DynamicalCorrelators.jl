@@ -33,7 +33,7 @@ enforced per sweep by rebuilding MPSKit's `DMRG` algorithm object with
 - `alg_eigsolve`: eigensolver for the one-site effective Hamiltonian
   (default: adaptive [`AdaptiveKrylov`]; pass an explicit `Lanczos(...)` to pin
   fixed Krylov parameters)
-- `alg_svd`: SVD algorithm (default: `LAPACK_DivideAndConquer()`)
+- `alg_svd`: SVD algorithm (default: `SafeDivideAndConquer()`)
 - `alg_expand`: bond-expansion strategy. The default is the callable
   `D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1*D)), alg_svd)`, adding
   up to 10% of each sweep's target `D` directions ahead of the eigensolve
@@ -73,7 +73,7 @@ Returns `(ψ, envs, E₀)`; see also [`dmrg1`](@ref), [`dmrg2!`](@ref).
 """
 function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         alg_eigsolve = _default_alg_eigsolve(true, 16),
-        alg_svd = LAPACK_DivideAndConquer(),
+        alg_svd = SafeDivideAndConquer(),
         alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
         filename::String = "default_dmrg1.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
@@ -119,7 +119,7 @@ update is MPSKit's `local_update!`.
 - `alg_eigsolve`: eigensolver for the two-site effective Hamiltonian
   (default: adaptive [`AdaptiveKrylov`]; pass an explicit `Lanczos(...)` to pin
   fixed Krylov parameters)
-- `alg_svd`: SVD algorithm (default: `LAPACK_DivideAndConquer()`)
+- `alg_svd`: SVD algorithm (default: `SafeDivideAndConquer()`)
 - `save`: controls JLD2 checkpointing (default: `true`). `save = false` writes
   no file at all; `save = true` stores only the final sweep; a vector of sweep
   indices (e.g. `save = [2, 4, 6]`) stores exactly those sweeps
@@ -150,7 +150,7 @@ Returns `(ψ, envs, E₀)`; see also [`dmrg2`](@ref), [`dmrg1!`](@ref).
 """
 function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         alg_eigsolve = _default_alg_eigsolve(true, 16),
-        alg_svd = LAPACK_DivideAndConquer(),
+        alg_svd = SafeDivideAndConquer(),
         filename::String = "default_dmrg2.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
@@ -201,7 +201,7 @@ where the CBE expansion only has to refresh a small fraction of D per sweep.
 - `alg_eigsolve`: eigensolver shared by both phases (default: adaptive
   [`AdaptiveKrylov`]; pass an explicit `Lanczos(...)` to pin fixed Krylov
   parameters)
-- `alg_svd`: SVD algorithm (default: `LAPACK_DivideAndConquer()`)
+- `alg_svd`: SVD algorithm (default: `SafeDivideAndConquer()`)
 - `alg_expand`: bond-expansion strategy for the one-site phase, exactly as in
   [`dmrg1!`](@ref)
 - `save`: controls JLD2 checkpointing (default: `true`). `save = false` writes
@@ -237,7 +237,7 @@ function dmrg_mix!(
         truncdims_2site::AbstractVector{<:Integer},
         truncdims_1site::AbstractVector{<:Integer};
         alg_eigsolve = _default_alg_eigsolve(true, 16),
-        alg_svd = LAPACK_DivideAndConquer(),
+        alg_svd = SafeDivideAndConquer(),
         alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
         filename::String = "default_dmrg_mix.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
