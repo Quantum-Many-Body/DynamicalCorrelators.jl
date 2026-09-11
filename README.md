@@ -124,7 +124,7 @@ done
 ```
 
 Afterwards, transform the real-space/time data to spectra with `fourier_kw`
-or `fourier_rw` (see [Spectral Functions](tutorials/spectral_functions.md)).
+or `fourier_rw`.
 
 
 ## Installation
