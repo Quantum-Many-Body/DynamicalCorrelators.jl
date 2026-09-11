@@ -30,9 +30,9 @@ lattice = Lattice(coords...)
 sq = Custom(lattice)
 elt = Float64
 t, u, filling = 1.0, 8.0, (1, 1)
-H = hubbard(elt, SU2Irrep, U1Irrep, sq; t, U = u, filling)
+H = hubbard(elt, SU2Irrep, U1Irrep, sq; t=t, U=u, filling=filling)
 
-ψ = randFiniteMPS(elt, SU2Irrep, U1Irrep, length(H); md = 20, filling)
+ψ = randFiniteMPS(elt, SU2Irrep, U1Irrep, length(H); md=20, filling=filling)
 
 trunc2 = [64, 1024, 4096, 8192]
 trunc1 = [8192 for _ in 1:10]
@@ -77,10 +77,10 @@ gs = load("/bbfs/fsa/username/jobname/hubbard_L=$(L)_t=$(t)_U=$(u).jld2", "sweep
 
 coords = snake_2D([[1.0, 0.0], [0.0, 1.0]], vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
 lattice = Lattice(coords...)
-H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t, U = u, filling)
+H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t=t, U=u, filling=filling)
 
-cp = e_plus(elt, SU2Irrep, U1Irrep; side = :L, filling)
-cm = e_min(elt, SU2Irrep, U1Irrep; side = :L, filling)
+cp = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+cm = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
 
 addprocs(18; exeflags = `--threads=4`)
 
