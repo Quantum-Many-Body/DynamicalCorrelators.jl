@@ -187,7 +187,8 @@ function correlator(correlation::OneSiteCorrelation, gs::AbstractFiniteMPS;
 end
 
 function correlator(gs::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap; is=1:length(gs), js=1:length(gs), parallel=Threads.nthreads())
-    Fr = zeros(ComplexF64, length(is), length(js))
+    T = promote_type(scalartype(gs), scalartype(O₁), scalartype(O₂))
+    Fr = zeros(T, length(is), length(js))
     idx = Threads.Atomic{Int}(1)
     indices = CartesianIndices((length(is), length(js)))
     n = length(indices)

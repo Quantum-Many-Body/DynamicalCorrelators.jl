@@ -302,7 +302,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     end
 
     timer = TimerOutput()
-    ket = @timeit timer "setup / chargedMPS" chargedMPS(op, gs, idx, approxalg)
+    ket = @timeit timer "setup / chargedMPS" chargedMPS(op, gs, idx, approxalg; disk)
     start_time, wall_start = now(), now()
     if record_first == 1
         phase = id <= L ? exp(im*gsenergy*times[1]) : exp(-im*gsenergy*times[1])
@@ -425,7 +425,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         filename = joinpath(gf_path, "gf_start=$(times[record_first])_end=$(times[record_last])_id=$(id).jld2")
         gorkov_filename = _dcorrelator_gorkov_filename(gf_path, times[record_first], times[record_last], id)
         timer = TimerOutput()
-        ket = @timeit timer "setup / chargedMPS" chargedMPS(op, gs, idx, approxalg)
+        ket = @timeit timer "setup / chargedMPS" chargedMPS(op, gs, idx, approxalg; disk)
         start_time, wall_start = now(), now()
         if record_first == 1
             phase = id <= length(H) ? exp(im*gsenergy*times[1]) : exp(-im*gsenergy*times[1])

@@ -65,12 +65,18 @@ The boundary environments are constructed exactly as in
 query, so `FastFiniteEnvironments(ψ, H)` is a drop-in replacement for
 `environments(ψ, H, ψ)` in the DMRG drivers.
 """
-mutable struct FastFiniteEnvironments{VL <: AbstractVector, VR <: AbstractVector, TA, O}
+mutable struct FastFiniteEnvironments{VL <: AbstractVector, VR <: AbstractVector, TA, O, A}
     GLs::VL                  # length N+1; GLs[i] contractible with site i
     GRs::VR                  # length N+1; GRs[j] right env of site j-1... see above
     ldependencies::Vector{Union{Nothing, TA}}  # ldependencies[j] = AL[j] object GLs[j+1] was built from
     rdependencies::Vector{Union{Nothing, TA}}  # rdependencies[j] = AR[j] object GRs[j] was built from
     operator::O
+    # `nothing` for Hamiltonian environments (above === below, the DMRG/TDVP
+    # case); the fixed bra-side MPS for variational-compression environments
+    # `FastFiniteEnvironments(ψ₀, O, ϕ)` (MPSKit's `environments(below, O, above)`).
+    # The bra-side state never changes during a sweep, so only the queried
+    # (below) state's tensors participate in the === dependency tracking.
+    above::A
     threaded_transfer::Bool
 end
 
@@ -105,7 +111,65 @@ function FastFiniteEnvironments(
     TA = nonmissingtype(eltype(ψ.ALs))   # site-tensor type stored as dependencies
     ldependencies = Vector{Union{Nothing, TA}}(nothing, N)
     rdependencies = Vector{Union{Nothing, TA}}(nothing, N)
-    return FastFiniteEnvironments(GLs, GRs, ldependencies, rdependencies, H, threaded_transfer)
+    return FastFiniteEnvironments(
+        GLs, GRs, ldependencies, rdependencies, H, nothing, threaded_transfer
+    )
+end
+
+"""
+    FastFiniteEnvironments(below::FiniteMPS, O, above::AbstractFiniteMPS; disk = false)
+
+Mixed (two-state) environment manager for variational compression
+(MPSKit's `environments(below, operator, above)`): the environments of the
+overlap ⟨above|O|below⟩, where `below` is the state being optimized (its
+tensors are replaced during the sweep and drive the === staleness tracking)
+and `above` is the fixed target state.
+
+The boundary environments are constructed exactly as in MPSKit:
+`GLs[1] = Vl_below ⊗ Vl_O′ ← Vl_above` and
+`GRs[N+1] = Vr_above ⊗ Vr_O ← Vr_below`. Used by [`chargedMPS!`](@ref) /
+`fast_approximate!` with `O = chargedMPO(op, site, N)` and `above = gs`.
+
+`threaded_transfer` is not offered here: the channel-split threaded transfer
+is a Jordan-MPO-Hamiltonian optimization, while the compression operator is a
+plain (width-1/2) `FiniteMPO` whose transfer is a single small contraction.
+"""
+function FastFiniteEnvironments(
+        below::FiniteMPS, O, above::AbstractFiniteMPS;
+        disk::Union{Bool, AbstractString} = false
+    )
+    N = length(below)
+    N >= 2 || throw(ArgumentError("FastFiniteEnvironments needs at least 2 sites"))
+    length(above) == N || throw(DimensionMismatch(
+        "below and above must have the same length (got $N and $(length(above)))"
+    ))
+    S = site_type(below)
+
+    # boundaries, exactly as MPSKit's `environments(below, operator, above)`
+    GL1 = isomorphism(
+        storagetype(S),
+        left_virtualspace(below, 1) ⊗ left_virtualspace(O, 1)' ← left_virtualspace(above, 1)
+    )
+    GRN = isomorphism(
+        storagetype(S),
+        right_virtualspace(above, N) ⊗ right_virtualspace(O, N) ← right_virtualspace(below, N)
+    )
+
+    TL = Union{Nothing, typeof(GL1)}
+    TR = Union{Nothing, typeof(GRN)}
+    if disk !== false
+        path = disk === true ? tempdir() : String(disk)
+        @info "FastFiniteEnvironments: serializing environments under $path"
+        GLs = serialize_disk(TL[i == 1 ? GL1 : nothing for i in 1:(N + 1)]; path)
+        GRs = serialize_disk(TR[i == N + 1 ? GRN : nothing for i in 1:(N + 1)]; path)
+    else
+        GLs = TL[i == 1 ? GL1 : nothing for i in 1:(N + 1)]
+        GRs = TR[i == N + 1 ? GRN : nothing for i in 1:(N + 1)]
+    end
+    TA = nonmissingtype(eltype(below.ALs))
+    ldependencies = Vector{Union{Nothing, TA}}(nothing, N)
+    rdependencies = Vector{Union{Nothing, TA}}(nothing, N)
+    return FastFiniteEnvironments(GLs, GRs, ldependencies, rdependencies, O, above, false)
 end
 
 length(env::FastFiniteEnvironments) = length(env.GLs) - 1
@@ -170,13 +234,19 @@ end
 
 # Default path: literally MPSKit's expressions from finite_envs.jl — the full
 # Jordan-MPO transfer through BlockTensorKit, bit-identical numerics to MPSKit.
+# `state` is the queried (below) state; when `env.above` is set (mixed
+# compression environments) the bra side of the transfer comes from the fixed
+# above state instead (MPSKit's `leftenv`: `TransferMatrix(above, O, below)`).
+# The threaded branch is never reached for mixed environments (their
+# constructor fixes threaded_transfer = false).
 function _pushright(env::FastFiniteEnvironments, j::Int, state::AbstractFiniteMPS)
     A = state.AL[j]
     O = env.operator[j]
     if env.threaded_transfer && Threads.nthreads() > 1
         return _transfer_left_threaded(env.GLs[j], O, A)
     end
-    return env.GLs[j] * TransferMatrix(A, O, A)
+    Aa = env.above === nothing ? A : env.above.AL[j]
+    return env.GLs[j] * TransferMatrix(Aa, O, A)
 end
 
 function _pushleft(env::FastFiniteEnvironments, j::Int, state::AbstractFiniteMPS)
@@ -185,7 +255,8 @@ function _pushleft(env::FastFiniteEnvironments, j::Int, state::AbstractFiniteMPS
     if env.threaded_transfer && Threads.nthreads() > 1
         return _transfer_right_threaded(env.GRs[j + 1], O, A)
     end
-    return TransferMatrix(A, O, A) * env.GRs[j + 1]
+    Aa = env.above === nothing ? A : env.above.AR[j]
+    return TransferMatrix(Aa, O, A) * env.GRs[j + 1]
 end
 
 # ---------------------------------------------------------------------------

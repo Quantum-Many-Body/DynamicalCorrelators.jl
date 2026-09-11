@@ -248,6 +248,42 @@ end
         @test isapprox(pc, pc_ed; atol = ED_TOL_OBS)
     end
     
+    @testset "fast chargedMPS compression" begin
+        filling = (1, 2)
+        st = randFiniteMPS(elt, SU2Irrep, U1Irrep, N; filling=filling)
+        H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t=-1-0.5im, U=8, filling=filling)
+        gs, env, E0 = dmrg2!(st, H, [64, 64, 128]; save=false, verbose=false)
+
+        cm = e_min(elt, SU2Irrep, U1Irrep; filling=filling)
+
+        # two-site compression (RAM and disk-backed environments) must reproduce
+        # the exact chargedMPO contraction to machine precision: the initial
+        # guess inherits gs's bond spaces and truncrank(128) keeps everything
+        for j in (3, 6)
+            ket_exact = chargedMPS(cm, gs, j)
+            ket_ram   = chargedMPS(cm, gs, j, myDMRG2(; trunc=truncrank(128), maxiter=20))
+            ket_disk  = chargedMPS(cm, gs, j, myDMRG2(; trunc=truncrank(128), maxiter=20); disk=true)
+            @test abs(dot(ket_exact, ket_ram)) ≈ norm(ket_exact) * norm(ket_ram) atol=1e-10
+            @test abs(dot(ket_exact, ket_disk)) ≈ norm(ket_exact) * norm(ket_disk) atol=1e-10
+            @test sweep_dot(gs, cm, ket_ram) ≈ sweep_dot(gs, cm, ket_exact) atol=1e-10
+        end
+
+        # in-place form with an explicit mixed FastFiniteEnvironments
+        ψ₀ = randFiniteMPS(eltype(gs[1]), gs, cm)
+        envs0 = FastFiniteEnvironments(ψ₀, chargedMPO(cm, 5, N), gs)
+        ψ_ip, envs0, ϵ = chargedMPS!(ψ₀, cm, gs, 5, myDMRG2(; trunc=truncrank(128), maxiter=20))
+        ket_exact = chargedMPS(cm, gs, 5)
+        @test abs(dot(ket_exact, ψ_ip)) ≈ norm(ket_exact) * norm(ψ_ip) atol=1e-10
+        @test ϵ < 1e-6
+
+        # one-site compression keeps the initial bond spaces (lossy by
+        # construction, but must stay close at site 6) 
+        ket1 = chargedMPS(cm, gs, 6, myDMRG1(; maxiter=30))
+        ket_exact = chargedMPS(cm, gs, 6)
+        @test all(i -> dim(left_virtualspace(ket1, i)) <= dim(left_virtualspace(gs, i)), 1:N)
+        @test abs(dot(ket_exact, ket1)) / (norm(ket_exact) * norm(ket1)) > 0.8
+    end
+
     @testset "Dynamical Green's function" begin
         lattice = Lattice(unitcell, (4, ), ('o',))
         hilbert = Hilbert(site=>Fock{:f}(1, 2) for site=1:length(lattice))
