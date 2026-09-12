@@ -94,11 +94,11 @@ addprocs(18; exeflags = `--threads=4`)
 end
 
 # batch i of this job: which source sites and which operator
-as = [1:18, 19:36, 37:54, 55:72]   # source-site batches (greater + lesser parts)
-op = [cp, cp, cm, cm]
+as = collect(Iterators.partition(1:72, 18))   # source-site batches (greater + lesser parts)
+op(i) = i <= 2 ? cp : cm
 
-gf = dcorrelator(gs, H, op[i], as[i];
-    approxalg = myDMRG2(; tol = 1e-6, maxiter = 50, trunc = truncrank(8192)),
+gf = dcorrelator(gs, H, op(i), as[i];
+    approxalg = myDMRG2(; tol = 1e-6, maxiter = 100, trunc = truncrank(8192)),
     tdvp2 = myTDVP2(; trunc = truncrank(8192)),
     tdvp1 = myTDVP1(),
     n = 3,
