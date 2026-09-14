@@ -72,16 +72,59 @@ function damping(t, broadentype)
 end
 
 """
-    fourier_kt(gf_rt, rs, k; regroup=...)
+    fourier_kt(gf_rt, rs, k; regroup=[collect(1:size(gf_rt,1))], center)
 
-Spatial Fourier transform of a real-space Green's function `G(r, t)` to momentum space `G(k, t)`
-at a single momentum point `k`.
+Spatial Fourier transform of a real-space Green's function `G(r, t)` at a single
+momentum point `k`.
+
+MPS sites do not necessarily correspond one-to-one to physical lattice sites —
+one MPS site may be a single orbital of a multi-orbital unit cell, one leg of a
+ladder, etc. `regroup` therefore partitions the MPS site indices into physical
+channels and the result is a *matrix over groups*:
+
+```math
+\\mathrm{dest}[x, y, t] = \\sum_{j \\in \\mathrm{regroup}[x]}\\ \\sum_{i \\in \\mathrm{regroup}[y]}
+G_{ji}(t)\\, e^{-i\\, k \\cdot (r_i - r_j)} .
+```
+
+The sum inside each group pair is *coherent*, with the phase computed from each
+MPS site's true position `rs` (so intra-cell orbital offsets are included), and
+no normalization such as `1/N_cells` is applied. Axis 1 of `gf_rt` is the
+measurement site and axis 2 the source site, matching the output of
+`dcorrelator`.
 
 # Arguments
-- `gf_rt`: Green's function array of shape `(N_sites, N_sites, N_times)`.
-- `rs`: array of site position vectors.
-- `k`: momentum vector.
-- `regroup`: array of index groups for orbital regrouping (default: all sites in one group).
+- `gf_rt`: Green's function array of shape `(N_mps, N_mps, N_times)` (see
+  `center` for the case where only a subset of source sites was evolved).
+- `rs`: position vector of every MPS site, `length(rs) == size(gf_rt, 1)`.
+- `k`: momentum vector of the same dimension as the entries of `rs`.
+- `regroup`: groups of MPS site indices. Should be a partition of `1:N_mps`:
+  sites absent from every group are dropped from the sum, sites appearing in
+  several groups are counted multiple times.
+- `center`: required keyword, normally `nothing`. If `gf_rt` was computed only
+  for a subset of source sites (e.g. from `dcorrelator(gs, H, op, indices)`),
+  pass the corresponding physical site indices (`id <= L ? id : id - L` for
+  greater/lesser ids). Then `size(gf_rt, 2) == length(center)`, only axis 1 is
+  regrouped, the output has size `(length(regroup), length(center), N_times)`,
+  and the phase is `exp(-i k·(rs[center[y]] - rs[j]))`.
+
+# Choosing `regroup`
+- **One MPS site = one physical site** (single-orbital chain, snake-ordered 2D
+  lattice, ...): keep the default `[collect(1:N_mps)]` — all sites in a single
+  group, output is the scalar `G(k, t)` in a `1 × 1` matrix.
+- **Orbital/band resolution** (multi-orbital unit cells, bilayers, ladders):
+  collect all MPS sites belonging to the *same orbital/leg across all unit
+  cells* into one group; the output is then the orbital matrix `G_{αβ}(k, t)`
+  (diagonalize it for bonding/antibonding bands). Examples for two orbitals and
+  `Nc` unit cells: orbital-major MPS ordering (all orbital-1 sites first)
+  `regroup = [collect(1:Nc), collect(Nc+1:2Nc)]`; cell-major ordering (orbitals
+  of one cell adjacent) `regroup = [collect(1:2:2Nc), collect(2:2:2Nc)]`.
+- **Coarse graining**: to fold several MPS sites into one physical unit while
+  keeping the unit-to-unit matrix, group by unit, e.g.
+  `regroup = [[2i - 1, 2i] for i in 1:Nc]` gives an `Nc × Nc` output whose
+  intra-unit structure is summed with phases. Note this is not yet a pure
+  momentum function — sum or trace over the unit indices afterwards if a
+  scalar spectrum is needed.
 """
 function fourier_kt(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, k::AbstractArray{<:Number}; regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),], center)
     if isnothing(center)
@@ -126,17 +169,28 @@ Full double Fourier transform from `G(r, t)` to `G(k, ω)` over arrays of
 momenta `ks` and frequencies `ws`. Multi-threaded over frequencies.
 
 # Arguments
-- `gf_rt`: Green's function `(N_sites, N_sites, N_times)`.
+- `gf_rt`: Green's function `(N_mps, N_mps, N_times)` (axis 1 = measurement
+  site, axis 2 = source site), or `(N_mps, length(center), N_times)` when
+  `center` is given.
 - `rs`: site position vectors.
 - `ts`: time range.
 - `ks`: array of momentum vectors.
 - `ws`: array of frequencies.
 - `mthreads`: number of threads (default: all available).
 - `broadentype`: broadening specification, e.g., `(0.05, "G")` for Gaussian with η=0.05.
-- `regroup`: orbital regrouping indices.
+- `regroup`: groups of MPS site indices defining the physical channels of the
+  transform, forwarded to [`fourier_kt`](@ref) — see its docstring for the
+  grouping rules and recipes (single group for 1:1 site mappings, one group per
+  orbital/leg across all unit cells for band resolution, one group per unit
+  for coarse graining).
+- `center`: `nothing` (default) or the physical source-site indices when
+  `gf_rt` was computed only for a subset of sources; forwarded to
+  [`fourier_kt`](@ref).
 
 # Returns
-Matrix of shape `(length(ws), length(ks))` containing `G(k, ω)/(4π²)`.
+Matrix of shape `(length(ws), length(ks))` whose `[w, k]` entry is the
+group × group matrix `G(k, ω)/(4π²)` (a `1 × 1` matrix for the default
+`regroup`); use `only(...)` or an extra trace/sum to extract a scalar spectrum.
 """
 function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts::AbstractRange, ks::AbstractArray{<:AbstractArray}, ws::AbstractArray{<:Number};
                     mthreads::Integer=Threads.nthreads(), broadentype=(0.05, "G"), regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),], center::Union{Nothing,AbstractArray{<:Integer}}=nothing)
