@@ -5,32 +5,23 @@ using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, 
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
 using TensorOperations: promote_contract, AbstractBackend, DefaultBackend, DefaultAllocator
 using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, sectors, Bosonic
-# NOTE: `numout`/`numin` must stay in scope: TensorKit's `@planar`/`@plansor` macros
-# splice *unqualified* calls to them into the caller's code.
 using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dual, fuse, svd_trunc, svd_trunc!, svd_compact!, normalize!,normalize, oneunit, notrunc, similarstoragetype, insertleftunit, insertrightunit, removeunit
 using TensorKit: left_null, right_null!, catdomain, catcodomain, qr_compact!, left_orth, right_orth, lmul!, rmul!
 using TensorKit: ⊠, ⊗, permute, repartition, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum, id, zerovector, zerovector!, tensormaptype
 using TensorKit: diagview, ProductSpace, set_num_transformer_threads, set_num_manipulation_threads, get_num_transformer_threads, get_num_manipulation_threads
 using BlockTensorKit: nonzero_pairs, nonzero_length, SumSpace, BlockTensorMap
 using MatrixAlgebraKit: TruncatedAlgorithm, initialize_output, truncate, truncation_error, SafeDivideAndConquer
-# `disk` is aliased: the DMRG drivers use `disk` as a keyword name
 using SerializedElementArrays: SerializedElementArray, filename, disk as serialize_disk
 using MPSKit: FiniteMPS, InfiniteMPS, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG, DMRG2, changebonds!, SvdCut, OptimalExpand, left_virtualspace, right_virtualspace
 using MPSKit: add_util_leg, _firstspace, decompose_localmpo, TransferMatrix, environments, expectation_value, physicalspace
 using MPSKit: FiniteEnvironments
 using MPSKit: spacetype, fuse_mul_mpo, fuser, MPOTensor, timestep, timestep!
 using MPSKit: AbstractFiniteMPS, Algorithm, MPSTensor, MPSBondTensor, check_unambiguous_braiding, scalartype
-# unexported internals used by the sweep drivers in algorithms/dmrg.jl;
-# `local_update!` is additionally extended for HalfFiniteEnvironments in
-# finiteengine/localupdate.jl
-using MPSKit: local_update!, default_allocator, SerialScheduler, AdaptiveKrylov, adapt_solver
+using MPSKit: default_allocator, SerialScheduler, AdaptiveKrylov, adapt_solver
 using MPSKit: JordanMPOTensor, JordanMPO_AC_Hamiltonian, JordanMPO_AC2_Hamiltonian, prepare_operator!!
-# unexported internals called (not extended) by the fast finite engine
 using MPSKit: site_type, calc_galerkin, changebond!, _update_alg_gauge, AC2, project_complement!, fixedpoint, gauge!, gauge2!, _transpose_tail, _transpose_front
 using MPSKit: AC_projection, AC2_projection, inner_alg_gauge, Zipup, approximate
 using MPSKit: C_hamiltonian
-# MPSKit's TDVP local integrator; aliased because `integrate` is already
-# imported from NumericalIntegration (same pattern as `disk as serialize_disk`)
 using MPSKit: integrate as mpskit_integrate
 using KrylovKit: Lanczos, ModifiedGramSchmidt
 using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, next_nearest_neighbours
@@ -45,8 +36,7 @@ using Dates
 using TimerOutputs: TimerOutput, @timeit
 
 import QuantumLattices: expand
-import MPSKit: FiniteMPO, dot, correlator, transfer_left, transfer_right, AC_hamiltonian, AC2_hamiltonian, DerivativeOperator
-# extended by finiteengine/environments.jl (HalfFiniteEnvironments methods)
+import MPSKit: FiniteMPO, dot, correlator, transfer_left, transfer_right, AC_hamiltonian, AC2_hamiltonian, DerivativeOperator, local_update!
 import MPSKit: leftenv, rightenv
 import Base: length
 import MPSKitModels: S_plus, S_min, S_z
