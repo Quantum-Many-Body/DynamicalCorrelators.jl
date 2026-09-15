@@ -3,7 +3,7 @@
 # `fast_timestep!` mirrors MPSKit's `_timestep_finite!` / `_timestep2_finite!`
 # (algorithms/timestep/tdvp.jl) step for step — same changebond! placement,
 # same forward/backward integration times, same gauge placement, same edge
-# cases — with the sweep running on `FastFiniteEnvironments` instead of
+# cases — with the sweep running on `HalfFiniteEnvironments` instead of
 # MPSKit's full-cache `FiniteEnvironments`:
 #
 #   1. Environments are lazy and self-invalidating (=== dependency tracking),
@@ -28,9 +28,9 @@
 # fixed at construction time.
 
 """
-    fast_timestep!(ψ, H, t, dt, alg::TDVP, envs::FastFiniteEnvironments;
+    fast_timestep!(ψ, H, t, dt, alg::TDVP, envs::HalfFiniteEnvironments;
         imaginary_evolution = false, normalize = false, manual_gc = true)
-    fast_timestep!(ψ, H, t, dt, alg::TDVP2, envs::FastFiniteEnvironments;
+    fast_timestep!(ψ, H, t, dt, alg::TDVP2, envs::HalfFiniteEnvironments;
         imaginary_evolution = false, normalize = false, manual_gc = true)
 
 One full TDVP sweep (left→right→left) on the fast finite engine, evolving `ψ`
@@ -42,7 +42,7 @@ bookkeeping as the DMRG fast driver; set it to `false` only for small systems.
 """
 function fast_timestep!(
         ψ::AbstractFiniteMPS, H, t::Number, dt::Number, alg::TDVP,
-        envs::FastFiniteEnvironments;
+        envs::HalfFiniteEnvironments;
         imaginary_evolution::Bool = false, normalize::Bool = false,
         manual_gc::Bool = true
     )
@@ -114,7 +114,7 @@ end
 
 function fast_timestep!(
         ψ::AbstractFiniteMPS, H, t::Number, dt::Number, alg::TDVP2,
-        envs::FastFiniteEnvironments;
+        envs::HalfFiniteEnvironments;
         imaginary_evolution::Bool = false, normalize::Bool = false,
         manual_gc::Bool = true
     )

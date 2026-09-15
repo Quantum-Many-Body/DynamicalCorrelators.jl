@@ -37,7 +37,7 @@ environment manager; see [The Finite Engine](../tutorials/finite_engine.md)
 for the memory model and threading layout.
 
 ```@docs
-FastFiniteEnvironments
+HalfFiniteEnvironments
 fast_timestep!
 configure_finite_engine!
 set_threaded_hamiltonian!

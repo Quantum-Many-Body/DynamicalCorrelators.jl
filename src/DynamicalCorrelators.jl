@@ -20,8 +20,10 @@ using MPSKit: add_util_leg, _firstspace, decompose_localmpo, TransferMatrix, env
 using MPSKit: FiniteEnvironments
 using MPSKit: spacetype, fuse_mul_mpo, fuser, MPOTensor, timestep, timestep!
 using MPSKit: AbstractFiniteMPS, Algorithm, MPSTensor, MPSBondTensor, check_unambiguous_braiding, scalartype
-# unexported internals used by the sweep drivers in algorithms/dmrg.jl (called, not extended)
-using MPSKit: local_update!, _sweep_ranges, _num_updates, default_allocator, SerialScheduler, AdaptiveKrylov, adapt_solver
+# unexported internals used by the sweep drivers in algorithms/dmrg.jl;
+# `local_update!` is additionally extended for HalfFiniteEnvironments in
+# finiteengine/localupdate.jl
+using MPSKit: local_update!, default_allocator, SerialScheduler, AdaptiveKrylov, adapt_solver
 using MPSKit: JordanMPOTensor, JordanMPO_AC_Hamiltonian, JordanMPO_AC2_Hamiltonian, prepare_operator!!
 # unexported internals called (not extended) by the fast finite engine
 using MPSKit: site_type, calc_galerkin, changebond!, _update_alg_gauge, AC2, project_complement!, fixedpoint, gauge!, gauge2!, _transpose_tail, _transpose_front
@@ -44,7 +46,7 @@ using TimerOutputs: TimerOutput, @timeit
 
 import QuantumLattices: expand
 import MPSKit: FiniteMPO, dot, correlator, transfer_left, transfer_right, AC_hamiltonian, AC2_hamiltonian, DerivativeOperator
-# extended by finiteengine/environments.jl (FastFiniteEnvironments methods)
+# extended by finiteengine/environments.jl (HalfFiniteEnvironments methods)
 import MPSKit: leftenv, rightenv
 import Base: length
 import MPSKitModels: S_plus, S_min, S_z
@@ -96,7 +98,7 @@ export myDMRG1, myDMRG2, myTDVP1, myTDVP1_CBE, myTDVP2, myDMRG1_CBE
 export dmrg1, dmrg1!, dmrg2, dmrg2!
 export dmrg_mix, dmrg_mix!
 export set_threaded_hamiltonian!, set_prefused_hamiltonian!
-export FastFiniteEnvironments, free_left!, free_right!, env_memory_bytes, configure_finite_engine!
+export HalfFiniteEnvironments, free_left!, free_right!, env_memory_bytes, configure_finite_engine!
 export fast_timestep!, fast_approximate!
 export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates, GrandPotential, OrderParameters
 

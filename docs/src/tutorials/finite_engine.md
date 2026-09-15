@@ -15,7 +15,7 @@ keeps all `2(N+1)` environment tensors alive for the whole calculation. For
 SU(2) Hamiltonians with wide MPO bonds this dominates the memory footprint at
 large `D`.
 
-`FastFiniteEnvironments` instead:
+`HalfFiniteEnvironments` instead:
 
 - builds each environment lazily on first query and frees it right after its
   last use within a sweep, so peak storage is about `N + O(1)` environment
@@ -74,7 +74,7 @@ are constructed (their element types are fixed at construction):
 
 ```julia
 ψ = complex(ψ)
-envs = FastFiniteEnvironments(ψ, H; disk = true)
+envs = HalfFiniteEnvironments(ψ, H; disk = true)
 alg = myTDVP1()
 for k in 2:length(times)
     fast_timestep!(ψ, H, times[k - 1], times[k] - times[k - 1], alg, envs)

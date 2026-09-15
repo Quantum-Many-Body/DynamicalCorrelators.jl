@@ -3,7 +3,7 @@
 # `fast_approximate!` mirrors MPSKit's `approximate!` (algorithms/approximate/
 # fvomps.jl) step for step — same sweep positions, same projection updates,
 # same convergence measure — with the sweep running on the mixed
-# `FastFiniteEnvironments(ψ₀, O, ϕ)` instead of MPSKit's full-cache
+# `HalfFiniteEnvironments(ψ₀, O, ϕ)` instead of MPSKit's full-cache
 # `FiniteEnvironments`:
 #
 #   1. The environments are the mixed overlap environments of ⟨ϕ|O|ψ₀⟩: the
@@ -25,23 +25,23 @@
 # channel-split threaded transfer — there is nothing to split.
 
 """
-    fast_approximate!(ψ, (O, ϕ), alg::DMRG, envs::FastFiniteEnvironments;
+    fast_approximate!(ψ, (O, ϕ), alg::DMRG, envs::HalfFiniteEnvironments;
         verbose = alg.verbosity, manual_gc = true)
-    fast_approximate!(ψ, (O, ϕ), alg::DMRG2, envs::FastFiniteEnvironments;
+    fast_approximate!(ψ, (O, ϕ), alg::DMRG2, envs::HalfFiniteEnvironments;
         verbose = alg.verbosity, manual_gc = true)
 
 Variational compression of `O * ϕ` onto the MPS `ψ` (updated in place),
 mirroring MPSKit's `approximate!` with the same single-site (`DMRG`) or
 two-site (`DMRG2`) algorithm. Returns `(ψ, envs, ϵ)` with `ϵ` the final
 sweep's largest relative update. `envs` must be the mixed environments
-`FastFiniteEnvironments(ψ, O, ϕ)`.
+`HalfFiniteEnvironments(ψ, O, ϕ)`.
 
 `manual_gc` (default `true`) runs an incremental `GC.gc(false)` after every
 local update and a full collection at the end, as in the other fast drivers.
 """
 function fast_approximate!(
         ψ::AbstractFiniteMPS, (O, ϕ)::Tuple, alg::DMRG,
-        envs::FastFiniteEnvironments;
+        envs::HalfFiniteEnvironments;
         verbose::Int = alg.verbosity, manual_gc::Bool = true
     )
     N = length(ψ)
@@ -77,7 +77,7 @@ end
 
 function fast_approximate!(
         ψ::AbstractFiniteMPS, (O, ϕ)::Tuple, alg::DMRG2,
-        envs::FastFiniteEnvironments;
+        envs::HalfFiniteEnvironments;
         verbose::Int = alg.verbosity, manual_gc::Bool = true
     )
     N = length(ψ)
@@ -126,20 +126,20 @@ function _approximate_split!(ψ, pos, O, ϕ, envs, alg, alg_gauge, allocator)
 end
 
 """
-    chargedMPS!(ψ, op, gs, site, alg, envs::FastFiniteEnvironments; kwargs...)
+    chargedMPS!(ψ, op, gs, site, alg, envs::HalfFiniteEnvironments; kwargs...)
     chargedMPS!(ψ, op, gs, site, alg; disk = false, kwargs...)
 
 In-place form of `chargedMPS(op, gs, site, alg)`: variationally compress
 `chargedMPO(op, site, length(gs)) * gs` onto `ψ` (overwritten) with the fast
 finite engine. Returns `(ψ, envs, ϵ)` from `fast_approximate!`.
 
-The two-argument-environment form expects `envs = FastFiniteEnvironments(ψ, O, gs)`
+The two-argument-environment form expects `envs = HalfFiniteEnvironments(ψ, O, gs)`
 with `O = chargedMPO(op, site, length(gs))`; the keyword form builds it with
-the given `disk` backing (`false`/`true`/directory, see [`FastFiniteEnvironments`](@ref)).
+the given `disk` backing (`false`/`true`/directory, see [`HalfFiniteEnvironments`](@ref)).
 """
 function chargedMPS!(
         ψ::AbstractFiniteMPS, op::AbstractTensorMap, gs::AbstractFiniteMPS,
-        site::Integer, alg, envs::FastFiniteEnvironments; kwargs...
+        site::Integer, alg, envs::HalfFiniteEnvironments; kwargs...
     )
     return fast_approximate!(ψ, (chargedMPO(op, site, length(gs)), gs), alg, envs; kwargs...)
 end
@@ -149,7 +149,7 @@ function chargedMPS!(
         site::Integer, alg; disk::Union{Bool, AbstractString} = false, kwargs...
     )
     O = chargedMPO(op, site, length(gs))
-    envs = FastFiniteEnvironments(ψ, O, gs; disk)
+    envs = HalfFiniteEnvironments(ψ, O, gs; disk)
     return fast_approximate!(ψ, (O, gs), alg, envs; kwargs...)
 end
 

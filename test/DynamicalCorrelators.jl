@@ -268,9 +268,9 @@ end
             @test sweep_dot(gs, cm, ket_ram) ≈ sweep_dot(gs, cm, ket_exact) atol=1e-10
         end
 
-        # in-place form with an explicit mixed FastFiniteEnvironments
+        # in-place form with an explicit mixed HalfFiniteEnvironments
         ψ₀ = randFiniteMPS(eltype(gs[1]), gs, cm)
-        envs0 = FastFiniteEnvironments(ψ₀, chargedMPO(cm, 5, N), gs)
+        envs0 = HalfFiniteEnvironments(ψ₀, chargedMPO(cm, 5, N), gs)
         ψ_ip, envs0, ϵ = chargedMPS!(ψ₀, cm, gs, 5, myDMRG2(; trunc=truncrank(128), maxiter=20))
         ket_exact = chargedMPS(cm, gs, 5)
         @test abs(dot(ket_exact, ψ_ip)) ≈ norm(ket_exact) * norm(ψ_ip) atol=1e-10
