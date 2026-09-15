@@ -215,6 +215,40 @@ function snake_2D(directions, orders)
 end
 
 """
+    regroup_by_basis(basis, vectors, rs; tol=1e-6)
+
+Classify sites into sublattice groups from their real-space coordinates,
+producing a `regroup` partition for [`fourier_kt`](@ref) and `fourier_kw`.
+"""
+function regroup_by_basis(basis::AbstractVector{<:AbstractVector}, vectors::AbstractVector{<:AbstractVector}, rs::AbstractVector{<:AbstractVector}; tol::Real=1e-6)
+    d = length(first(rs))
+    all(r -> length(r) == d, rs) || throw(DimensionMismatch("all entries of `rs` must have the same dimension"))
+    all(b -> length(b) == d, basis) || throw(DimensionMismatch("`basis` entries must have the same dimension as `rs` ($(d))"))
+    any(v -> length(v) > d, vectors) && throw(DimensionMismatch("translation vectors must not be longer than the site coordinates"))
+    # pad in-plane translation vectors with zeros for higher-dimensional coordinates (e.g. 2D Bravais vectors vs 3D bilayer sites)
+    vecs = [vcat(Float64.(v), zeros(d - length(v))) for v in vectors]
+    groups = [Int[] for _ in eachindex(basis)]
+    for (i, r) in enumerate(rs)
+        α = findfirst(b -> issubordinate(r - b, vecs; atol=tol), basis)
+        isnothing(α) && throw(ArgumentError("site $i at $r is not a lattice translate of any basis site (tol=$tol)"))
+        push!(groups[α], i)
+    end
+    return groups
+end
+
+"""
+    regroup_by_basis(unitcell::QLattice, cluster::QLattice; tol=1e-6)
+"""
+function regroup_by_basis(unitcell::QLattice, cluster::QLattice; tol::Real=1e-6)
+    size(unitcell.coordinates, 1) == size(cluster.coordinates, 1) ||
+        throw(DimensionMismatch("`unitcell` and `cluster` coordinates must have the same dimension"))
+    groups = [filter(j -> issubordinate(cluster.coordinates[:, j] - unitcell.coordinates[:, i], unitcell.vectors; atol=tol), 1:length(cluster)) for i in 1:length(unitcell)]
+    sort(vcat(groups...)) == collect(1:length(cluster)) ||
+        throw(ArgumentError("the sites of `cluster` are not a partition into translates of the `unitcell` sites (tol=$tol)"))
+    return groups
+end
+
+"""
     kitaev_bonds(directions, lattice)
 
 Classify nearest-neighbor bonds of a lattice into three groups based on their
