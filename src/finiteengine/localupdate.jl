@@ -1,41 +1,34 @@
 # Fast local updates — Phase 2 of the finite engine.
 #
-# `fast_local_update!` mirrors MPSKit's `local_update!` (algorithms/groundstate/
-# dmrg.jl) step for step — same expand → eigsolve → gauge structure, same
-# adaptive-solver control, same Galerkin/decay bookkeeping — with three
-# differences:
+# `HalfFiniteEnvironments`-dispatched methods of MPSKit's `local_update!`,
+# mirroring MPSKit's own methods (algorithms/groundstate/dmrg.jl) step for
+# step — same expand → eigsolve → gauge structure, same adaptive-solver
+# control, same Galerkin/decay bookkeeping — with three differences:
 #
-#   1. It is tied to `FastFiniteEnvironments` (the `leftenv`/`rightenv`
-#      adapters give MPSKit's building blocks — `calc_galerkin`, `changebond!`,
-#      `AC_hamiltonian`, `gauge!` — lazy, self-invalidating environments).
-#   2. It returns the eigensolve eigenvalue `λ`, which the driver uses as the
-#      per-sweep energy estimate (the λ of the last update of a sweep equals
-#      the variational energy of the normalized state), avoiding MPSKit's full
-#      `expectation_value` rebuild every sweep.
-#   3. Optional `energy_shift`: solves `(H - E_shift)·x` instead of `H·x`
-#      (KrylovKit accepts plain callables) and adds the shift back to `λ`.
-#      Shifting the spectrum towards the small-magnitude end stabilizes and
-#      speeds up the :SR Lanczos at large D.
+#   1. the environments are lazy and self-invalidating (environments.jl);
+#   2. they return the local eigenvalue `λ`, which the driver uses as the
+#      per-sweep energy estimate;
+#   3. optional `energy_shift`: solves `(H - E_shift)·x` and adds the shift
+#      back to `λ` (a pure shift is a Krylov no-op).
 #
-# The post-update gauge is routed through the block-parallel truncated SVD
-# (factorizations.jl) whenever the gauge is a plain
-# `MatrixAlgebraKit.TruncatedAlgorithm` (i.e. DMRG2, and DMRG with `trunc` set)
-# and `Threads.nthreads() > 1` — it parallelizes a stage that is otherwise
-# serial, so there is nothing to conflict with. Expanding gauges (`DMRG3S`)
-# and QR gauges keep MPSKit's path.
+# A plain `TruncatedAlgorithm` gauge goes through the block-parallel SVD
+# (factorizations.jl) when `Threads.nthreads() > 1`; expanding gauges
+# (`DMRG3S`) and QR gauges keep MPSKit's path.
 
 """
-    fast_local_update!(site/pos, direction, ψ, H, alg, env::FastFiniteEnvironments,
+    local_update!(site/pos, direction, ψ, H, alg, env::HalfFiniteEnvironments,
         ϵ_global, ϵ_trunc, decay_rate, iter, timer, allocator;
         energy_shift = 0.0)
 
-One-site (`alg::DMRG`) or two-site (`alg::DMRG2`) local update on the fast
-engine. Returns `(ψ, λ, ϵ_local, ϵ_trunc, decay_rate)` where `λ` is the local
-eigenvalue (energy estimate of the normalized state after the update).
+One-site (`alg::DMRG`) or two-site (`alg::DMRG2`) local update on the half
+engine. Unlike MPSKit's own methods (which return
+`(ψ, ϵ_local, ϵ_trunc, decay_rate)`), these return
+`(ψ, λ, ϵ_local, ϵ_trunc, decay_rate)` with `λ` the local eigenvalue (energy
+estimate of the normalized state after the update).
 """
-function fast_local_update!(
+function local_update!(
         site, direction::Val,
-        ψ, O, alg::DMRG, env::FastFiniteEnvironments,
+        ψ, O, alg::DMRG, env::HalfFiniteEnvironments,
         ϵ_global, ϵ_trunc, decay_rate,
         iter, timeroutput, allocator;
         energy_shift::Real = 0.0
@@ -73,9 +66,9 @@ function fast_local_update!(
     return ψ, λ, ϵ_local, ϵ_trunc, decay_rate
 end
 
-function fast_local_update!(
+function local_update!(
         pos, direction::Val,
-        ψ, O, alg::DMRG2, env::FastFiniteEnvironments,
+        ψ, O, alg::DMRG2, env::HalfFiniteEnvironments,
         ϵ_global, ϵ_trunc, decay_rate,
         iter, timeroutput, allocator;
         energy_shift::Real = 0.0
@@ -141,26 +134,26 @@ end
 
 # ---------------------------------------------------------------------------
 # environment freeing after each update (driver calls these right after
-# `fast_local_update!`); see docs/finite-engine-redesign.md for the derivation
+# `local_update!`); see docs/finite-engine-redesign.md for the derivation
 # ---------------------------------------------------------------------------
 
 # one-site (DMRG / TDVP1) L2R at site pos: GRs[pos+1] was consumed by the
 # update and is not needed again this sweep
-_free_after_move!(env::FastFiniteEnvironments, ::Union{DMRG, TDVP}, ::Val{:right}, pos::Int) =
+_free_after_move!(env::HalfFiniteEnvironments, ::Union{DMRG, TDVP}, ::Val{:right}, pos::Int) =
     free_right!(env, pos + 1)
 # one-site (DMRG / TDVP1) R2L at site pos: GLs[pos] consumed
-_free_after_move!(env::FastFiniteEnvironments, ::Union{DMRG, TDVP}, ::Val{:left}, pos::Int) =
+_free_after_move!(env::HalfFiniteEnvironments, ::Union{DMRG, TDVP}, ::Val{:left}, pos::Int) =
     free_left!(env, pos)
 # two-site (DMRG2 / TDVP2) L2R at bond pos: GRs[pos+1] is stale (AR[pos+1]
 # changed), GRs[pos+2] consumed; GRs[N+1] is the boundary and stays
-function _free_after_move!(env::FastFiniteEnvironments, ::Union{DMRG2, TDVP2}, ::Val{:right}, pos::Int)
+function _free_after_move!(env::HalfFiniteEnvironments, ::Union{DMRG2, TDVP2}, ::Val{:right}, pos::Int)
     free_right!(env, pos + 1)
     pos + 2 <= length(env.GRs) - 1 && free_right!(env, pos + 2)
     return nothing
 end
 # two-site (DMRG2 / TDVP2) R2L at bond pos: GLs[pos+1] stale (AL[pos] changed),
 # GLs[pos] consumed; GLs[1] is the boundary and stays
-function _free_after_move!(env::FastFiniteEnvironments, ::Union{DMRG2, TDVP2}, ::Val{:left}, pos::Int)
+function _free_after_move!(env::HalfFiniteEnvironments, ::Union{DMRG2, TDVP2}, ::Val{:left}, pos::Int)
     free_left!(env, pos + 1)
     pos >= 2 && free_left!(env, pos)
     return nothing

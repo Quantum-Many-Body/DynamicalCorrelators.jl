@@ -12,7 +12,7 @@ finite-temperature `dcorrelator`, save every requested
 real-time slice, for example `save_id = eachindex(times)`.
 
 The TDVP environments are managed by the fast finite engine
-(`FastFiniteEnvironments`); pass `disk = true` (or a directory path) to back
+(`HalfFiniteEnvironments`); pass `disk = true` (or a directory path) to back
 them by disk instead of RAM.
 """
 function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=convert(FiniteMPS, identityMPO(H));
@@ -32,7 +32,7 @@ function evolve_mps(H::MPOHamiltonian, ts::AbstractVector, rho_mps::FiniteMPS=co
     # the fast engine evolves the state in place, so promote it to complex once,
     # up front (MPSKit's non-mutating `timestep` used to do this on the first call)
     scalartype(rho_mps) <: Complex || (rho_mps = complex(rho_mps))
-    envs = FastFiniteEnvironments(rho_mps, H; disk)
+    envs = HalfFiniteEnvironments(rho_mps, H; disk)
     save && jldopen(filename, "w") do f
         f["ts"] = ts
         if 1 in save_id
@@ -69,7 +69,7 @@ file output. For finite-temperature `dcorrelator`, save every requested
 real-time slice, for example `save_id = eachindex(times)`.
 
 The TDVP environments are managed by the fast finite engine
-(`FastFiniteEnvironments`); pass `disk = true` (or a directory path) to back
+(`HalfFiniteEnvironments`); pass `disk = true` (or a directory path) to back
 them by disk instead of RAM. Note that the environments are built once from
 `H(mus[1])` and kept for the whole evolution — the same behavior as before,
 when MPSKit's environments were reused across the changing Hamiltonian.
@@ -90,7 +90,7 @@ function evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mp
     flush(stdout)
     H0 = @timeit timer "build Hamiltonian" H(mus[1])
     scalartype(rho_mps) <: Complex || (rho_mps = complex(rho_mps))
-    envs = FastFiniteEnvironments(rho_mps, H0; disk)
+    envs = HalfFiniteEnvironments(rho_mps, H0; disk)
     save && jldopen(filename, "w") do f
         f["ts"] = ts
         if 1 in save_id
@@ -154,7 +154,7 @@ function _progress_end(start_time, timer::TimerOutput)
     println(timer)
 end
 
-function _timed_timestep(timer::TimerOutput, ψ, H, t, dt, alg, envs::FastFiniteEnvironments)
+function _timed_timestep(timer::TimerOutput, ψ, H, t, dt, alg, envs::HalfFiniteEnvironments)
     @timeit timer "time loop / timestep" begin
         # fast engine only: the state is complex (promoted once before the
         # environments were built) and evolves in place
@@ -341,7 +341,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     verbose && flush(stdout)
 
     scalartype(ket) <: Complex || (ket = complex(ket))
-    envs = FastFiniteEnvironments(ket, H; disk)
+    envs = HalfFiniteEnvironments(ket, H; disk)
     for k in 2:record_last
         alg = k > n ? tdvp1 : tdvp2
         ket, envs = _timed_timestep(timer, ket, H, 0, times[k] - times[k - 1], alg, envs)
@@ -460,7 +460,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         verbose && _progress_start(1, length(times), "time evolves 0.0 of ket$(id)")
         flush(stdout)
         scalartype(ket) <: Complex || (ket = complex(ket))
-        envs = FastFiniteEnvironments(ket, H; disk)
+        envs = HalfFiniteEnvironments(ket, H; disk)
         for k in 2:record_last
             alg = k > n ? tdvp1 : tdvp2
             ket, envs = _timed_timestep(timer, ket, H, 0, times[k]-times[k-1], alg, envs)
@@ -549,7 +549,7 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
     Z = dot(rho, rho)
     ket = @timeit timer "setup / chargedMPS" chargedMPS(op, rho, idx)
     scalartype(ket) <: Complex || (ket = complex(ket))
-    ket_env = FastFiniteEnvironments(ket, H; disk)
+    ket_env = HalfFiniteEnvironments(ket, H; disk)
     wall_start = now()
 
     save && jldopen(filename, "w") do f
@@ -625,7 +625,7 @@ function dcorrelator(rho_path::AbstractString, H::MPOHamiltonian, op::AbstractTe
         Z = dot(rho, rho)
         ket = @timeit timer "setup / chargedMPS" chargedMPS(op, rho, idx)
         scalartype(ket) <: Complex || (ket = complex(ket))
-        ket_env = FastFiniteEnvironments(ket, H; disk)
+        ket_env = HalfFiniteEnvironments(ket, H; disk)
         wall_start = now()
 
         save && jldopen(filename, "w") do f

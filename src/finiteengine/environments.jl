@@ -36,7 +36,7 @@
 # and MPO themselves are untouched MPSKit objects.
 
 """
-    FastFiniteEnvironments(ψ::FiniteMPS, H; disk = false,
+    HalfFiniteEnvironments(ψ::FiniteMPS, H; disk = false,
         threaded_transfer = Threads.nthreads() > 1)
 
 Memory-frugal environment manager for finite MPSKit calculations.
@@ -62,10 +62,10 @@ Memory-frugal environment manager for finite MPSKit calculations.
 
 The boundary environments are constructed exactly as in
 `MPSKit.environments(ψ, H, ψ)`, and interior environments are built on first
-query, so `FastFiniteEnvironments(ψ, H)` is a drop-in replacement for
+query, so `HalfFiniteEnvironments(ψ, H)` is a drop-in replacement for
 `environments(ψ, H, ψ)` in the DMRG drivers.
 """
-mutable struct FastFiniteEnvironments{VL <: AbstractVector, VR <: AbstractVector, TA, O, A}
+mutable struct HalfFiniteEnvironments{VL <: AbstractVector, VR <: AbstractVector, TA, O, A}
     GLs::VL                  # length N+1; GLs[i] contractible with site i
     GRs::VR                  # length N+1; GRs[j] right env of site j-1... see above
     ldependencies::Vector{Union{Nothing, TA}}  # ldependencies[j] = AL[j] object GLs[j+1] was built from
@@ -73,20 +73,20 @@ mutable struct FastFiniteEnvironments{VL <: AbstractVector, VR <: AbstractVector
     operator::O
     # `nothing` for Hamiltonian environments (above === below, the DMRG/TDVP
     # case); the fixed bra-side MPS for variational-compression environments
-    # `FastFiniteEnvironments(ψ₀, O, ϕ)` (MPSKit's `environments(below, O, above)`).
+    # `HalfFiniteEnvironments(ψ₀, O, ϕ)` (MPSKit's `environments(below, O, above)`).
     # The bra-side state never changes during a sweep, so only the queried
     # (below) state's tensors participate in the === dependency tracking.
     above::A
     threaded_transfer::Bool
 end
 
-function FastFiniteEnvironments(
+function HalfFiniteEnvironments(
         ψ::FiniteMPS, H;
         disk::Union{Bool, AbstractString} = false,
         threaded_transfer::Bool = Threads.nthreads() > 1
     )
     N = length(ψ)
-    N >= 2 || throw(ArgumentError("FastFiniteEnvironments needs at least 2 sites"))
+    N >= 2 || throw(ArgumentError("HalfFiniteEnvironments needs at least 2 sites"))
     S = site_type(ψ)
 
     # boundaries, exactly as MPSKit's `environments(below, operator, below)`
@@ -101,7 +101,7 @@ function FastFiniteEnvironments(
         # SerializedElementArray mkpaths the root and gives each array its own
         # random subdirectory underneath it
         path = disk === true ? tempdir() : String(disk)
-        @info "FastFiniteEnvironments: serializing environments under $path"
+        @info "HalfFiniteEnvironments: serializing environments under $path"
         GLs = serialize_disk(TL[i == 1 ? GL1 : nothing for i in 1:(N + 1)]; path)
         GRs = serialize_disk(TR[i == N + 1 ? GRN : nothing for i in 1:(N + 1)]; path)
     else
@@ -111,13 +111,13 @@ function FastFiniteEnvironments(
     TA = nonmissingtype(eltype(ψ.ALs))   # site-tensor type stored as dependencies
     ldependencies = Vector{Union{Nothing, TA}}(nothing, N)
     rdependencies = Vector{Union{Nothing, TA}}(nothing, N)
-    return FastFiniteEnvironments(
+    return HalfFiniteEnvironments(
         GLs, GRs, ldependencies, rdependencies, H, nothing, threaded_transfer
     )
 end
 
 """
-    FastFiniteEnvironments(below::FiniteMPS, O, above::AbstractFiniteMPS; disk = false)
+    HalfFiniteEnvironments(below::FiniteMPS, O, above::AbstractFiniteMPS; disk = false)
 
 Mixed (two-state) environment manager for variational compression
 (MPSKit's `environments(below, operator, above)`): the environments of the
@@ -134,12 +134,12 @@ The boundary environments are constructed exactly as in MPSKit:
 is a Jordan-MPO-Hamiltonian optimization, while the compression operator is a
 plain (width-1/2) `FiniteMPO` whose transfer is a single small contraction.
 """
-function FastFiniteEnvironments(
+function HalfFiniteEnvironments(
         below::FiniteMPS, O, above::AbstractFiniteMPS;
         disk::Union{Bool, AbstractString} = false
     )
     N = length(below)
-    N >= 2 || throw(ArgumentError("FastFiniteEnvironments needs at least 2 sites"))
+    N >= 2 || throw(ArgumentError("HalfFiniteEnvironments needs at least 2 sites"))
     length(above) == N || throw(DimensionMismatch(
         "below and above must have the same length (got $N and $(length(above)))"
     ))
@@ -159,7 +159,7 @@ function FastFiniteEnvironments(
     TR = Union{Nothing, typeof(GRN)}
     if disk !== false
         path = disk === true ? tempdir() : String(disk)
-        @info "FastFiniteEnvironments: serializing environments under $path"
+        @info "HalfFiniteEnvironments: serializing environments under $path"
         GLs = serialize_disk(TL[i == 1 ? GL1 : nothing for i in 1:(N + 1)]; path)
         GRs = serialize_disk(TR[i == N + 1 ? GRN : nothing for i in 1:(N + 1)]; path)
     else
@@ -169,19 +169,19 @@ function FastFiniteEnvironments(
     TA = nonmissingtype(eltype(below.ALs))
     ldependencies = Vector{Union{Nothing, TA}}(nothing, N)
     rdependencies = Vector{Union{Nothing, TA}}(nothing, N)
-    return FastFiniteEnvironments(GLs, GRs, ldependencies, rdependencies, O, above, false)
+    return HalfFiniteEnvironments(GLs, GRs, ldependencies, rdependencies, O, above, false)
 end
 
-length(env::FastFiniteEnvironments) = length(env.GLs) - 1
+length(env::HalfFiniteEnvironments) = length(env.GLs) - 1
 
 """
-    env_memory_bytes(env::FastFiniteEnvironments) -> Int
+    env_memory_bytes(env::HalfFiniteEnvironments) -> Int
 
 Approximate number of bytes currently held by the stored environments.
 For disk-backed managers this only counts the (tiny) in-memory structures;
 use the process RSS for the real footprint.
 """
-env_memory_bytes(env::FastFiniteEnvironments) =
+env_memory_bytes(env::HalfFiniteEnvironments) =
     Base.summarysize(env.GLs) + Base.summarysize(env.GRs)
 
 # ---------------------------------------------------------------------------
@@ -200,14 +200,14 @@ function _free_entry!(v::SerializedElementArray, i::Int)
 end
 
 """
-    free_left!(env::FastFiniteEnvironments, i::Int)
+    free_left!(env::HalfFiniteEnvironments, i::Int)
 
 Free the left environment `GLs[i]` (the one contractible with site `i`). The
 boundary `GLs[1]` cannot be freed. Freed environments are rebuilt lazily on
 the next query; only call this for environments that will not be needed again
 in the current sweep direction.
 """
-function free_left!(env::FastFiniteEnvironments, i::Int)
+function free_left!(env::HalfFiniteEnvironments, i::Int)
     i == 1 && throw(ArgumentError("the boundary left environment GLs[1] cannot be freed"))
     _free_entry!(env.GLs, i)
     env.ldependencies[i - 1] = nothing
@@ -215,12 +215,12 @@ function free_left!(env::FastFiniteEnvironments, i::Int)
 end
 
 """
-    free_right!(env::FastFiniteEnvironments, j::Int)
+    free_right!(env::HalfFiniteEnvironments, j::Int)
 
 Free the right environment `GRs[j]`. The boundary `GRs[N+1]` cannot be freed.
 See [`free_left!`](@ref) for the usage contract.
 """
-function free_right!(env::FastFiniteEnvironments, j::Int)
+function free_right!(env::HalfFiniteEnvironments, j::Int)
     j == length(env.GRs) &&
         throw(ArgumentError("the boundary right environment GRs[N+1] cannot be freed"))
     _free_entry!(env.GRs, j)
@@ -239,7 +239,7 @@ end
 # above state instead (MPSKit's `leftenv`: `TransferMatrix(above, O, below)`).
 # The threaded branch is never reached for mixed environments (their
 # constructor fixes threaded_transfer = false).
-function _pushright(env::FastFiniteEnvironments, j::Int, state::AbstractFiniteMPS)
+function _pushright(env::HalfFiniteEnvironments, j::Int, state::AbstractFiniteMPS)
     A = state.AL[j]
     O = env.operator[j]
     if env.threaded_transfer && Threads.nthreads() > 1
@@ -249,7 +249,7 @@ function _pushright(env::FastFiniteEnvironments, j::Int, state::AbstractFiniteMP
     return env.GLs[j] * TransferMatrix(Aa, O, A)
 end
 
-function _pushleft(env::FastFiniteEnvironments, j::Int, state::AbstractFiniteMPS)
+function _pushleft(env::HalfFiniteEnvironments, j::Int, state::AbstractFiniteMPS)
     A = state.AR[j]
     O = env.operator[j]
     if env.threaded_transfer && Threads.nthreads() > 1
@@ -263,7 +263,7 @@ end
 # MPSKit adapter: lazy queries with === staleness detection
 # ---------------------------------------------------------------------------
 
-function leftenv(env::FastFiniteEnvironments, ind::Int, state::AbstractFiniteMPS)
+function leftenv(env::HalfFiniteEnvironments, ind::Int, state::AbstractFiniteMPS)
     GLs = env.GLs
     a = findfirst(j -> !_isstored(GLs, j + 1) || !(state.AL[j] === env.ldependencies[j]), 1:(ind - 1))
     if !isnothing(a)
@@ -275,7 +275,7 @@ function leftenv(env::FastFiniteEnvironments, ind::Int, state::AbstractFiniteMPS
     return GLs[ind]
 end
 
-function rightenv(env::FastFiniteEnvironments, ind::Int, state::AbstractFiniteMPS)
+function rightenv(env::HalfFiniteEnvironments, ind::Int, state::AbstractFiniteMPS)
     GRs = env.GRs
     N = length(state)
     a = findfirst(j -> !_isstored(GRs, j) || !(state.AR[j] === env.rdependencies[j]), N:-1:(ind + 1))

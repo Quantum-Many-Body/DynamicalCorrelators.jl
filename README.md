@@ -220,7 +220,7 @@ that removes the dominant memory bottleneck of large-bond-dimension runs.
 
 - The finite DMRG drivers and the TDVP time evolution behind
   `dcorrelator`/`evolve_mps` share a lazy environment manager
-  (`FastFiniteEnvironments`): each environment is built on first query, freed
+  (`HalfFiniteEnvironments`): each environment is built on first query, freed
   right after its last use within a sweep, and invalidated automatically via
   object-identity tracking when local tensors change. Peak environment storage
   drops from `2(N+1)` cached tensors (MPSKit's `FiniteEnvironments`) to about
@@ -277,7 +277,7 @@ alg = myDMRG2(; trunc = truncrank(1024), adaptive = false)  # fixed one-step Lan
   `dmrg2_sweep!`, `myDMRG1CBE_eigsolve`.
 - New exports: `dmrg1`/`dmrg1!`, `dmrg2`/`dmrg2!`, `dmrg_mix`/`dmrg_mix!`,
   `set_threaded_hamiltonian!`, `set_prefused_hamiltonian!`,
-  `FastFiniteEnvironments`, `fast_timestep!`, `configure_finite_engine!`,
+  `HalfFiniteEnvironments`, `fast_timestep!`, `configure_finite_engine!`,
   `free_left!`/`free_right!`, `env_memory_bytes`.
 - `myTDVP1_CBE` keeps its name but now returns MPSKit's `TDVP` configured with
   `alg_expand = OptimalExpand(...)`; its `cbe_tol`/`project_error` keywords
