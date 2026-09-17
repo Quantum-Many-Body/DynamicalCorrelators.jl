@@ -551,10 +551,13 @@ end
     fℤ₂ × SU(2) electron creation operator
 """
 function e_plus(elt::Type{<:Number}, ::Type{SU2Irrep}; side=:L)
-    vspace = Vect[(FermionParity ⊠ SU2Irrep)]((1, 1/2) => 1)
-    pspace = Vect[(FermionParity ⊠ SU2Irrep)]((0, 0) => 2, (1, 1/2) => 1)
+    I = FermionParity ⊠ SU2Irrep
+    vspace = Vect[I]((1, 1/2) => 1)
+    pspace = Vect[I]((0, 0) => 2, (1, 1/2) => 1)
     if side == :L
-        e⁺ = TensorMap(elt[0.0, sqrt(2), 1.0, 0.0], pspace ← (pspace ⊗ vspace))
+        e⁺ = zeros(elt, pspace ← pspace ⊗ vspace)
+        block(e⁺, I(1,1//2)) .= [1.0 0.0] # 1 row, 2 cols
+        block(e⁺, I(0, 0)) .= [0.0, sqrt(2)] # 2 rows, 1 col
     elseif side == :R
         E = e_plus(elt, SU2Irrep; side=:L)
         F = isomorphism(storagetype(E), vspace, flip(vspace))
