@@ -393,7 +393,7 @@ function _dmrg_update!(pos, direction::Val, ψ, H, alg,
         iter, timer, allocator, energy_shift::Real)
     return local_update!(
         pos, direction, ψ, H, alg, envs, ϵ_global, ϵ_trunc, decay_rate,
-        iter, timer, allocator; energy_shift
+        timer, allocator; energy_shift
     )
 end
 function _dmrg_update!(pos, direction::Val, ψ, H, alg,

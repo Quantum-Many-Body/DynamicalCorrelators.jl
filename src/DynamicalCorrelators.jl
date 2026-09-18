@@ -19,7 +19,7 @@ using MPSKit: spacetype, fuse_mul_mpo, fuser, MPOTensor, timestep, timestep!
 using MPSKit: AbstractFiniteMPS, Algorithm, MPSTensor, MPSBondTensor, check_unambiguous_braiding, scalartype
 using MPSKit: default_allocator, SerialScheduler, AdaptiveKrylov, adapt_solver
 using MPSKit: JordanMPOTensor, JordanMPO_AC_Hamiltonian, JordanMPO_AC2_Hamiltonian, prepare_operator!!
-using MPSKit: site_type, calc_galerkin, changebond!, _update_alg_gauge, AC2, project_complement!, fixedpoint, gauge!, gauge2!, _transpose_tail, _transpose_front
+using MPSKit: site_type, calc_galerkin, changebond!, AC2, project_complement!, fixedpoint, gauge!, gauge2!, _transpose_tail, _transpose_front
 using MPSKit: AC_projection, AC2_projection, inner_alg_gauge, Zipup, approximate
 using MPSKit: C_hamiltonian
 using MPSKit: integrate as mpskit_integrate

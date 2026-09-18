@@ -12,12 +12,14 @@
 #      back to `λ` (a pure shift is a Krylov no-op).
 #
 # A plain `TruncatedAlgorithm` gauge goes through the block-parallel SVD
-# (factorizations.jl) when `Threads.nthreads() > 1`; expanding gauges
-# (`DMRG3S`) and QR gauges keep MPSKit's path.
+# (factorizations.jl) when enabled via `configure_finite_engine!(;
+# svd_threaded = true)`, MPSKit's serial path otherwise. DMRG3S's noisy gauge
+# is not supported on the half engine (it needs H and the environments to
+# build its perturbation).
 
 """
     local_update!(site/pos, direction, ψ, H, alg, env::HalfFiniteEnvironments,
-        ϵ_global, ϵ_trunc, decay_rate, iter, timer, allocator;
+        ϵ_global, ϵ_trunc, decay_rate, timer, allocator;
         energy_shift = 0.0)
 
 One-site (`alg::DMRG`) or two-site (`alg::DMRG2`) local update on the half
@@ -30,7 +32,7 @@ function local_update!(
         site, direction::Val,
         ψ, O, alg::DMRG, env::HalfFiniteEnvironments,
         ϵ_global, ϵ_trunc, decay_rate,
-        iter, timeroutput, allocator;
+        timeroutput, allocator;
         energy_shift::Real = 0.0
     )
     ϵ_local = calc_galerkin(site, ψ, O, ψ, env; alg.backend, allocator)
@@ -53,11 +55,9 @@ function local_update!(
         _fixedpoint_shifted(H_effective, ac_old, alg_eigsolve, energy_shift)
     end
 
-    alg_gauge = _update_alg_gauge(alg.alg_gauge, iter, ϵ_global)
-
     # 3. gauge
     ψ, ϵ_trunc = @timeit timeroutput "gauge" _fast_gauge!(
-        ψ, site, direction, O, env, AC′, alg_gauge; alg.backend, allocator
+        ψ, site, direction, AC′, alg.alg_gauge; normalize = true
     )
 
     # 4. bookkeeping (identical to MPSKit)
@@ -70,7 +70,7 @@ function local_update!(
         pos, direction::Val,
         ψ, O, alg::DMRG2, env::HalfFiniteEnvironments,
         ϵ_global, ϵ_trunc, decay_rate,
-        iter, timeroutput, allocator;
+        timeroutput, allocator;
         energy_shift::Real = 0.0
     )
     Heff = @timeit timeroutput "AC2_hamiltonian" AC2_hamiltonian(pos, ψ, O, ψ, env; alg.backend, allocator)
@@ -89,11 +89,9 @@ function local_update!(
         _fixedpoint_shifted(Heff, ac2, alg_eigsolve, energy_shift)
     end
 
-    alg_gauge = _update_alg_gauge(alg.alg_gauge, iter, ϵ_global)
-
     # 2. gauge: truncated SVD split back into single-site tensors
     ψ, ϵ_trunc = @timeit timeroutput "gauge" _fast_gauge2!(
-        ψ, pos, direction, newA2center, alg_gauge
+        ψ, pos, direction, newA2center, alg.alg_gauge
     )
 
     # 3. bookkeeping (identical to MPSKit)
@@ -110,23 +108,18 @@ function _fixedpoint_shifted(H_effective, x0, alg_eigsolve, energy_shift::Real)
     return λ + energy_shift, x, info
 end
 
-# gauge dispatch: threaded block-parallel SVD for a plain truncated gauge when
-# Julia threads are available, MPSKit's own gauge! otherwise (also covers QR
-# gauges and DMRG3S).
-function _fast_gauge!(
-        ψ, pos, direction::Val, O, env, AC, alg_gauge;
-        backend, allocator
-    )
-    if alg_gauge isa TruncatedAlgorithm && Threads.nthreads() > 1
-        return _threaded_gauge!(ψ, pos, direction, AC, alg_gauge; normalize = true)
+# gauge dispatch: block-parallel truncated SVD for a plain truncated gauge
+# when enabled via `configure_finite_engine!(; svd_threaded = true)`, MPSKit's
+# own (operator/environments-free) `gauge!`/`gauge2!` otherwise
+function _fast_gauge!(ψ, pos, direction::Val, AC, alg_gauge; normalize::Bool)
+    if alg_gauge isa TruncatedAlgorithm && _SVD_THREADED[] && Threads.nthreads() > 1
+        return _threaded_gauge!(ψ, pos, direction, AC, alg_gauge; normalize)
     end
-    return gauge!(
-        ψ, pos, direction, O, env, AC, alg_gauge; normalize = true, backend, allocator
-    )
+    return gauge!(ψ, pos, direction, AC, alg_gauge; normalize)
 end
 
 function _fast_gauge2!(ψ, pos, direction::Val, AC2, alg_gauge)
-    if alg_gauge isa TruncatedAlgorithm && Threads.nthreads() > 1
+    if alg_gauge isa TruncatedAlgorithm && _SVD_THREADED[] && Threads.nthreads() > 1
         return _threaded_gauge2!(ψ, pos, direction, AC2, alg_gauge; normalize = true)
     end
     return gauge2!(ψ, pos, direction, AC2, alg_gauge; normalize = true)
