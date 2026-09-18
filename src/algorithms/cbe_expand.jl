@@ -200,11 +200,15 @@ end
 # projected two-site update g2 = NL†·H|ψ₂⟩·NR̄
 # ---------------------------------------------------------------------------
 
-# Jordan MPO: channel-decomposed direct contraction into the complement.
+# Jordan MPO: channel-decomposed direct contraction into the complement. The
+# channel contractions below assume one physical leg per site; states with
+# extra physical legs (e.g. `FiniteSuperMPS`, physical + ancilla) use the
+# explicit-matvec fallback instead.
 function _cbe_g2(
-        site::Int, ::Val, ψ::AbstractFiniteMPS,
+        site::Int, dir::Val, ψ::AbstractFiniteMPS,
         H::MPOHamiltonian{<:JordanMPOTensor}, envs, left, right, NL, NR
     )
+    numout(left) == 2 || return _cbe_g2_matvec(site, dir, ψ, H, envs, NL, NR)
     GL = leftenv(envs, site, ψ)
     GR = rightenv(envs, site + 1, ψ)
     W1, W2 = H[site], H[site + 1]
@@ -219,15 +223,16 @@ function _cbe_g2(
     return g2 === nothing ? zerovector!(similar(left, space(NL, 3) ← space(NR, 1))) : g2
 end
 
-# generic MPO fallback: one explicit two-site matvec, then project — the same
-# selection as MPSKit's `OptimalExpand`
-function _cbe_g2(
-        site::Int, dir::Val, ψ::AbstractFiniteMPS, H, envs, left, right, NL, NR
-    )
+# generic MPO (or multi-physical-leg state) fallback: one explicit two-site
+# matvec, then project — the same selection as MPSKit's `OptimalExpand`
+function _cbe_g2_matvec(site::Int, dir::Val, ψ::AbstractFiniteMPS, H, envs, NL, NR)
     kind = dir === Val(:right) ? :ACAR : :ALAC
     ac2 = AC2_projection(site, ψ, H, ψ, envs; kind)
     return adjoint(NL) * ac2 * adjoint(NR)
 end
+
+_cbe_g2(site::Int, dir::Val, ψ::AbstractFiniteMPS, H, envs, left, right, NL, NR) =
+    _cbe_g2_matvec(site, dir, ψ, H, envs, NL, NR)
 
 # ---------------------------------------------------------------------------
 # changebond! / changebonds! interface
