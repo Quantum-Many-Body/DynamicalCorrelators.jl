@@ -4,7 +4,10 @@
 # on MPSKit's lower-level building blocks (`local_update!`,
 # `default_allocator`), rebuilding the cheap `DMRG`/`DMRG2` algorithm object
 # with `trunc = truncrank(D)` each sweep, so `truncdims[i]` is exactly the kept
-# bond dimension of sweep `i`. The single driver (`_dmrg_run!`) serves both
+# bond dimension of sweep `i`. The default one-site bond expansion is
+# [`CBEExpand`](@ref) (algorithms/cbe_expand.jl): the direct CBE selection, assembled
+# channel by channel without materializing the two-site effective Hamiltonian.
+# The single driver (`_dmrg_run!`) serves both
 # environment backends: `HalfFiniteEnvironments` dispatches `local_update!` to
 # the finite-engine method (finiteengine/localupdate.jl), and the few other
 # backend differences are inline branches on the cache type.
@@ -32,8 +35,9 @@ runs two sweeps at D = 64, then one at 128 and one at 512.
   sweep), a callable `D -> alg` (rebuilt from each sweep's target `D`), or
   `nothing` to disable expansion (plain one-site DMRG, which cannot grow the
   bond). The default is the callable
-  `D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1*D)), alg_svd)`,
-  expanding by up to 10% of the target `D` before the gauge truncates back
+  `D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1*D)), alg_svd)`, expanding
+  by up to 10% of the target `D` before the gauge truncates back; MPSKit's
+  `OptimalExpand`/`SketchedExpand`/`RandExpand` are drop-in alternatives
 - `save`: JLD2 checkpointing (default: `true`) — `false` writes nothing,
   `true` stores only the final sweep, a vector of sweep indices
   (e.g. `save = [2, 4, 6]`) stores exactly those sweeps
@@ -56,7 +60,7 @@ Returns `(ψ, envs, E₀)`; see also [`dmrg1`](@ref), [`dmrg2!`](@ref).
 function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         alg_eigsolve = _default_alg_eigsolve(true, 16),
         alg_svd = SafeDivideAndConquer(),
-        alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
+        alg_expand = D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
         filename::String = "default_dmrg1.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
@@ -149,7 +153,7 @@ function dmrg_mix!(
         truncdims_1site::AbstractVector{<:Integer};
         alg_eigsolve = _default_alg_eigsolve(true, 16),
         alg_svd = SafeDivideAndConquer(),
-        alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
+        alg_expand = D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
         filename::String = "default_dmrg_mix.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
@@ -209,8 +213,9 @@ function _dmrg_expand_alg(alg_expand, D::Int)
     alg_expand isa Function && return alg_expand(D)
     return throw(ArgumentError(
         "alg_expand must be `nothing`, an expansion algorithm instance " *
-        "(e.g. `OptimalExpand(; trunc = truncrank(k))`, `SketchedExpand(; " *
-        "trunc = ..., oversampling = ...)`), or a callable `D -> alg`"
+        "(e.g. `CBEExpand(; trunc = truncrank(k))`, `OptimalExpand(; trunc = " *
+        "truncrank(k))`, `SketchedExpand(; trunc = ..., oversampling = ...)`), " *
+        "or a callable `D -> alg`"
     ))
 end
 

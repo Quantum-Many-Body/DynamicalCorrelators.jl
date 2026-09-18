@@ -45,10 +45,12 @@ JLD2 file, which is useful for long runs on a cluster.
 One-site DMRG is cheaper than two-site DMRG, but it cannot grow the bond space
 by itself. `dmrg1` therefore runs MPSKit's one-site `DMRG` update with a bond
 expansion ahead of each eigensolve. The default `alg_expand` is the factory
-`D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1*D)))`: ahead of each
+`D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1*D)))`: ahead of each
 one-site eigensolve the moving bond is enlarged by up to 10% of the sweep
 target `D = truncdims[iter]` with directions selected from the projected
-two-site update, and the gauge step truncates the enlarged bond back to `D`:
+two-site update — assembled channel by channel from the Jordan-MPO structure,
+without materializing the two-site effective Hamiltonian — and the gauge step
+truncates the enlarged bond back to `D`:
 
 ```julia
 gs, envs, E0 = dmrg1(ψ0, H, truncdims;
@@ -57,14 +59,16 @@ gs, envs, E0 = dmrg1(ψ0, H, truncdims;
 )
 ```
 
-Any bond-expansion algorithm defined by MPSKit can be plugged in through
-`alg_expand`, either as an instance applied at every sweep or as a factory
-`D -> alg` built from the sweep target, e.g.
+MPSKit's bond-expansion algorithms are drop-in alternatives to
+[`CBEExpand`](@ref) through `alg_expand`, either as an instance applied at
+every sweep or as a factory `D -> alg` built from the sweep target, e.g.
+`alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1*D)))`,
 `alg_expand = D -> SketchedExpand(; trunc = truncrank(ceil(Int, 0.1*D)), oversampling = 10)`
 for the randomized single-site-cost selection, or `alg_expand = RandExpand(...)`.
 Pass `alg_expand = nothing` for plain single-site DMRG (which cannot grow the
-bond). Note that for `OptimalExpand`/`SketchedExpand` the inner `trunc` counts
-the directions *added* per bond, not the resulting bond dimension.
+bond). Note that for `CBEExpand` and MPSKit's expansion algorithms the inner
+`trunc` counts the directions *added* per bond, not the resulting bond
+dimension.
 
 ## Logging and Checkpoints
 

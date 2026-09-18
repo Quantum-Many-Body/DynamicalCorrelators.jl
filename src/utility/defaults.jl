@@ -61,11 +61,11 @@ myTDVP1(; krylovdim = 24) = TDVP(;
 Construct the default single-site TDVP algorithm with Controlled Bond Expansion.
 
 This is a thin wrapper around MPSKit's `TDVP` with
-`alg_expand = OptimalExpand(...)`: ahead of each one-site evolution the moving
+`alg_expand = CBEExpand(...)`: ahead of each one-site evolution the moving
 bond is enlarged by up to `ceil(Int, delta*D)` directions selected from the
 projected two-site update, and the truncating gauge (`trunc = truncrank(D)`)
 cuts the enlarged bond back to `D` when the center moves. Note that the `trunc`
-of `OptimalExpand` counts the directions *added* per bond, so the former
+of `CBEExpand` counts the directions *added* per bond, so the former
 overexpansion factor `delta` enters through `ceil(Int, delta*D)`.
 """
 myTDVP1_CBE(; D=4096, delta=0.1, krylovdim=30) = TDVP(;
@@ -76,7 +76,7 @@ myTDVP1_CBE(; D=4096, delta=0.1, krylovdim=30) = TDVP(;
                 orth = ModifiedGramSchmidt(),
                 eager = true,
                 verbosity = 0),
-            alg_expand = OptimalExpand(;
+            alg_expand = CBEExpand(;
                 alg_svd = SafeDivideAndConquer(),
                 trunc = truncrank(ceil(Int, delta*D))),
             alg_svd = SafeDivideAndConquer(),
@@ -110,11 +110,11 @@ myTDVP2(; trunc = truncrank(4096), krylovdim = 30) = TDVP2(;
 Construct the default one-site DMRG algorithm with Controlled Bond Expansion.
 
 This is a thin wrapper around MPSKit's `DMRG` with
-`alg_expand = OptimalExpand(...)`: ahead of each one-site eigensolve the moving
+`alg_expand = CBEExpand(...)`: ahead of each one-site eigensolve the moving
 bond is enlarged by up to `ceil(Int, delta*D)` directions selected from the
 projected two-site update, and the truncating gauge (`trunc = truncrank(D)`)
 cuts the enlarged bond back to `D` when the center moves. Note that the `trunc`
-of `OptimalExpand` counts the directions *added* per bond, so the former
+of `CBEExpand` counts the directions *added* per bond, so the former
 overexpansion factor `delta` enters through `ceil(Int, delta*D)`. The local
 eigensolver is adaptive by default (`AdaptiveKrylov`); set `adaptive = false`
 to pin a one-step `Lanczos` with the given `krylovdim`, or pass `alg_eigsolve`
@@ -125,7 +125,7 @@ myDMRG1_CBE(; tol=1e-6, maxiter=100, D=4096, delta=0.1, krylovdim=16, adaptive::
             maxiter = maxiter,
             verbosity = 3,
             alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim),
-            alg_expand = OptimalExpand(;
+            alg_expand = CBEExpand(;
                 alg_svd = SafeDivideAndConquer(),
                 trunc = truncrank(ceil(Int, delta*D))),
             alg_svd = SafeDivideAndConquer(),
