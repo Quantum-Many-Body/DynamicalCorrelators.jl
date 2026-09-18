@@ -20,9 +20,9 @@ DynamicalCorrelators.jl provides convenience wrappers for the common pieces of
 finite-MPS dynamical-correlation workflows:
 
 - `myDMRG1_CBE` configures one-site DMRG with Controlled Bond Expansion (CBE)
-  through MPSKit's `DMRG(; alg_expand = OptimalExpand(...))`.
+  through MPSKit's `DMRG(; alg_expand = CBEExpand(...))`.
 - `myTDVP1_CBE` configures CBE-assisted one-site TDVP through MPSKit's
-  `TDVP(; alg_expand = OptimalExpand(...), trunc = ...)`. This lets single-site
+  `TDVP(; alg_expand = CBEExpand(...), trunc = ...)`. This lets single-site
   TDVP grow bonds through CBE while keeping the cheaper one-site time-evolution
   sweep.
 - `dcorrelator` supports single-source and multi-source checkpointed
@@ -82,10 +82,10 @@ trunc2 = [64, 1024, 4096, 8192]
 trunc1 = [8192 for _ in 1:10]
 
 ψ, envs, E0 = dmrg_mix!(ψ, H, trunc2, trunc1;
-    # one-site sweeps cannot grow bonds by themselves: OptimalExpand adds up
+    # one-site sweeps cannot grow bonds by themselves: CBEExpand adds up
     # to 10% new directions per bond ahead of each update. Increase the
     # fraction for frustrated/critical systems, decrease if runtime dominates.
-    alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1 * D))),
+    alg_expand = D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1 * D))),
     # JLD2 checkpoint. save = true stores the final sweep; save = [2, 4, 6]
     # stores exactly those sweeps — restart a crashed job with
     # load(filename, "sweep_k_ψ") and feed it back as the initial state.

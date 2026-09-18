@@ -38,7 +38,7 @@ trunc2 = [64, 1024, 4096, 8192]
 trunc1 = [8192 for _ in 1:10]
 
 ψ, envs, E0 = dmrg_mix!(ψ, H, trunc2, trunc1;
-    alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1 * D))),
+    alg_expand = D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1 * D))),
     filename = "/bbfs/fsa/username/jobname/hubbard_L=$(length(H))_t=$(t)_U=$(u).jld2",
     save = true,
     disk = "/bbfs/scratch/username/jobname",
@@ -175,10 +175,12 @@ that removes the dominant memory bottleneck of large-bond-dimension runs.
   `length(truncdims)`.
 - They run on the fast finite engine by default and keep MPSKit's per-update
   structure, so one-site sweeps support
-  `alg_expand = OptimalExpand(...)`/`SketchedExpand(...)`/`RandExpand(...)`
+  `alg_expand = CBEExpand(...)` (this package) or MPSKit's
+  `OptimalExpand(...)`/`SketchedExpand(...)`/`RandExpand(...)` as drop-in
   instances or a factory `D -> alg`; the default
-  `D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.1*D)))` overexpands each
-  bond by 10% of the sweep target ahead of the eigensolve.
+  `D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1*D)))` overexpands each
+  bond by 10% of the sweep target ahead of the eigensolve, assembled channel
+  by channel without materializing the two-site effective Hamiltonian.
 - Engine keywords shared by all drivers: `disk` (`false`, `true` for a
   `tempdir()` subdirectory, or a directory path) backs the environments by
   disk; `manual_gc` (default `true`) collects garbage per update and reports
@@ -191,7 +193,7 @@ that removes the dominant memory bottleneck of large-bond-dimension runs.
 
 ```julia
 ψ, envs, E0 = dmrg_mix(ψ0, H, [64, 128, 256], [512, 1024, 1024];
-                       alg_expand = D -> OptimalExpand(; trunc = truncrank(ceil(Int, 0.3*D))))
+                       alg_expand = D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.3*D))))
 # or equivalently with a switch point
 ψ, envs, E0 = dmrg_mix(ψ0, H, [64, 128, 256, 512, 1024, 1024]; switch_D = 256)
 ```

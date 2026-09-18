@@ -3,10 +3,20 @@
 All core algorithms (DMRG, TDVP, IDMRG) are provided by
 [MPSKit.jl](https://github.com/QuantumKitHub/MPSKit.jl), including Controlled
 Bond Expansion through the `alg_expand` keyword of `DMRG` and `TDVP`
-(`OptimalExpand`, `SketchedExpand`, `RandExpand`). The functions below are
+(`OptimalExpand`, `SketchedExpand`, `RandExpand`). On top of them, this package
+provides [`CBEExpand`](@ref): the direct CBE selection assembled channel by
+channel from the Jordan-MPO structure, without materializing the two-site
+effective Hamiltonian — it is the default `alg_expand` of `dmrg1!`/`dmrg_mix!`
+and of the `myDMRG1_CBE`/`myTDVP1_CBE` constructors. The functions below are
 convenience constructors for the package's default algorithm configurations;
 drive them through MPSKit's `find_groundstate`, `timestep`/`timestep!`, and
 `time_evolve`.
+
+## Bond Expansion
+
+```@docs
+CBEExpand
+```
 
 ## DMRG drivers with bond-dimension schedules
 
