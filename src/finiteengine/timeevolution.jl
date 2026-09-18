@@ -18,9 +18,9 @@
 #      AC-step matches the two-site DMRG rule. Peak storage stays ~N+O(1)
 #      environment tensors instead of 2(N+1).
 #   3. A truncated-SVD gauge (TDVP1 with `trunc` set, e.g. CBE-TDVP) and the
-#      TDVP2 split are routed through the block-parallel `threaded_svd_trunc`
-#      whenever Julia threads are available — these stages are otherwise
-#      serial, so there is nothing to conflict with.
+#      TDVP2 split go through the block-parallel `threaded_svd_trunc` when
+#      `svd_threaded` is on (`configure_finite_engine!`) — these stages are
+#      otherwise serial, so there is nothing to conflict with.
 #
 # Like MPSKit's `timestep!` (and unlike `timestep`), the state is evolved IN
 # PLACE and must already be complex: promote it once with `ψ = complex(ψ)`
@@ -29,9 +29,11 @@
 
 """
     fast_timestep!(ψ, H, t, dt, alg::TDVP, envs::HalfFiniteEnvironments;
-        imaginary_evolution = false, normalize = false, manual_gc = true)
+        imaginary_evolution = false, normalize = false, manual_gc = true,
+        timeroutput = TimerOutputs.get_defaulttimer())
     fast_timestep!(ψ, H, t, dt, alg::TDVP2, envs::HalfFiniteEnvironments;
-        imaginary_evolution = false, normalize = false, manual_gc = true)
+        imaginary_evolution = false, normalize = false, manual_gc = true,
+        timeroutput = TimerOutputs.get_defaulttimer())
 
 One full TDVP sweep (left→right→left) on the fast finite engine, evolving `ψ`
 in place by `dt` starting from time `t`. Returns `(ψ, envs)`.
@@ -39,12 +41,16 @@ in place by `dt` starting from time `t`. Returns `(ψ, envs)`.
 `manual_gc` (default `true`) runs an incremental `GC.gc(false)` after every
 local update and a full collection at the end of the sweep — the same
 bookkeeping as the DMRG fast driver; set it to `false` only for small systems.
+`timeroutput` records the two sweeps and, inside them, the `expand` (CBE),
+Hamiltonian-construction, integration and gauge/split sections; pass a shared
+`TimerOutput` to accumulate across steps.
 """
 function fast_timestep!(
         ψ::AbstractFiniteMPS, H, t::Number, dt::Number, alg::TDVP,
         envs::HalfFiniteEnvironments;
         imaginary_evolution::Bool = false, normalize::Bool = false,
-        manual_gc::Bool = true
+        manual_gc::Bool = true,
+        timeroutput::TimerOutput = TimerOutputs.get_defaulttimer()
     )
     scalartype(ψ) <: Complex || throw(ArgumentError(
         "fast TDVP evolves the state in place and requires a complex state; " *
@@ -55,58 +61,88 @@ function fast_timestep!(
     allocator = default_allocator(ψ, SerialScheduler())
 
     # sweep left to right
-    for i in 1:(N - 1)
-        # 1. optionally expand the bond ahead of the local update (CBE)
-        isnothing(alg.alg_expand) ||
-            changebond!(i, Val(:right), ψ, H, alg.alg_expand, envs; normalize, allocator)
+    @timeit timeroutput "L2R sweep" begin
+        for i in 1:(N - 1)
+            # 1. optionally expand the bond ahead of the local update (CBE)
+            if !isnothing(alg.alg_expand)
+                @timeit timeroutput "expand" changebond!(
+                    i, Val(:right), ψ, H, alg.alg_expand, envs; normalize, allocator
+                )
+            end
 
-        # 2. evolve the (possibly expanded) center tensor forward
-        Hac = AC_hamiltonian(i, ψ, H, ψ, envs; alg.backend, allocator)
-        AC = mpskit_integrate(Hac, ψ.AC[i], t, dt / 2, alg.integrator; imaginary_evolution)
+            # 2. evolve the (possibly expanded) center tensor forward
+            Hac = @timeit timeroutput "AC_hamiltonian" AC_hamiltonian(
+                i, ψ, H, ψ, envs; alg.backend, allocator
+            )
+            AC = @timeit timeroutput "AC_integrate" mpskit_integrate(
+                Hac, ψ.AC[i], t, dt / 2, alg.integrator; imaginary_evolution
+            )
 
-        # 3. gauge: split AC -> AL[i], C[i] and move the center to i+1
-        _tdvp_gauge!(ψ, i, Val(:right), AC, alg.alg_gauge; normalize)
+            # 3. gauge: split AC -> AL[i], C[i] and move the center to i+1
+            @timeit timeroutput "gauge" _fast_gauge!(
+                ψ, i, Val(:right), AC, alg.alg_gauge; normalize
+            )
 
-        # 4. evolve the bond tensor backward
-        Hc = C_hamiltonian(i, ψ, H, ψ, envs; alg.backend, allocator)
-        ψ.C[i] = mpskit_integrate(
-            Hc, ψ.C[i], t + dt / 2, -dt / 2, alg.integrator; imaginary_evolution
+            # 4. evolve the bond tensor backward
+            Hc = @timeit timeroutput "C_hamiltonian" C_hamiltonian(
+                i, ψ, H, ψ, envs; alg.backend, allocator
+            )
+            ψ.C[i] = @timeit timeroutput "C_integrate" mpskit_integrate(
+                Hc, ψ.C[i], t + dt / 2, -dt / 2, alg.integrator; imaginary_evolution
+            )
+
+            _free_after_move!(envs, alg, Val(:right), i)
+            manual_gc && GC.gc(false)
+        end
+
+        # right edge
+        Hac = @timeit timeroutput "AC_hamiltonian" AC_hamiltonian(
+            N, ψ, H, ψ, envs; alg.backend, allocator
         )
-
-        _free_after_move!(envs, alg, Val(:right), i)
-        manual_gc && GC.gc(false)
+        ψ.AC[end] = @timeit timeroutput "AC_integrate" mpskit_integrate(
+            Hac, ψ.AC[end], t, dt / 2, alg.integrator; imaginary_evolution
+        )
     end
-
-    # right edge
-    Hac = AC_hamiltonian(N, ψ, H, ψ, envs; alg.backend, allocator)
-    ψ.AC[end] = mpskit_integrate(Hac, ψ.AC[end], t, dt / 2, alg.integrator; imaginary_evolution)
 
     # sweep right to left
-    for i in N:-1:2
-        isnothing(alg.alg_expand) ||
-            changebond!(i, Val(:left), ψ, H, alg.alg_expand, envs; normalize, allocator)
+    @timeit timeroutput "R2L sweep" begin
+        for i in N:-1:2
+            if !isnothing(alg.alg_expand)
+                @timeit timeroutput "expand" changebond!(
+                    i, Val(:left), ψ, H, alg.alg_expand, envs; normalize, allocator
+                )
+            end
 
-        Hac = AC_hamiltonian(i, ψ, H, ψ, envs; alg.backend, allocator)
-        AC = mpskit_integrate(
-            Hac, ψ.AC[i], t + dt / 2, dt / 2, alg.integrator; imaginary_evolution
+            Hac = @timeit timeroutput "AC_hamiltonian" AC_hamiltonian(
+                i, ψ, H, ψ, envs; alg.backend, allocator
+            )
+            AC = @timeit timeroutput "AC_integrate" mpskit_integrate(
+                Hac, ψ.AC[i], t + dt / 2, dt / 2, alg.integrator; imaginary_evolution
+            )
+
+            @timeit timeroutput "gauge" _fast_gauge!(
+                ψ, i, Val(:left), AC, alg.alg_gauge; normalize
+            )
+
+            Hc = @timeit timeroutput "C_hamiltonian" C_hamiltonian(
+                i - 1, ψ, H, ψ, envs; alg.backend, allocator
+            )
+            ψ.C[i - 1] = @timeit timeroutput "C_integrate" mpskit_integrate(
+                Hc, ψ.C[i - 1], t + dt, -dt / 2, alg.integrator; imaginary_evolution
+            )
+
+            _free_after_move!(envs, alg, Val(:left), i)
+            manual_gc && GC.gc(false)
+        end
+
+        # left edge
+        Hac = @timeit timeroutput "AC_hamiltonian" AC_hamiltonian(
+            1, ψ, H, ψ, envs; alg.backend, allocator
         )
-
-        _tdvp_gauge!(ψ, i, Val(:left), AC, alg.alg_gauge; normalize)
-
-        Hc = C_hamiltonian(i - 1, ψ, H, ψ, envs; alg.backend, allocator)
-        ψ.C[i - 1] = mpskit_integrate(
-            Hc, ψ.C[i - 1], t + dt, -dt / 2, alg.integrator; imaginary_evolution
+        ψ.AC[1] = @timeit timeroutput "AC_integrate" mpskit_integrate(
+            Hac, ψ.AC[1], t + dt / 2, dt / 2, alg.integrator; imaginary_evolution
         )
-
-        _free_after_move!(envs, alg, Val(:left), i)
-        manual_gc && GC.gc(false)
     end
-
-    # left edge
-    Hac = AC_hamiltonian(1, ψ, H, ψ, envs; alg.backend, allocator)
-    ψ.AC[1] = mpskit_integrate(
-        Hac, ψ.AC[1], t + dt / 2, dt / 2, alg.integrator; imaginary_evolution
-    )
 
     manual_gc && GC.gc(true)
     return ψ, envs
@@ -116,7 +152,8 @@ function fast_timestep!(
         ψ::AbstractFiniteMPS, H, t::Number, dt::Number, alg::TDVP2,
         envs::HalfFiniteEnvironments;
         imaginary_evolution::Bool = false, normalize::Bool = false,
-        manual_gc::Bool = true
+        manual_gc::Bool = true,
+        timeroutput::TimerOutput = TimerOutputs.get_defaulttimer()
     )
     scalartype(ψ) <: Complex || throw(ArgumentError(
         "fast TDVP evolves the state in place and requires a complex state; " *
@@ -126,75 +163,77 @@ function fast_timestep!(
     allocator = default_allocator(ψ, SerialScheduler())
 
     # sweep left to right
-    for i in 1:(N - 1)
-        ac2 = _transpose_front(ψ.AC[i]) * _transpose_tail(ψ.AR[i + 1])
-        Hac2 = AC2_hamiltonian(i, ψ, H, ψ, envs; alg.backend, allocator)
-        ac2′ = mpskit_integrate(Hac2, ac2, t, dt / 2, alg.integrator; imaginary_evolution)
-
-        nal, nc, nar = _tdvp2_split(ac2′, alg)
-        normalize && normalize!(nc)
-        ψ.AC[i] = (nal, complex(nc))
-        ψ.AC[i + 1] = (complex(nc), _transpose_front(nar))
-
-        if i != N - 1
-            Hac = AC_hamiltonian(i + 1, ψ, H, ψ, envs; alg.backend, allocator)
-            ψ.AC[i + 1] = mpskit_integrate(
-                Hac, ψ.AC[i + 1], t + dt / 2, -dt / 2, alg.integrator;
-                imaginary_evolution
+    @timeit timeroutput "L2R sweep" begin
+        for i in 1:(N - 1)
+            ac2 = _transpose_front(ψ.AC[i]) * _transpose_tail(ψ.AR[i + 1])
+            Hac2 = @timeit timeroutput "AC2_hamiltonian" AC2_hamiltonian(
+                i, ψ, H, ψ, envs; alg.backend, allocator
             )
-        end
+            ac2′ = @timeit timeroutput "AC2_integrate" mpskit_integrate(
+                Hac2, ac2, t, dt / 2, alg.integrator; imaginary_evolution
+            )
 
-        _free_after_move!(envs, alg, Val(:right), i)
-        manual_gc && GC.gc(false)
+            nal, nc, nar = @timeit timeroutput "split" _tdvp2_split(ac2′, alg)
+            normalize && normalize!(nc)
+            ψ.AC[i] = (nal, complex(nc))
+            ψ.AC[i + 1] = (complex(nc), _transpose_front(nar))
+
+            if i != N - 1
+                Hac = @timeit timeroutput "AC_hamiltonian" AC_hamiltonian(
+                    i + 1, ψ, H, ψ, envs; alg.backend, allocator
+                )
+                ψ.AC[i + 1] = @timeit timeroutput "AC_integrate" mpskit_integrate(
+                    Hac, ψ.AC[i + 1], t + dt / 2, -dt / 2, alg.integrator;
+                    imaginary_evolution
+                )
+            end
+
+            _free_after_move!(envs, alg, Val(:right), i)
+            manual_gc && GC.gc(false)
+        end
     end
 
     # sweep right to left
-    for i in N:-1:2
-        ac2 = _transpose_front(ψ.AL[i - 1]) * _transpose_tail(ψ.AC[i])
-        Hac2 = AC2_hamiltonian(i - 1, ψ, H, ψ, envs; alg.backend, allocator)
-        ac2′ = mpskit_integrate(
-            Hac2, ac2, t + dt / 2, dt / 2, alg.integrator; imaginary_evolution
-        )
-
-        nal, nc, nar = _tdvp2_split(ac2′, alg)
-        normalize && normalize!(nc)
-        ψ.AC[i - 1] = (nal, complex(nc))
-        ψ.AC[i] = (complex(nc), _transpose_front(nar))
-
-        if i != 2
-            Hac = AC_hamiltonian(i - 1, ψ, H, ψ, envs; alg.backend, allocator)
-            ψ.AC[i - 1] = mpskit_integrate(
-                Hac, ψ.AC[i - 1], t + dt, -dt / 2, alg.integrator;
-                imaginary_evolution
+    @timeit timeroutput "R2L sweep" begin
+        for i in N:-1:2
+            ac2 = _transpose_front(ψ.AL[i - 1]) * _transpose_tail(ψ.AC[i])
+            Hac2 = @timeit timeroutput "AC2_hamiltonian" AC2_hamiltonian(
+                i - 1, ψ, H, ψ, envs; alg.backend, allocator
             )
-        end
+            ac2′ = @timeit timeroutput "AC2_integrate" mpskit_integrate(
+                Hac2, ac2, t + dt / 2, dt / 2, alg.integrator; imaginary_evolution
+            )
 
-        _free_after_move!(envs, alg, Val(:left), i - 1)
-        manual_gc && GC.gc(false)
+            nal, nc, nar = @timeit timeroutput "split" _tdvp2_split(ac2′, alg)
+            normalize && normalize!(nc)
+            ψ.AC[i - 1] = (nal, complex(nc))
+            ψ.AC[i] = (complex(nc), _transpose_front(nar))
+
+            if i != 2
+                Hac = @timeit timeroutput "AC_hamiltonian" AC_hamiltonian(
+                    i - 1, ψ, H, ψ, envs; alg.backend, allocator
+                )
+                ψ.AC[i - 1] = @timeit timeroutput "AC_integrate" mpskit_integrate(
+                    Hac, ψ.AC[i - 1], t + dt, -dt / 2, alg.integrator;
+                    imaginary_evolution
+                )
+            end
+
+            _free_after_move!(envs, alg, Val(:left), i - 1)
+            manual_gc && GC.gc(false)
+        end
     end
 
     manual_gc && GC.gc(true)
     return ψ, envs
 end
 
-# gauge dispatch: block-parallel truncated SVD for a plain TruncatedAlgorithm
-# gauge when Julia threads are available, MPSKit's `gauge!` otherwise (TDVP's
-# gauge is a QR or a truncated SVD — never an expanding gauge — so the
-# operator/environments-free `gauge!` method applies)
-function _tdvp_gauge!(ψ, pos::Int, direction::Val, AC, alg_gauge; normalize::Bool)
-    if alg_gauge isa TruncatedAlgorithm && Threads.nthreads() > 1
-        ψ, = _threaded_gauge!(ψ, pos, direction, AC, alg_gauge; normalize)
-        return ψ
-    end
-    ψ, = gauge!(ψ, pos, direction, AC, alg_gauge; normalize)
-    return ψ
-end
-
-# TDVP2 split of the evolved two-site center: block-parallel when threaded,
-# MPSKit's in-place `svd_trunc!` otherwise (`ac2′` is a fresh tensor returned
-# by the integrator, so mutating it is safe)
+# TDVP2 split of the evolved two-site center: block-parallel when enabled via
+# `configure_finite_engine!(; svd_threaded = true)`, MPSKit's in-place
+# `svd_trunc!` otherwise (`ac2′` is a fresh tensor returned by the integrator,
+# so mutating it is safe)
 function _tdvp2_split(ac2′, alg::TDVP2)
-    if Threads.nthreads() > 1
+    if _SVD_THREADED[] && Threads.nthreads() > 1
         nal, nc, nar, = threaded_svd_trunc(
             ac2′, TruncatedAlgorithm(alg.alg_svd, alg.trunc)
         )

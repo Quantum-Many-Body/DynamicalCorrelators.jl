@@ -54,8 +54,8 @@ end
 
 # ---------------------------------------------------------------------------
 # threaded gauge steps — mirrors of MPSKit's orthoview.jl implementations with
-# the block-parallel SVD swapped in (only for a plain TruncatedAlgorithm gauge;
-# expanding gauges such as DMRG3S keep MPSKit's path)
+# the block-parallel SVD swapped in (only for a plain TruncatedAlgorithm
+# gauge; other gauges keep MPSKit's serial path)
 # ---------------------------------------------------------------------------
 
 # orthoview.jl `left_gauge(AC, ::TruncatedAlgorithm)`

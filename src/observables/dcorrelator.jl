@@ -158,7 +158,7 @@ function _timed_timestep(timer::TimerOutput, ψ, H, t, dt, alg, envs::HalfFinite
     @timeit timer "time loop / timestep" begin
         # fast engine only: the state is complex (promoted once before the
         # environments were built) and evolves in place
-        return fast_timestep!(ψ, H, t, dt, alg, envs)
+        return fast_timestep!(ψ, H, t, dt, alg, envs; timeroutput = timer)
     end
 end
 

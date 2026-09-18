@@ -7,9 +7,13 @@
 # TensorKit's SU(2) recoupling ("transformer") and index-manipulation threads
 # are a separate, orthogonal thread pool that can be enabled on top.
 
+# whether the gauge-step SVD distributes per-sector blocks over Julia threads;
+# off by default (MPSKit's serial SVD), toggled by `configure_finite_engine!`
+const _SVD_THREADED = Ref{Bool}(false)
+
 """
     configure_finite_engine!(; blas_threads = 1, transformer_threads = nothing,
-        manipulation_threads = nothing, verbose = true)
+        manipulation_threads = nothing, svd_threaded = false, verbose = true)
 
 Set the thread configuration recommended for the fast finite engine:
 
@@ -19,6 +23,8 @@ Set the thread configuration recommended for the fast finite engine:
   threads, or `nothing` to leave unchanged
 - `manipulation_threads`: TensorKit index-manipulation threads, or `nothing`
   to leave unchanged
+- `svd_threaded`: distribute the per-sector blocks of the gauge-step SVD over
+  all Julia threads (default `false`, i.e. MPSKit's serial SVD)
 - `verbose`: print the resulting configuration
 
 Returns the number of Julia threads (the pool the engine actually uses).
@@ -27,9 +33,11 @@ function configure_finite_engine!(;
         blas_threads::Integer = 1,
         transformer_threads = nothing,
         manipulation_threads = nothing,
+        svd_threaded::Bool = _SVD_THREADED[],
         verbose::Bool = true
     )
     BLAS.set_num_threads(Int(blas_threads))
+    _SVD_THREADED[] = svd_threaded
     if transformer_threads !== nothing
         set_num_transformer_threads(Int(transformer_threads))
     end
@@ -42,6 +50,7 @@ function configure_finite_engine!(;
         println("  BLAS threads:                ", BLAS.get_num_threads())
         println("  TensorKit transformer threads:  ", get_num_transformer_threads())
         println("  TensorKit manipulation threads: ", get_num_manipulation_threads())
+        println("  block-parallel gauge SVD:    ", _SVD_THREADED[])
         flush(stdout)
     end
     return Threads.nthreads()
