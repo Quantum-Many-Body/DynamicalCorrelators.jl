@@ -72,7 +72,16 @@ function damping(t, broadentype)
 end
 
 """
-    fourier_kt(gf_rt, rs, k; regroup=[collect(1:size(gf_rt,1))], center)
+    _spatial_phase(kernel, k, Δr)
+
+Phase factor of the spatial Fourier kernel for separation `Δr`: the full
+`exp(-i k·Δr)` for `kernel === :exp`, or its inversion-symmetric part
+`cos(k·Δr)` for `kernel === :cos`.
+"""
+_spatial_phase(kernel::Symbol, k::AbstractArray{<:Number}, Δr) = kernel === :cos ? cos(dot(k, Δr)) : cis(-dot(k, Δr))
+
+"""
+    fourier_kt(gf_rt, rs, k; regroup=[collect(1:size(gf_rt,1))], center, kernel=:exp)
 
 Spatial Fourier transform of a real-space Green's function `G(r, t)` at a single
 momentum point `k`.
@@ -107,6 +116,15 @@ measurement site and axis 2 the source site, matching the output of
   greater/lesser ids). Then `size(gf_rt, 2) == length(center)`, only axis 1 is
   regrouped, the output has size `(length(regroup), length(center), N_times)`,
   and the phase is `exp(-i k·(rs[center[y]] - rs[j]))`.
+- `kernel`: `:exp` (default) for the full complex phase `exp(-i k·Δr)`, or
+  `:cos` to keep only its inversion-symmetric part `cos(k·Δr)`. For a
+  translation-invariant system with spatial inversion symmetry one has
+  `G(-x, t) = G(x, t)`, so the sine part of the phase cancels pairwise and
+  `:cos` is exact; on numerical data it additionally projects out the small
+  inversion-antisymmetric component, which would otherwise produce a
+  nonphysical imaginary part in `G(k, ω)`. Use `:cos` with `center` data
+  measured from a source at an inversion center, or with a symmetric
+  correlator matrix `G_{ij} = G_{ji}`.
 
 # Choosing `regroup`
 - **One MPS site = one physical site** (single-orbital chain, snake-ordered 2D
@@ -126,12 +144,13 @@ measurement site and axis 2 the source site, matching the output of
   momentum function — sum or trace over the unit indices afterwards if a
   scalar spectrum is needed.
 """
-function fourier_kt(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, k::AbstractArray{<:Number}; regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),], center)
+function fourier_kt(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, k::AbstractArray{<:Number}; regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),], center, kernel::Symbol=:exp)
+    kernel in (:exp, :cos) || throw(ArgumentError("Invalid kernel: $kernel (expected :exp or :cos)"))
     if isnothing(center)
         dest = zeros(ComplexF64, length(regroup), length(regroup), size(gf_rt, 3))
         for x in eachindex(regroup), y in eachindex(regroup), l in axes(gf_rt, 3)
             for j in eachindex(regroup[x]), i in eachindex(regroup[y])
-                dest[x, y, l] += gf_rt[regroup[x][j], regroup[y][i], l]*cis(-dot(k, rs[regroup[y][i]]-rs[regroup[x][j]]))
+                dest[x, y, l] += gf_rt[regroup[x][j], regroup[y][i], l]*_spatial_phase(kernel, k, rs[regroup[y][i]]-rs[regroup[x][j]])
             end
         end
         return dest
@@ -140,7 +159,7 @@ function fourier_kt(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, k:
         dest = zeros(ComplexF64, length(regroup), length(center), size(gf_rt, 3))
         for x in eachindex(regroup), y in eachindex(center), l in axes(gf_rt, 3)
             for j in eachindex(regroup[x])
-                dest[x, y, l] += gf_rt[regroup[x][j], y, l]*cis(-dot(k, rs[center[y]]-rs[regroup[x][j]]))
+                dest[x, y, l] += gf_rt[regroup[x][j], y, l]*_spatial_phase(kernel, k, rs[center[y]]-rs[regroup[x][j]])
             end
         end
         return dest
@@ -148,22 +167,60 @@ function fourier_kt(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, k:
 end
 
 """
-    fourier_kw(gf_kt, ts, w, dampings)
+    fourier_kw(gf_kt, ts, w, dampings; symmetrize=false)
 
 Time Fourier transform of `G(k, t)` to `G(k, ω)` at a single frequency `w`,
 with pre-computed damping factors.
+
+With `symmetrize=false` (default) this is the one-sided integral
+`∫₀ᵀ dt f(t) e^{iωt} G(k, t)`, whose imaginary part is generically nonzero on
+finite-time data. With `symmetrize=±1`, the conjugation symmetry
+`G_{yx}(k, -t) = ±conj(G_{xy}(k, t))` is used to fold the two-sided integral
+onto the data window:
+
+```math
+G_{xy}(k, \\omega) = \\int_0^T dt\\, f(t) \\big[ e^{i\\omega t} G_{xy}(k, t) \\pm e^{-i\\omega t} G_{yx}(k, t)^* \\big] .
+```
+
+The sign must match how the correlator was assembled:
+
+- `symmetrize=true` (i.e. `+1`): bare `⟨Aₓ(t) A†ᵧ(0)⟩` correlators without any
+  retarded prefactor, which obey `G(-t) = +conj(G(t))`. The result is
+  manifestly Hermitian in `(x, y)` at every `ω` and real on the diagonal.
+- `symmetrize=-1`: Green's functions carrying the retarded `-im` prefactor,
+  which obey `G(-t) = -conj(G(t))`. This is the right choice for the output
+  of [`dcorrelator`](@ref), for both spin and electron operators. The result
+  is manifestly anti-Hermitian with a purely imaginary diagonal, and the
+  spectral function is `-imag(diag)/2` (relative to the usual
+  `-imag(one-sided)` convention).
+
+When `gf_kt` is square (all source sites evolved), the conjugated partner
+is the transposed element `G_{yx}(k, t)` and the folding is exact. When
+`gf_kt` is rectangular (from [`fourier_kt`](@ref) with `center`), the
+transposed element was never computed, so each element is folded with its own
+conjugate, `G_c(k, -t) = ±conj(G_c(k, t))`; this relies on translation
+invariance of the displacement data around each source center, which is the
+same assumption under which the folded kernel is derived.
+
+In both cases the result is the full two-sided transform (twice the
+corresponding quadrature of the one-sided one), and the unphysical
+truncation-induced component in the complementary quadrature is removed.
+`ts` must start at `t = 0`.
 """
-function fourier_kw(gf_kt::AbstractArray, ts::AbstractRange, w::Number, dampings::AbstractArray)
+function fourier_kw(gf_kt::AbstractArray, ts::AbstractRange, w::Number, dampings::AbstractArray; symmetrize::Union{Bool,Integer}=false)
+    s = _sym_sign(symmetrize)
+    (s != 0 && !iszero(first(ts))) && throw(ArgumentError("`symmetrize` requires time data starting at t = 0, got ts[1] = $(first(ts))."))
+    transpose = size(gf_kt, 1) == size(gf_kt, 2)
     dest = zeros(ComplexF64, size(gf_kt, 1), size(gf_kt, 2))
     for x in axes(gf_kt, 1), y in axes(gf_kt, 2)
-        temp = gf_kt[x, y, :] .* cis.(w*ts) .* dampings
+        temp = _time_integrand(gf_kt, x, y, w, ts, dampings, s, transpose)
         dest[x, y] = integrate(ts, temp)
     end
     return dest
 end
 
 """
-    fourier_kw(gf_rt, rs, ts, ks, ws; mthreads=nthreads(), broadentype=(0.05, "G"), regroup=...)
+    fourier_kw(gf_rt, rs, ts, ks, ws; mthreads=nthreads(), broadentype=(0.05, "G"), regroup=..., kernel=:exp, symmetrize=false)
 
 Full double Fourier transform from `G(r, t)` to `G(k, ω)` over arrays of
 momenta `ks` and frequencies `ws`. Multi-threaded over frequencies.
@@ -186,6 +243,15 @@ momenta `ks` and frequencies `ws`. Multi-threaded over frequencies.
 - `center`: `nothing` (default) or the physical source-site indices when
   `gf_rt` was computed only for a subset of sources; forwarded to
   [`fourier_kt`](@ref).
+- `kernel`: forwarded to [`fourier_kt`](@ref); `:exp` (default) or `:cos` to
+  keep only the inversion-symmetric `cos(k·Δr)` part of the spatial phase.
+- `symmetrize`: `false` (default), `true`/`+1`, or `-1`. If set, fold the
+  two-sided time integral onto the data window using
+  `G_{ba}(-t) = ±conj(G_{ab}(t))`; requires `ts` to start at `t = 0`. Use
+  `-1` for [`dcorrelator`](@ref) output (spin and electron alike), whose
+  retarded `-im` prefactor flips the sign; the spectrum is then purely
+  imaginary on the diagonal, `-imag(diag)/2`. See the inner
+  [`fourier_kw`](@ref) method.
 
 # Returns
 Matrix of shape `(length(ws), length(ks))` whose `[w, k]` entry is the
@@ -193,19 +259,20 @@ group × group matrix `G(k, ω)/(4π²)` (a `1 × 1` matrix for the default
 `regroup`); use `only(...)` or an extra trace/sum to extract a scalar spectrum.
 """
 function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts::AbstractRange, ks::AbstractArray{<:AbstractArray}, ws::AbstractArray{<:Number};
-                    mthreads::Integer=Threads.nthreads(), broadentype=(0.05, "G"), regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),], center::Union{Nothing,AbstractArray{<:Integer}}=nothing)
+                    mthreads::Integer=Threads.nthreads(), broadentype=(0.05, "G"), regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),], center::Union{Nothing,AbstractArray{<:Integer}}=nothing,
+                    kernel::Symbol=:exp, symmetrize::Union{Bool,Integer}=false)
     @assert size(gf_rt, 1) == length(rs) "Dimension mismatch: the length of site positions 'rs' must equal to the size of green function matrix 'gf_rt'!"
     dampings = [damping(t, broadentype) for t in ts]
     gf_kw = Matrix(undef, length(ws), length(ks))
     for k in eachindex(ks)
-        gf_kt = fourier_kt(gf_rt, rs, ks[k]; regroup=regroup, center=center)
+        gf_kt = fourier_kt(gf_rt, rs, ks[k]; regroup=regroup, center=center, kernel=kernel)
         # Multi-threaded frequency loop using atomic counter
         idx = Threads.Atomic{Int}(1)
         Threads.@sync for _ in 1:mthreads
             Threads.@spawn while true
                 w = Threads.atomic_add!(idx, 1)
                 w > length(ws) && break
-                gf_kw[w, k] = fourier_kw(gf_kt, ts, ws[w], dampings)
+                gf_kw[w, k] = fourier_kw(gf_kt, ts, ws[w], dampings; symmetrize=symmetrize)
             end
         end
     end
@@ -213,7 +280,7 @@ function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts
 end
 
 """
-    fourier_rw(gf_rt, ts, ws; broadentype=(0.05, "G"), mthreads=nthreads(), ifsum=true)
+    fourier_rw(gf_rt, ts, ws; broadentype=(0.05, "G"), mthreads=nthreads(), ifsum=true, symmetrize=false)
 
 Time Fourier transform from `G(r, t)` to `G(r, ω)` (real-space, frequency domain).
 
@@ -224,19 +291,40 @@ Time Fourier transform from `G(r, t)` to `G(r, ω)` (real-space, frequency domai
 - `broadentype`: broadening specification.
 - `mthreads`: number of threads.
 - `ifsum`: if `true`, use simple summation; if `false`, use numerical integration.
+- `symmetrize`: `false` (default), `true`/`+1`, or `-1`. If set, use the
+  conjugation symmetry `G_{ba}(-t) = ±conj(G_{ab}(t))` (valid for
+  `⟨A_a(t) A†_b(0)⟩` correlators in a time-translation invariant state) to
+  fold the two-sided time integral onto the data window,
+
+```math
+G_{ab}(r, \\omega) = \\int_0^T dt\\, f(t) \\big[ e^{i\\omega t} G_{ab}(t) \\pm e^{-i\\omega t} G_{ba}(t)^* \\big] .
+```
+
+  With `+1` each frequency slice is manifestly Hermitian in `(a, b)` with a
+  real diagonal; with `-1` it is manifestly anti-Hermitian with a purely
+  imaginary diagonal. Either way, the unphysical truncation-induced component
+  in the complementary quadrature is removed. Use `-1` for
+  [`dcorrelator`](@ref) output (spin and electron alike), whose retarded
+  `-im` prefactor flips the conjugation sign; the spectral function is then
+  `-imag(diag)/2`. `ts` must start at `t = 0`, and the result is the
+  two-sided transform (twice the corresponding quadrature of the one-sided
+  one).
 
 # Returns
 Array of shape `(N_sites, N_sites, length(ws))`.
 """
-function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; broadentype=(0.05, "G"), mthreads::Integer=Threads.nthreads(), ifsum::Bool=true)
+function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; broadentype=(0.05, "G"), mthreads::Integer=Threads.nthreads(), ifsum::Bool=true, symmetrize::Union{Bool,Integer}=false)
     _check_gf_time_axes(gf_rt, ts)
+    s = _sym_sign(symmetrize)
+    (s != 0 && !iszero(first(ts))) && throw(ArgumentError("`symmetrize` requires time data starting at t = 0, got ts[1] = $(first(ts))."))
+    (s != 0 && size(gf_rt, 1) != size(gf_rt, 2)) && throw(ArgumentError("`symmetrize` needs the transposed element G_{ba}(t), so gf_rt must be square (all source sites evolved). For a subset of source sites, use `fourier_kw` with `center`, where each element is folded with its own conjugate."))
     dampings = [damping(t, broadentype) for t in ts]
     gf_rw = zeros(ComplexF64, size(gf_rt, 1), size(gf_rt, 2), length(ws))
     if mthreads == 1
         for i in eachindex(ws)
             for a in axes(gf_rt, 1)
                 for b in axes(gf_rt, 2)
-                    temp = gf_rt[a,b,:] .* cis.(ws[i]*ts).* dampings
+                    temp = _time_integrand(gf_rt, a, b, ws[i], ts, dampings, s, true)
                     gf_rw[a,b,i] = ifsum ? sum(temp)*((ts[end]-ts[1])/length(ts)) : integrate(ts, temp)
                 end
             end
@@ -250,7 +338,7 @@ function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; 
                 i > n && break
                 for a in axes(gf_rt, 1)
                     for b in axes(gf_rt, 2)
-                        temp = gf_rt[a,b,:] .* cis.(ws[i]*ts).* dampings
+                        temp = _time_integrand(gf_rt, a, b, ws[i], ts, dampings, s, true)
                         gf_rw[a,b,i] = ifsum ? sum(temp)*((ts[end]-ts[1])/length(ts)) : integrate(ts, temp)
                     end
                 end
@@ -269,6 +357,46 @@ end
 
 function _damping_vector(ts::AbstractArray, broadentype)
     return isnothing(broadentype) ? ones(Float64, length(ts)) : [damping(t, broadentype) for t in ts]
+end
+
+"""
+    _sym_sign(symmetrize)
+
+Normalize the `symmetrize` keyword to a sign `s ∈ (-1, 0, +1)`: `false`/`0`
+disables symmetrization, `true`/`+1` assumes `G(-t) = +conj(G(t))` (bare
+correlators), `-1` assumes `G(-t) = -conj(G(t))` (Green's functions carrying
+the retarded `-im` prefactor, e.g. [`dcorrelator`](@ref) output).
+"""
+function _sym_sign(symmetrize::Union{Bool,Integer})
+    (symmetrize === false || symmetrize == 0) && return 0
+    (symmetrize === true || symmetrize == 1) && return 1
+    symmetrize == -1 && return -1
+    throw(ArgumentError("Invalid symmetrize: $symmetrize (expected false, true, or ±1)"))
+end
+
+"""
+    _time_integrand(gf, a, b, w, ts, dampings, s, transpose)
+
+Integrand of the time Fourier transform for the `(a, b)` matrix element:
+`f(t) e^{i w t} G_{ab}(t)` for `s == 0`, or the folded two-sided form
+`f(t) [e^{i w t} G_{ab}(t) + s·e^{-i w t} conj(G_{pq}(t))]` for `s = ±1`,
+which assumes `G_{pq}(-t) = s·conj(G_{ab}(t))` and time data starting at
+`t = 0`. With `transpose=true` the conjugated partner is the transposed
+element `(p, q) = (b, a)` (exact for a full square correlator); with
+`transpose=false` it is the element itself (valid per element under
+translation invariance, e.g. fixed-center displacement data from
+[`fourier_kt`](@ref) with `center`).
+"""
+function _time_integrand(gf::AbstractArray, a, b, w::Number, ts::AbstractArray, dampings::AbstractArray, s::Integer, transpose::Bool)
+    if s == 0
+        return gf[a, b, :] .* cis.(w*ts) .* dampings
+    end
+    p, q = transpose ? (b, a) : (a, b)
+    if s == 1
+        return (gf[a, b, :] .* cis.(w*ts) .+ conj.(gf[p, q, :]) .* cis.(-w*ts)) .* dampings
+    else
+        return (gf[a, b, :] .* cis.(w*ts) .- conj.(gf[p, q, :]) .* cis.(-w*ts)) .* dampings
+    end
 end
 
 function _time_integral(ts::AbstractArray, values::AbstractArray, ifsum::Bool)
