@@ -12,6 +12,20 @@ function broaden_gauss(t::Real, eta::Real)
 end
 
 """
+    broaden_gauss_normalized(t, eta, tmax)
+
+Window-normalized Gaussian broadening (damping) function: `exp(-η·(t/tmax)^2)`.
+
+The damping at the edge of the time window is `exp(-η)` regardless of `tmax`,
+so the whole time window is used and the frequency resolution `~ sqrt(2η)/tmax`
+keeps improving as the time window grows (unlike `"G"`, whose resolution is
+pinned at `~ sqrt(2)·η`). Typical choice: `η ≈ 2 ~ 4`.
+"""
+function broaden_gauss_normalized(t::Real, eta::Real, tmax::Real)
+    return exp(-eta*(t/tmax)^2)
+end
+
+"""
     broaden_lorentz(t, eta)
 
 Lorentzian broadening (damping) function: `exp(-η|t|)`.
@@ -53,22 +67,28 @@ end
 Apply a broadening/damping function at time `t`.
 
 `broadentype` is a tuple `(parameter, type_string)` where:
-- `type_string` is one of `"G"` (Gaussian), `"L"` (Lorentzian), `"B"` (Blackman), `"P"` (Parzen).
+- `type_string` is one of `"G"` (Gaussian), `"GN"` (window-normalized Gaussian),
+  `"L"` (Lorentzian), `"B"` (Blackman), `"P"` (Parzen).
 - `parameter` is `η` for Gaussian/Lorentzian or `T` for window functions.
+
+For `"GN"`, keyword `tmax` (the end of the time window) is required; see
+[`broaden_gauss_normalized`](@ref).
 """
-function damping(t, broadentype)
+function damping(t, broadentype; tmax::Union{Nothing,Real}=nothing)
     if broadentype[2] == "G"
-        broaden = broaden_gauss
+        return broaden_gauss(t, broadentype[1])
+    elseif broadentype[2] == "GN"
+        isnothing(tmax) && throw(ArgumentError("broadentype \"GN\" requires keyword `tmax` (end of the time window)."))
+        return broaden_gauss_normalized(t, broadentype[1], tmax)
     elseif broadentype[2] == "L"
-        broaden = broaden_lorentz
+        return broaden_lorentz(t, broadentype[1])
     elseif broadentype[2] == "B"
-        broaden = blackman_window
+        return blackman_window(t, broadentype[1])
     elseif broadentype[2] == "P"
-        broaden = parzen_window
+        return parzen_window(t, broadentype[1])
     else
         throw(ArgumentError("Invalid broadening type: $broadentype"))
     end
-    return broaden(t, broadentype[1])
 end
 
 """
@@ -234,7 +254,9 @@ momenta `ks` and frequencies `ws`. Multi-threaded over frequencies.
 - `ks`: array of momentum vectors.
 - `ws`: array of frequencies.
 - `mthreads`: number of threads (default: all available).
-- `broadentype`: broadening specification, e.g., `(0.05, "G")` for Gaussian with η=0.05.
+- `broadentype`: broadening specification, e.g., `(0.05, "G")` for Gaussian with η=0.05,
+  or `(η, "GN")` for the window-normalized Gaussian `exp(-η·(t/tmax)^2)` whose
+  resolution improves as the time window grows (typical η ≈ 2 ~ 4).
 - `regroup`: groups of MPS site indices defining the physical channels of the
   transform, forwarded to [`fourier_kt`](@ref) — see its docstring for the
   grouping rules and recipes (single group for 1:1 site mappings, one group per
@@ -262,7 +284,7 @@ function fourier_kw(gf_rt::AbstractArray, rs::AbstractArray{<:AbstractArray}, ts
                     mthreads::Integer=Threads.nthreads(), broadentype=(0.05, "G"), regroup::AbstractArray{<:AbstractArray}=[Vector(1:size(gf_rt,1)),], center::Union{Nothing,AbstractArray{<:Integer}}=nothing,
                     kernel::Symbol=:exp, symmetrize::Union{Bool,Integer}=false)
     @assert size(gf_rt, 1) == length(rs) "Dimension mismatch: the length of site positions 'rs' must equal to the size of green function matrix 'gf_rt'!"
-    dampings = [damping(t, broadentype) for t in ts]
+    dampings = _damping_vector(ts, broadentype)
     gf_kw = Matrix(undef, length(ws), length(ks))
     for k in eachindex(ks)
         gf_kt = fourier_kt(gf_rt, rs, ks[k]; regroup=regroup, center=center, kernel=kernel)
@@ -288,7 +310,8 @@ Time Fourier transform from `G(r, t)` to `G(r, ω)` (real-space, frequency domai
 - `gf_rt`: Green's function `(N_sites, N_sites, N_times)`.
 - `ts`: time points.
 - `ws`: frequency points.
-- `broadentype`: broadening specification.
+- `broadentype`: broadening specification, e.g., `(0.05, "G")` or `(η, "GN")` for
+  the window-normalized Gaussian `exp(-η·(t/tmax)^2)`.
 - `mthreads`: number of threads.
 - `ifsum`: if `true`, use simple summation; if `false`, use numerical integration.
 - `symmetrize`: `false` (default), `true`/`+1`, or `-1`. If set, use the
@@ -318,7 +341,7 @@ function fourier_rw(gf_rt::AbstractArray, ts::AbstractArray, ws::AbstractArray; 
     s = _sym_sign(symmetrize)
     (s != 0 && !iszero(first(ts))) && throw(ArgumentError("`symmetrize` requires time data starting at t = 0, got ts[1] = $(first(ts))."))
     (s != 0 && size(gf_rt, 1) != size(gf_rt, 2)) && throw(ArgumentError("`symmetrize` needs the transposed element G_{ba}(t), so gf_rt must be square (all source sites evolved). For a subset of source sites, use `fourier_kw` with `center`, where each element is folded with its own conjugate."))
-    dampings = [damping(t, broadentype) for t in ts]
+    dampings = _damping_vector(ts, broadentype)
     gf_rw = zeros(ComplexF64, size(gf_rt, 1), size(gf_rt, 2), length(ws))
     if mthreads == 1
         for i in eachindex(ws)
@@ -356,7 +379,7 @@ function _check_gf_time_axes(gf_rt::AbstractArray, ts::AbstractArray)
 end
 
 function _damping_vector(ts::AbstractArray, broadentype)
-    return isnothing(broadentype) ? ones(Float64, length(ts)) : [damping(t, broadentype) for t in ts]
+    return isnothing(broadentype) ? ones(Float64, length(ts)) : [damping(t, broadentype; tmax=last(ts)-first(ts)) for t in ts]
 end
 
 """
