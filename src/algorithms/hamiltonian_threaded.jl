@@ -13,27 +13,52 @@
 #
 # The `AC_hamiltonian`/`AC2_hamiltonian` methods overloaded here accept MPSKit's
 # `prepare`/`backend`/`allocator` keywords so internal MPSKit calls (which always
-# pass them) keep working unchanged. Threading is only used when
-# `Threads.nthreads() > 1`, more than one channel exists, and the module toggle
-# is on (see `set_threaded_hamiltonian!`); otherwise MPSKit's default operator is
-# returned. Note that contractions inside spawned tasks intentionally use the
-# default allocator: MPSKit's scratch BufferAllocator is not thread-safe.
+# pass them) keep working unchanged. The channel-split operator is used whenever
+# more than one channel exists and the module cap is nonzero (see
+# `set_threaded_hamiltonian!`); the cap only controls how many worker tasks the
+# channels are fanned out over — with cap 1 the channels are contracted serially
+# in the calling task (the sparsity win is kept either way), and cap 0 falls
+# back to MPSKit's default fused operator. Note that contractions inside
+# spawned tasks intentionally use the default allocator: MPSKit's scratch
+# BufferAllocator is not thread-safe.
 #
 # BEFORE writing any new contraction here, read
 # docs/tensorkit-plansor-conventions.md (the @plansor planar leg-order rules)
 # and confirm the index scheme with the user first.
 
 """
-    set_threaded_hamiltonian!(enable::Bool) -> Bool
+    set_threaded_hamiltonian!(n::Integer) -> Int
 
-Enable or disable the threaded channel-split effective Hamiltonians for finite
-Jordan-MPO operators (default: enabled). When disabled — or when Julia runs with
-a single thread — `AC_hamiltonian`/`AC2_hamiltonian` fall back to MPSKit's
-default (prepared, fused) operators. Returns the new setting.
+Set the maximum number of worker tasks that the channel-split effective
+Hamiltonians fan each matvec out over (default: `Threads.nthreads()`).
+`n = 1` evaluates the channels serially in the calling task — the sparse
+channel decomposition (and its savings over MPSKit's fused dense operator) is
+kept, only the threading is off; this is the right setting when the caller
+already parallelizes over states. `n = 0` disables the channel-split operator
+entirely, falling back to MPSKit's default fused operator. Returns the new
+cap.
+
+    set_threaded_hamiltonian!(enable::Bool) -> Int
+
+Legacy toggle: `false` is `n = 0`, `true` is `n = Threads.nthreads()`.
 """
-set_threaded_hamiltonian!(enable::Bool) = (_THREADED_HAMILTONIAN[] = enable)
+function set_threaded_hamiltonian!(n::Integer)
+    n >= 0 || throw(ArgumentError("threaded-hamiltonian cap must be >= 0, got $n"))
+    return _THREADED_HAMILTONIAN_THREADS[] = Int(n)
+end
+set_threaded_hamiltonian!(enable::Bool) =
+    set_threaded_hamiltonian!(enable ? Threads.nthreads() : 0)
 
-const _THREADED_HAMILTONIAN = Ref{Bool}(true)
+"""Current fan-out cap of the channel-split Hamiltonians (0 = disabled)."""
+threaded_hamiltonian_threads() =
+    _THREADED_HAMILTONIAN_THREADS[] < 0 ? Threads.nthreads() :
+        _THREADED_HAMILTONIAN_THREADS[]
+
+# -1 = uninitialized → default `Threads.nthreads()`. A lazy sentinel is needed
+# because a `const` initialized with `Threads.nthreads()` at module top level
+# would bake in the thread count of the *precompilation* process (usually 1)
+# instead of the session's
+const _THREADED_HAMILTONIAN_THREADS = Ref{Int}(-1)
 
 """
     set_prefused_hamiltonian!(enable::Bool) -> Bool
@@ -51,7 +76,7 @@ set_prefused_hamiltonian!(enable::Bool) = (_PREFUSED_HAMILTONIAN[] = enable)
 
 const _PREFUSED_HAMILTONIAN = Ref{Bool}(false)
 
-_threading_enabled() = _THREADED_HAMILTONIAN[] && Threads.nthreads() > 1
+_threading_enabled() = threaded_hamiltonian_threads() > 0
 
 # ---------------------------------------------------------------------------
 # channels
@@ -122,10 +147,17 @@ function _apply_A_channel(ch::_PrefusedAChannel, x)
 end
 
 # Work-stealing over channels with per-task local accumulation and a single
-# locked reduction per task.
+# locked reduction per task. The fan-out is capped by
+# `_THREADED_HAMILTONIAN_THREADS[]`: cap 1 (or a single channel) evaluates
+# serially in the calling task — no spawn, no atomic, no lock
 function _apply_channels(channels, x, apply_channel)
     isempty(channels) && return zerovector(x)
-    if Threads.nthreads() == 1 || length(channels) == 1
+    # clamp to >= 1: an operator built while the cap was positive must still
+    # evaluate its channels (serially) if the cap is lowered to 0 afterwards —
+    # silently dropping them would corrupt the matvec
+    nt = clamp(min(threaded_hamiltonian_threads(), Threads.nthreads()),
+               1, length(channels))
+    if nt == 1
         acc = nothing
         for ch in channels
             tmp = apply_channel(ch, x)
@@ -137,7 +169,6 @@ function _apply_channels(channels, x, apply_channel)
     idx = Threads.Atomic{Int}(1)
     lk = ReentrantLock()
     total = Ref{Any}(nothing)
-    nt = min(Threads.nthreads(), length(channels))
     Threads.@sync for _ in 1:nt
         Threads.@spawn begin
             local_acc = nothing

@@ -38,9 +38,11 @@
 One full TDVP sweep (left→right→left) on the fast finite engine, evolving `ψ`
 in place by `dt` starting from time `t`. Returns `(ψ, envs)`.
 
-`manual_gc` (default `true`) runs an incremental `GC.gc(false)` after every
-local update and a full collection at the end of the sweep — the same
-bookkeeping as the DMRG fast driver; set it to `false` only for small systems.
+`manual_gc` (default `true`) runs a full `GC.gc(true)` collection once at the
+end of each sweep — the same bookkeeping as the DMRG fast driver; set it to
+`false` only for small systems. (GC is deliberately not triggered per local
+update: with many states evolving concurrently, per-bond collections make the
+threads spend most of their time waiting at GC safepoints.)
 `timeroutput` records the two sweeps and, inside them, the `expand` (CBE),
 Hamiltonian-construction, integration and gauge/split sections; pass a shared
 `TimerOutput` to accumulate across steps.
@@ -92,7 +94,6 @@ function fast_timestep!(
             )
 
             _free_after_move!(envs, alg, Val(:right), i)
-            manual_gc && GC.gc(false)
         end
 
         # right edge
@@ -132,7 +133,6 @@ function fast_timestep!(
             )
 
             _free_after_move!(envs, alg, Val(:left), i)
-            manual_gc && GC.gc(false)
         end
 
         # left edge
@@ -189,7 +189,6 @@ function fast_timestep!(
             end
 
             _free_after_move!(envs, alg, Val(:right), i)
-            manual_gc && GC.gc(false)
         end
     end
 
@@ -220,7 +219,6 @@ function fast_timestep!(
             end
 
             _free_after_move!(envs, alg, Val(:left), i - 1)
-            manual_gc && GC.gc(false)
         end
     end
 

@@ -130,6 +130,10 @@ The boundary environments are constructed exactly as in MPSKit:
 `GRs[N+1] = Vr_above ⊗ Vr_O ← Vr_below`. Used by [`chargedMPS!`](@ref) /
 `fast_approximate!` with `O = chargedMPO(op, site, N)` and `above = gs`.
 
+`O === nothing` builds the overlap environments of ⟨below|above⟩ with no
+operator inserted (plain two-leg MPS bond tensors); used for the penalty
+terms of [`excited_dmrg2!`](@ref) / [`excited_dmrg1!`](@ref).
+
 `threaded_transfer` is not offered here: the channel-split threaded transfer
 is a Jordan-MPO-Hamiltonian optimization, while the compression operator is a
 plain (width-1/2) `FiniteMPO` whose transfer is a single small contraction.
@@ -145,15 +149,28 @@ function HalfFiniteEnvironments(
     ))
     S = site_type(below)
 
-    # boundaries, exactly as MPSKit's `environments(below, operator, above)`
-    GL1 = isomorphism(
-        storagetype(S),
-        left_virtualspace(below, 1) ⊗ left_virtualspace(O, 1)' ← left_virtualspace(above, 1)
-    )
-    GRN = isomorphism(
-        storagetype(S),
-        right_virtualspace(above, N) ⊗ right_virtualspace(O, N) ← right_virtualspace(below, N)
-    )
+    # boundaries, exactly as MPSKit's `environments(below, operator, above)`;
+    # `O === nothing` builds the plain overlap environments of ⟨below|above⟩
+    # (two-leg MPS bond tensors, used by the penalized excited-state updates)
+    if O === nothing
+        GL1 = isomorphism(
+            storagetype(S),
+            left_virtualspace(below, 1) ← left_virtualspace(above, 1)
+        )
+        GRN = isomorphism(
+            storagetype(S),
+            right_virtualspace(above, N) ← right_virtualspace(below, N)
+        )
+    else
+        GL1 = isomorphism(
+            storagetype(S),
+            left_virtualspace(below, 1) ⊗ left_virtualspace(O, 1)' ← left_virtualspace(above, 1)
+        )
+        GRN = isomorphism(
+            storagetype(S),
+            right_virtualspace(above, N) ⊗ right_virtualspace(O, N) ← right_virtualspace(below, N)
+        )
+    end
 
     TL = Union{Nothing, typeof(GL1)}
     TR = Union{Nothing, typeof(GRN)}
@@ -241,6 +258,10 @@ end
 # constructor fixes threaded_transfer = false).
 function _pushright(env::HalfFiniteEnvironments, j::Int, state::AbstractFiniteMPS)
     A = state.AL[j]
+    if env.operator === nothing
+        Aa = env.above === nothing ? A : env.above.AL[j]
+        return env.GLs[j] * TransferMatrix(Aa, A)
+    end
     O = env.operator[j]
     if env.threaded_transfer && Threads.nthreads() > 1
         return _transfer_left_threaded(env.GLs[j], O, A)
@@ -251,6 +272,10 @@ end
 
 function _pushleft(env::HalfFiniteEnvironments, j::Int, state::AbstractFiniteMPS)
     A = state.AR[j]
+    if env.operator === nothing
+        Aa = env.above === nothing ? A : env.above.AR[j]
+        return TransferMatrix(Aa, A) * env.GRs[j + 1]
+    end
     O = env.operator[j]
     if env.threaded_transfer && Threads.nthreads() > 1
         return _transfer_right_threaded(env.GRs[j + 1], O, A)
