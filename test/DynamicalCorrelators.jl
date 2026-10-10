@@ -1,4 +1,5 @@
 using Test
+using LinearAlgebra
 using TensorKit
 using TensorKit: ⊠
 using MPSKit
@@ -7,6 +8,90 @@ using MPSKitModels: contract_onesite, contract_twosite, FiniteStrip, FiniteCylin
 using QuantumLattices
 using ExactDiagonalization
 using Printf
+
+@testset "MomentumMPS initial state" begin
+    # The public initializer constructs the A14 source and its right background
+    # internally from the ground-state MPS and a local operator.
+    gs = InfiniteMPS(rand, ComplexF64, [ℂ^2], [ℂ^2])
+    O = isomorphism(ComplexF64, ℂ^2, ℂ^2)
+
+    ϕ = qmps(gs, O, 0.73)
+    @test ϕ isa MomentumMPS
+    @test length(ϕ) == 1
+    @test length(ϕ.windowmps[1]) == 2
+    @test check_momentum_mps(ϕ)
+    @test isapprox(norm(ϕ), norm(ϕ.windowmps[1]); atol=1e-10, rtol=1e-10)
+
+    # The wrapper enforces the q-MPS gauge and the initializer currently
+    # implements the paper's two-site linear projection at this stage.
+    @test_throws ArgumentError MomentumMPS(WindowMPS(gs, [gs.AR[1], gs.AR[1]], gs), 0.73)
+    @test_throws ArgumentError qmps(gs, O, 0.0)
+    @test_throws ArgumentError qmps(gs, O, complex(0.73, 0.1))
+end
+
+@testset "MomentumMPS multi-site unit cell" begin
+    gs = InfiniteMPS(rand, ComplexF64, [ℂ^2, ℂ^2], [ℂ^2, ℂ^2])
+    O = isomorphism(ComplexF64, ℂ^2, ℂ^2)
+
+    ϕ = qmps(gs, O, 0.37)
+    @test ϕ isa MomentumMPS
+    @test length(ϕ) == 2
+    @test map(length, ϕ.windowmps) == [2, 2]
+    @test check_momentum_mps(ϕ)
+    @test ϕ.windowmps[1].left_gs.AL == gs.AL
+    @test ϕ.windowmps[2].left_gs.AL == circshift(gs, 1).AL
+    @test ϕ.windowmps[1].right_gs.AL == gs.AL
+    @test ϕ.windowmps[2].right_gs.AL == circshift(gs, 1).AL
+end
+
+@testset "MomentumMPS symmetry sectors" begin
+    @testset "U1 x U1 right-charged source" begin
+        I = FermionParity ⊠ U1Irrep ⊠ U1Irrep
+        O = e_plus(ComplexF64, U1Irrep, U1Irrep; side=:L)
+        pspace = domain(O)[1]
+        bond = Vect[I]((0, 0, 0) => 1, (1, 1, 0) => 1)
+        gs = InfiniteMPS(rand, ComplexF64, [pspace], [bond])
+
+        ϕ = qmps(gs, O, 0.73)
+        @test ϕ isa MomentumMPS
+        @test check_momentum_mps(ϕ)
+        @test right_virtualspace(ϕ.windowmps[1], length(ϕ.windowmps[1])) ==
+            right_virtualspace(ϕ.windowmps[1].right_gs, length(ϕ.windowmps[1]))
+    end
+
+    @testset "U1 x U1 right-charged two-site cell" begin
+        I = FermionParity ⊠ U1Irrep ⊠ U1Irrep
+        O = e_plus(ComplexF64, U1Irrep, U1Irrep; side=:L)
+        pspace = domain(O)[1]
+        bond = Vect[I]((0, 0, 0) => 1, (1, 1, 0) => 1)
+        gs = InfiniteMPS(rand, ComplexF64, [pspace, pspace], [bond, bond])
+
+        ϕ = qmps(gs, O, 0.37)
+        @test length(ϕ) == 2
+        @test check_momentum_mps(ϕ)
+        charged = InfiniteMPO(fill(fZ(O), length(gs))) * gs
+        for (i, window) in enumerate(ϕ.windowmps)
+            shifted = circshift(charged, i - 1)
+            @test window.right_gs.AL == shifted.AL
+            @test right_virtualspace(window, length(window)) ==
+                right_virtualspace(window.right_gs, length(window))
+        end
+    end
+
+    @testset "SU2 x U1 right-charged source" begin
+        I = FermionParity ⊠ SU2Irrep ⊠ U1Irrep
+        O = e_plus(ComplexF64, SU2Irrep, U1Irrep; side=:L)
+        pspace = domain(O)[1]
+        bond = Vect[I]((0, 0, 0) => 1, (1, 1//2, 0) => 1)
+        gs = InfiniteMPS(rand, ComplexF64, [pspace], [bond])
+
+        ϕ = qmps(gs, O, 0.73)
+        @test ϕ isa MomentumMPS
+        @test check_momentum_mps(ϕ)
+        @test right_virtualspace(ϕ.windowmps[1], length(ϕ.windowmps[1])) ==
+            right_virtualspace(ϕ.windowmps[1].right_gs, length(ϕ.windowmps[1]))
+    end
+end
 
 const ED_TOL_ENERGY = 1e-12
 const ED_TOL_OBS = 1e-10

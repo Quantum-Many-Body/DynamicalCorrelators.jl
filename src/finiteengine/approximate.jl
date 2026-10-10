@@ -36,8 +36,9 @@ two-site (`DMRG2`) algorithm. Returns `(ψ, envs, ϵ)` with `ϵ` the final
 sweep's largest relative update. `envs` must be the mixed environments
 `HalfFiniteEnvironments(ψ, O, ϕ)`.
 
-`manual_gc` (default `true`) runs an incremental `GC.gc(false)` after every
-local update and a full collection at the end, as in the other fast drivers.
+`manual_gc` (default `true`) runs a full `GC.gc(true)` collection once at the
+end of each iteration, as in the other fast drivers. (GC is deliberately not
+triggered per local update — see `fast_timestep!`.)
 """
 function fast_approximate!(
         ψ::AbstractFiniteMPS, (O, ϕ)::Tuple, alg::DMRG,
@@ -54,14 +55,12 @@ function fast_approximate!(
             ϵ = max(ϵ, norm(AC′ - ψ.AC[pos]) / norm(AC′))
             ψ.AC[pos] = AC′
             _free_after_move!(envs, alg, Val(:right), pos)
-            manual_gc && GC.gc(false)
         end
         for pos in N:-1:2
             AC′ = AC_projection(pos, ψ, O, ϕ, envs; alg.backend, allocator)
             ϵ = max(ϵ, norm(AC′ - ψ.AC[pos]) / norm(AC′))
             ψ.AC[pos] = AC′
             _free_after_move!(envs, alg, Val(:left), pos)
-            manual_gc && GC.gc(false)
         end
         verbose >= 3 && println("approximate iter $iter | ϵ = $ϵ")
         if ϵ < alg.tol
@@ -89,12 +88,10 @@ function fast_approximate!(
         for pos in 1:(N - 1)
             ϵ = max(ϵ, _approximate_split!(ψ, pos, O, ϕ, envs, alg, alg_gauge, allocator))
             _free_after_move!(envs, alg, Val(:right), pos)
-            manual_gc && GC.gc(false)
         end
         for pos in (N - 2):-1:1
             ϵ = max(ϵ, _approximate_split!(ψ, pos, O, ϕ, envs, alg, alg_gauge, allocator))
             _free_after_move!(envs, alg, Val(:left), pos)
-            manual_gc && GC.gc(false)
         end
         verbose >= 3 && println("approximate iter $iter | ϵ = $ϵ")
         if ϵ < alg.tol

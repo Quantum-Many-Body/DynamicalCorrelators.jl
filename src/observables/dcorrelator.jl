@@ -119,11 +119,14 @@ end
 
 function _short_duration(period::Dates.CompoundPeriod)
     parts = String[]
+    days = 0
     for p in period.periods
         value = Dates.value(p)
         value == 0 && continue
-        if p isa Dates.Day
-            push!(parts, "$(value)d")
+        if p isa Dates.Week
+            days += 7 * value   # canonicalize emits Week; fold it into days
+        elseif p isa Dates.Day
+            days += value
         elseif p isa Dates.Hour
             push!(parts, "$(value)h")
         elseif p isa Dates.Minute
@@ -134,6 +137,7 @@ function _short_duration(period::Dates.CompoundPeriod)
             push!(parts, "$(value)ms")
         end
     end
+    days == 0 || pushfirst!(parts, "$(days)d")
     return isempty(parts) ? "0ms" : join(parts, ", ")
 end
 
@@ -271,6 +275,13 @@ file output.
             Gu₁[2,3] - Gu₁[1,4] == Gsu₂[1,2]; Gsu₂[1,2]/2 == Gu₁[2,3]
             Gu₁[3,2] - Gu₁[4,1] == Gsu₂[2,1]; Gsu₂[2,1]/2 == Gu₁[3,2]
             Gu₁[3,3] + Gu₁[4,4] == Gsu₂[2,2]; Gsu₂[3,3]/2 == Gu₁[2,2]
+
+    Internal keywords used by the low-lying-removal wrapper (see `lehmann.jl`):
+    `source` replaces the chargedMPS construction (the given state is evolved
+    as the ket instead), `gf_low` is an analytic correlator contribution added
+    slice by slice on the recorded grid (a matrix, or a `(; G11, G12, G21,
+    G22)` NamedTuple for Gorkov runs), and `lowlying` is a NamedTuple saved
+    into the output file under `"lowlying_<key>"` entries.
 """
 function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap, id::Integer;
                     verbose=true,
@@ -283,7 +294,10 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                     anomalous::Union{Nothing, AbstractTensorMap}=nothing,
                     approxalg = myDMRG2(),
                     tdvp1 = myTDVP1(),
-                    tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3))
+                    tdvp2 = myTDVP2(; trunc=truncerror(; rtol=1e-3)),
+                    source::Union{Nothing, FiniteNormalMPS}=nothing,
+                    gf_low::Union{Nothing, AbstractMatrix, NamedTuple}=nothing,
+                    lowlying::Union{Nothing, NamedTuple}=nothing
                     )
     save && !isdir(gf_path) && mkpath(gf_path)
     L = length(H)
@@ -302,7 +316,11 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     end
 
     timer = TimerOutput()
-    ket = @timeit timer "setup / chargedMPS" chargedMPS(op, gs, idx, approxalg; disk)
+    ket = if isnothing(source)
+        @timeit timer "setup / chargedMPS" chargedMPS(op, gs, idx, approxalg; disk)
+    else
+        source
+    end
     start_time, wall_start = now(), now()
     if record_first == 1
         phase = id <= L ? exp(im*gsenergy*times[1]) : exp(-im*gsenergy*times[1])
@@ -314,6 +332,16 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             G11[:, 1], G12[:, 1], G21[:, 1], G22[:, 1] =
                 _dcorrelator_gorkov_vectors(id, L, gsenergy, times[1], sd, sd_anomalous)
         end
+        if !isnothing(gf_low)
+            if isnothing(anomalous)
+                gf[:, 1] .+= gf_low[:, 1]
+            else
+                G11[:, 1] .+= gf_low.G11[:, 1]
+                G12[:, 1] .+= gf_low.G12[:, 1]
+                G21[:, 1] .+= gf_low.G21[:, 1]
+                G22[:, 1] .+= gf_low.G22[:, 1]
+            end
+        end
     end
     if save
         if isnothing(anomalous)
@@ -321,6 +349,11 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                 f["times"] = times
                 f["record_indices"] = record_indices
                 f["id"] = id
+                if !isnothing(lowlying)
+                    for (k, v) in pairs(lowlying)
+                        f["lowlying_$(k)"] = v
+                    end
+                end
                 if record_first == 1
                     f["pro_1"] = gf[:, 1]
                 end
@@ -331,6 +364,11 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                 f["record_indices"] = record_indices
                 f["id"] = id
                 f["gorkov_keys"] = string.(_DCORRELATOR_GORKOV_KEYS)
+                if !isnothing(lowlying)
+                    for (k, v) in pairs(lowlying)
+                        f["lowlying_$(k)"] = v
+                    end
+                end
             end
             if record_first == 1
                 _dcorrelator_save_gorkov_slice!(gorkov_filename, 1, G11[:, 1], G12[:, 1], G21[:, 1], G22[:, 1])
@@ -354,6 +392,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             sd = @timeit timer "sweep_dot" sweep_dot(gs, op, ket)
             if isnothing(anomalous)
                 gf[:, r] = id <= L ? -im * phase .* sd : -im * phase .* conj.(sd)
+                !isnothing(gf_low) && (gf[:, r] .+= gf_low[:, r])
                 save && jldopen(filename, "a") do f
                     f["pro_$(r)"] = gf[:, r]
                 end
@@ -361,6 +400,12 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                 sd_anomalous = @timeit timer "sweep_dot / anomalous" sweep_dot(gs, anomalous, ket)
                 G11[:, r], G12[:, r], G21[:, r], G22[:, r] =
                     _dcorrelator_gorkov_vectors(id, L, gsenergy, times[k], sd, sd_anomalous)
+                if !isnothing(gf_low)
+                    G11[:, r] .+= gf_low.G11[:, r]
+                    G12[:, r] .+= gf_low.G12[:, r]
+                    G21[:, r] .+= gf_low.G21[:, r]
+                    G22[:, r] .+= gf_low.G22[:, r]
+                end
                 save && _dcorrelator_save_gorkov_slice!(gorkov_filename, r, G11[:, r], G12[:, r], G21[:, r], G22[:, r])
             end
         end
