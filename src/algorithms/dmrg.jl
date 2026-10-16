@@ -460,15 +460,21 @@ end
 # eigsolve − matvec is the Gram–Schmidt orthogonalization + normalization +
 # KrylovKit bookkeeping share — no instrumentation in the vector kernels
 function _print_krylov_breakdown(timer::TimerOutput, io::IO = stdout)
-    names = filter(n -> haskey(timer.inner_timers, n), ("AC_eigsolve", "AC2_eigsolve"))
-    isempty(names) && return nothing
+    # the eigensolver sections sit one level down, nested under the sweep-direction
+    # sections ("L2R sweep"/"R2L sweep") — collect every occurrence
+    found = Tuple{String,Any}[]  # TimerOutputs 1.x inner sections are Section, not TimerOutput
+    for (sweep, sweepsec) in timer.inner_timers
+        for (name, sec) in sweepsec.inner_timers
+            name in ("AC_eigsolve", "AC2_eigsolve") && push!(found, (sweep * "/" * name, sec))
+        end
+    end
+    isempty(found) && return nothing
     println(
         io,
         "Krylov breakdown (eigsolve − matvec ≈ Gram–Schmidt orthogonalization,",
         " normalization, KrylovKit bookkeeping):"
     )
-    for name in names
-        sec = timer[name]
+    for (name, sec) in found
         t_all = TimerOutputs.time(sec)
         t_all == 0 && continue
         n_all = TimerOutputs.ncalls(sec)
