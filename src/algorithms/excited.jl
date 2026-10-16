@@ -102,7 +102,7 @@ function penalized_local_update!(
         H_ac = AC_hamiltonian(site, ψ, O, ψ, henv; alg.backend, allocator)
         us = ntuple(i -> _fold_ac(oenvs[i], site, ψ), length(oenvs))
         Heff = PenalizedLocalOperator(H_ac, us, weights)
-        _fixedpoint_shifted(Heff, ac_old, alg_eigsolve, energy_shift)
+        _fixedpoint_shifted(Heff, ac_old, alg_eigsolve, energy_shift, timeroutput)
     end
 
     # 3. gauge
@@ -140,7 +140,7 @@ function penalized_local_update!(
         alg.alg_eigsolve; decay_rate, g_local = ϵ_local, g_global = ϵ_global, eps_trunc = ϵ_trunc
     )
     λ, newA2center, info = @timeit timeroutput "AC2_eigsolve" begin
-        _fixedpoint_shifted(Heff, ac2, alg_eigsolve, energy_shift)
+        _fixedpoint_shifted(Heff, ac2, alg_eigsolve, energy_shift, timeroutput)
     end
 
     # 2. gauge: truncated SVD split back into single-site tensors
@@ -307,6 +307,7 @@ function _excited_run!(
             @printf("  |⟨ψᵢ[%d]|ψ⟩| = %.3e\n", i, abs(dot(oenv.above, ψ)))
         end
         println(timer)
+        _print_krylov_breakdown(timer)
         flush(stdout)
     end
     return ψ, henv, E_prev

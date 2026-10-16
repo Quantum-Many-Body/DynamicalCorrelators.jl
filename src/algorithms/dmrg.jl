@@ -448,8 +448,43 @@ function _dmrg_run!(
             " | ", iter, " sweep(s) (", iter - nscheduled, " tail)"
         )
         println(timer)
+        _print_krylov_breakdown(timer)
     end
     return ψ, envs, E_prev
+end
+
+
+# Krylov timing breakdown derived from the driver timer. Every application of
+# the effective Hamiltonian is timed as the nested "matvec" section inside
+# "AC_eigsolve"/"AC2_eigsolve" (finiteengine/localupdate.jl), so
+# eigsolve − matvec is the Gram–Schmidt orthogonalization + normalization +
+# KrylovKit bookkeeping share — no instrumentation in the vector kernels
+function _print_krylov_breakdown(timer::TimerOutput, io::IO = stdout)
+    names = filter(n -> haskey(timer.inner_timers, n), ("AC_eigsolve", "AC2_eigsolve"))
+    isempty(names) && return nothing
+    println(
+        io,
+        "Krylov breakdown (eigsolve − matvec ≈ Gram–Schmidt orthogonalization,",
+        " normalization, KrylovKit bookkeeping):"
+    )
+    for name in names
+        sec = timer[name]
+        t_all = TimerOutputs.time(sec)
+        t_all == 0 && continue
+        n_all = TimerOutputs.ncalls(sec)
+        mv = get(sec.inner_timers, "matvec", nothing)
+        t_mv = isnothing(mv) ? 0 : TimerOutputs.time(mv)
+        n_mv = isnothing(mv) ? 0 : TimerOutputs.ncalls(mv)
+        t_rest = t_all - t_mv
+        f(ns) = ns == 0 ? "0" : string(Dates.canonicalize(Dates.Millisecond(ns ÷ 1_000_000)))
+        pct(x) = round(100 * x / t_all; digits = 1)
+        println(
+            io, "  ", name, ": ", n_all, " call(s) | total ", f(t_all),
+            " | matvec ", f(t_mv), " (", n_mv, " matvec(s), ", pct(t_mv), "%)",
+            " | orth+norm+bookkeeping ", f(t_rest), " (", pct(t_rest), "%)"
+        )
+    end
+    return flush(io)
 end
 
 # ---------------------------------------------------------------------------

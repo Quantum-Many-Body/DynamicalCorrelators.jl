@@ -1,6 +1,8 @@
 module DynamicalCorrelators
 
 import LinearAlgebra: norm
+import LinearAlgebra
+import TensorKit
 using LinearAlgebra: inv, mul!, I, tr, dot, BLAS, logabsdet
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
@@ -14,6 +16,7 @@ import TensorKit: normalize!, normalize, lmul!, rmul!, scalartype
 using BlockTensorKit: nonzero_pairs, nonzero_length, SumSpace, BlockTensorMap
 using MatrixAlgebraKit: TruncatedAlgorithm, TruncationStrategy, TruncationByOrder, TruncationByError, TruncationIntersection, initialize_output, truncate, truncation_error, SafeDivideAndConquer
 using SerializedElementArrays: SerializedElementArray, filename, disk as serialize_disk
+import VectorInterface
 using MPSKit: FiniteMPS, InfiniteMPS, WindowMPS, InfiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG, DMRG2, SvdCut
 using MPSKit: add_util_leg, _firstspace, decompose_localmpo, TransferMatrix, environments, expectation_value, l_LL, r_RR
 using MPSKit: FiniteEnvironments
@@ -61,6 +64,8 @@ include("states/randmps.jl")
 include("states/momentummps.jl")
 
 include("utility/tools.jl")
+
+include("algorithms/vectorops_threaded.jl")
 
 include("finiteengine/config.jl")
 include("finiteengine/environments.jl")
@@ -118,6 +123,10 @@ export recommend_tmax, lehmann_eval, lehmann_report
 
 function __init__()
     BLAS.set_num_threads(1)
+    # Julia >= 1.12 forbids overwriting foreign same-signature methods during
+    # precompilation, so the two TensorMap overrides (`inner`, `norm`) are
+    # installed at load time instead (see algorithms/vectorops_threaded.jl)
+    Core.eval(@__MODULE__, _THREADED_VECTOROPS_INIT)
 end
 
 end #module
