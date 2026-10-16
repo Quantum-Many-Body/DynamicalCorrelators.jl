@@ -52,7 +52,7 @@ function local_update!(
     ac_old = ψ.AC[site]
     λ, AC′, info = @timeit timeroutput "AC_eigsolve" begin
         H_effective = AC_hamiltonian(site, ψ, O, ψ, env; alg.backend, allocator)
-        _fixedpoint_shifted(H_effective, ac_old, alg_eigsolve, energy_shift)
+        _fixedpoint_shifted(H_effective, ac_old, alg_eigsolve, energy_shift, timeroutput)
     end
 
     # 3. gauge
@@ -86,7 +86,7 @@ function local_update!(
         alg.alg_eigsolve; decay_rate, g_local = ϵ_local, g_global = ϵ_global, eps_trunc = ϵ_trunc
     )
     λ, newA2center, info = @timeit timeroutput "AC2_eigsolve" begin
-        _fixedpoint_shifted(Heff, ac2, alg_eigsolve, energy_shift)
+        _fixedpoint_shifted(Heff, ac2, alg_eigsolve, energy_shift, timeroutput)
     end
 
     # 2. gauge: truncated SVD split back into single-site tensors
@@ -100,12 +100,21 @@ function local_update!(
     return ψ, λ, ϵ_local, ϵ_trunc, decay_rate
 end
 
-# fixedpoint with optional spectral shift; returns (λ_true, x, info)
-function _fixedpoint_shifted(H_effective, x0, alg_eigsolve, energy_shift::Real)
-    iszero(energy_shift) && return fixedpoint(H_effective, x0, :SR, alg_eigsolve)
-    f = x -> H_effective(x) - energy_shift * x
+# fixedpoint with optional spectral shift; returns (λ_true, x, info). Every
+# application of the effective Hamiltonian is timed as the nested "matvec"
+# section of the driver timer (inside the caller's "AC(2)_eigsolve" section),
+# so the driver can report matvec time separately and derive the
+# Gram–Schmidt/normalization/bookkeeping share as eigsolve − matvec (see
+# `_print_krylov_breakdown` in algorithms/dmrg.jl) — the vector kernels
+# themselves carry no instrumentation
+function _fixedpoint_shifted(H_effective, x0, alg_eigsolve, energy_shift::Real, timeroutput)
+    f = if iszero(energy_shift)
+        x -> @timeit(timeroutput, "matvec", H_effective(x))
+    else
+        x -> @timeit(timeroutput, "matvec", H_effective(x)) - energy_shift * x
+    end
     λ, x, info = fixedpoint(f, x0, :SR, alg_eigsolve)
-    return λ + energy_shift, x, info
+    return iszero(energy_shift) ? (λ, x, info) : (λ + energy_shift, x, info)
 end
 
 # gauge dispatch: block-parallel truncated SVD for a plain truncated gauge

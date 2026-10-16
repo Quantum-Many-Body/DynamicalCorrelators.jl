@@ -25,6 +25,10 @@ Set the thread configuration recommended for the fast finite engine:
   to leave unchanged
 - `svd_threaded`: distribute the per-sector blocks of the gauge-step SVD over
   all Julia threads (default `false`, i.e. MPSKit's serial SVD)
+- `vectorops_threaded`: thread the Krylov-vector ops (`inner`/`add!!`/`scale!!`/
+  `norm`) on large `TensorMap`s over all Julia threads (default `true`) — this
+  is what parallelizes Lanczos orthogonalization between matvecs, see
+  algorithms/vectorops_threaded.jl
 - `verbose`: print the resulting configuration
 
 Returns the number of Julia threads (the pool the engine actually uses).
@@ -34,10 +38,12 @@ function configure_finite_engine!(;
         transformer_threads = nothing,
         manipulation_threads = nothing,
         svd_threaded::Bool = _SVD_THREADED[],
+        vectorops_threaded::Bool = _VECTOROPS_THREADED[],
         verbose::Bool = true
     )
     BLAS.set_num_threads(Int(blas_threads))
     _SVD_THREADED[] = svd_threaded
+    _VECTOROPS_THREADED[] = vectorops_threaded
     if transformer_threads !== nothing
         set_num_transformer_threads(Int(transformer_threads))
     end
@@ -51,6 +57,7 @@ function configure_finite_engine!(;
         println("  TensorKit transformer threads:  ", get_num_transformer_threads())
         println("  TensorKit manipulation threads: ", get_num_manipulation_threads())
         println("  block-parallel gauge SVD:    ", _SVD_THREADED[])
+        println("  threaded Krylov vector ops:  ", _VECTOROPS_THREADED[])
         flush(stdout)
     end
     return Threads.nthreads()
