@@ -48,8 +48,11 @@ extra sweeps; a warning is issued if the tolerance is not reached).
 - `max_tailsweeps`: maximum number of tail sweeps at the final bond dimension
   (default: `20`; `0` disables tail sweeps, restoring the plain fixed schedule)
 - `save`: JLD2 checkpointing (default: `true`) — `false` writes nothing,
-  `true` stores only the final sweep (after any tail sweeps), a vector of
-  sweep indices (e.g. `save = [2, 4, 6]`) stores exactly those sweeps
+  `true` writes a rolling checkpoint after every sweep: the latest state
+  atomically replaces the previous one in `filename` (keys `ψ`, `E`, `ΔE`,
+  `ϵ`, `ϵtrunc`, `D`, `sweep`), so a killed run always leaves the newest
+  completed sweep on disk; a vector of sweep indices (e.g. `save = [2, 4, 6]`)
+  switches to history mode, appending those sweeps as `sweep_<i>_ψ`/… entries
 - `filename`: JLD2 checkpoint file (default: `"default_dmrg1.jld2"`)
 - `verbose`: `0` silent, `1` per-sweep summary, `>1` also per-move lines
   (default: `true`)
@@ -400,7 +403,26 @@ function _dmrg_run!(
             push!(algs, algs[end])
         end
 
-        if (save === true && done) || iter in save_iters
+        # save === true: rolling checkpoint — after EVERY sweep the latest state
+        # is written to a temp file that is then atomically renamed onto
+        # `filename`, so the file on disk always holds the newest completed
+        # sweep and a kill mid-write cannot corrupt it. Fixed keys: "ψ", "E",
+        # "ΔE", "ϵ", "ϵtrunc", "D", "sweep" (the sweep index).
+        # save = [i, ...]: history mode — those sweeps are appended as
+        # sweep_<i>_* entries (one full state each; the file grows accordingly).
+        if save === true
+            tmp = filename * ".tmp"
+            jldopen(tmp, "w") do f
+                f["ψ"] = ψ
+                f["E"] = E₀
+                f["ΔE"] = ΔE
+                f["ϵ"] = ϵ_locals
+                f["ϵtrunc"] = ϵ_truncs
+                f["D"] = Dmax
+                f["sweep"] = iter
+            end
+            mv(tmp, filename; force = true)
+        elseif iter in save_iters
             mode = wrote ? "a" : "w"
             jldopen(filename, mode) do f
                 f["sweep_$(iter)_ψ"] = ψ
