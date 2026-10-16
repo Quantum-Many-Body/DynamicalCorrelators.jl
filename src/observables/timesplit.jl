@@ -107,6 +107,10 @@ method; the direct methods take a fourth positional `id::Integer` or
   (walltime, node failure) resumes from the last complete slice. The
   threaded-only knobs (`parallel_charged`/`parallel_tdvp2`/
   `parallel_tdvp1`, `hamiltonian_threads`) are ignored in this mode.
+  For production-size runs, split the job by memory profile with
+  `prepare_dcorrelator`: a short, generously provisioned preparation job
+  (charged states + the two-site TDVP window, no overlaps), then this lean
+  call on the same `workdir` for the long one-site TDVP tail.
 - `charged_per_node` (default `nothing`, distributed mode only): how many
   chargedMPS computations may run concurrently per node during phase 1.
   Size it as node memory ÷ per-instance peak (e.g. ~8–12 for D = 5000 on a
