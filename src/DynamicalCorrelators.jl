@@ -30,7 +30,7 @@ using KrylovKit: Lanczos, ModifiedGramSchmidt, GMRES, linsolve
 using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, next_nearest_neighbours
 using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadder, FiniteChain, FiniteCylinder, FiniteStrip, FiniteHelix, FiniteLadder
 using MPSKitModels: AbstractLattice as MLattice, S_x, S_y
-using Distributed: @sync, @distributed, workers, addprocs, @everywhere, myid, remotecall_fetch, RemoteException
+using Distributed: @sync, @distributed, workers, addprocs, @everywhere, myid, remotecall_fetch, RemoteException, ProcessExitedException, nprocs
 using SharedArrays: SharedArray
 using NumericalIntegration: integrate
 using JLD2: save, load, jldopen, write, close, keys
@@ -109,7 +109,7 @@ export fast_timestep!, fast_approximate!
 export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates, GrandPotential, OrderParameters
 
 export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorrelation, OneSiteCorrelation, site_indices, correlator
-export evolve_mps, dcorrelator, sweep_dot
+export evolve_mps, dcorrelator, prepare_dcorrelator, sweep_dot
 export conductivity
 export fourier_kw, fourier_rw, fourier_rz, fourier_riw, static_structure_factor
 export LinearPrediction, LinearPredictionModel, fit_linear_prediction, extend_series, extrapolate_series, validation_error, pole_analysis
