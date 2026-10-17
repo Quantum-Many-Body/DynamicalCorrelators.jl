@@ -277,7 +277,7 @@ function _excited_run!(
                 Dates.canonicalize(current_time - start_time)
             )
             @printf(
-                "  E = %.10f | D = %*d | ΔE = %.3e | P = %.3e | max ϵ = %.3e | max ϵtr = %.3e\n",
+                "  E = %.10f | D = %*d | ΔE = %.3e | P = %.3e | max res = %.3e | max ϵtr = %.3e\n",
                 E₀, wD, Dmax, ΔE, P,
                 maximum(view(ϵ_locals, positions)), maximum(view(ϵ_truncs, positions))
             )

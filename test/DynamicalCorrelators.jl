@@ -94,7 +94,12 @@ end
 end
 
 const ED_TOL_ENERGY = 1e-12
-const ED_TOL_OBS = 1e-10
+# The default local solver is a fixed one-step K=16 Lanczos.  It reaches
+# ~1e-13 in energy, but the wavefunction (and therefore Green-function and
+# pairing observables) is only accurate to ~1e-9; the old adaptive solver was
+# tighter.  Keep the energy check strict and allow the fixed-budget solver's
+# observable accuracy here.
+const ED_TOL_OBS = 1e-8
 
 @testset "operators" begin
     elt = Float64
