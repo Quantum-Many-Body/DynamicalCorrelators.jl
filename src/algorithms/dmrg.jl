@@ -270,8 +270,11 @@ _diag_s(ns::Real) = ns / 1e9   # nanoseconds → seconds, for log formatting
 # matvec vs Gram–Schmidt/bookkeeping rest, environment rebuild, operator
 # construction, CBE expand, gauge), matching the information FiniteMPS.jl logs
 # per update (its `K = ...` line and per-step TimerOutput). `λ` is the local
-# eigenvalue (the per-update energy estimate). `diag === nothing` is the
-# reference-engine fallback (MPSKit's `local_update!` returns no diagnostics).
+# eigenvalue (the per-update energy estimate). `res` is the Galerkin residual
+# (`ϵ_local`); `ϵtr` is the gauge/SVD truncation error. `diag === nothing` is
+# the reference-engine fallback (MPSKit's `local_update!` returns no
+# diagnostics). `exp` is printed only for the one-site/CBE path, where the
+# expansion step is nonzero.
 function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, λ, ϵ_local, ϵ_trunc, wpos::Int, wD::Int, diag) where {D}
     b = _move_bond(alg, dir, pos)
     # One-site R2L: the gauge just truncated the LEFT leg of AR[pos] (bond
@@ -280,19 +283,21 @@ function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, λ, ϵ_local, ϵ_trunc, 
     # re-truncates it — same convention as MPSKit, but confusing in the log.
     Db = alg isa DMRG && D === :left ? dim(left_virtualspace(ψ, pos)) : dim(right_virtualspace(ψ, b))
     arrow = D === :right ? "=>" : "<="
-    tag = D === :right ? "SweepL2R" : "SweepR2L"
-    timestamp = Dates.format(now(), "d.u yyyy HH:MM:SS")
+    tag = D === :right ? "L2R" : "R2L"
+    timestamp = Dates.format(now(), "HH:MM:SS")
     if diag === nothing
         @printf(
-            "  %s: site %*d %s site %*d | D = %*d | ϵ = %.2e | ϵtr = %.2e | %s\n",
+            "  %s: %*d%s%*d | D=%*d | res %.1e | ϵtr %.1e | %s\n",
             tag, wpos, b, arrow, wpos, b + 1, wD, Db, ϵ_local, ϵ_trunc, timestamp
         )
     else
+        expand_str = diag.t_expand > 1e7 ?
+            @sprintf(" | exp %.2fs", _diag_s(diag.t_expand)) : ""
         @printf(
-            "  %s: site %*d %s site %*d | D = %*d | E = %.8f | K = %3d | eig %8.3fs (mv %8.3fs %4.1f%%) | env %7.3fs | ham %7.3fs | exp %6.3fs | gauge %6.3fs | ϵ = %.2e | ϵtr = %.2e | %s\n",
+            "  %s: %*d%s%*d | D=%*d | E=%.6f | K=%2d | eig %.1fs (mv %.1fs) | env %.1fs | ham %.1fs%s | gauge %.1fs | res %.1e | ϵtr %.1e | %s\n",
             tag, wpos, b, arrow, wpos, b + 1, wD, Db, real(λ), diag.numops,
-            _diag_s(diag.t_eig), _diag_s(diag.t_mv), 100 * diag.t_mv / max(diag.t_eig, eps()),
-            _diag_s(diag.t_env), _diag_s(diag.t_ham), _diag_s(diag.t_expand), _diag_s(diag.t_gauge),
+            _diag_s(diag.t_eig), _diag_s(diag.t_mv),
+            _diag_s(diag.t_env), _diag_s(diag.t_ham), expand_str, _diag_s(diag.t_gauge),
             ϵ_local, ϵ_trunc, timestamp
         )
     end
@@ -324,12 +329,14 @@ function _print_sweep_diag(io::IO, s::_SweepDiag, gc0, gc1, sweep_seconds::Float
     gc_s = (gc1.total_time - gc0.total_time) / 1e9
     safepoint_s = (gc1.total_time_to_safepoint - gc0.total_time_to_safepoint) / 1e9
     alloc_gib = (gc1.total_allocd - gc0.total_allocd) / 2^30
+    expand_str = s.t_expand > 1e7 ?
+        @sprintf(" | exp %.2fs", _diag_s(s.t_expand)) : ""
     @printf(
         io,
-        "  matvecs %d (avg %.1f ms) | eig %.2fs (mv %.2fs %.1f%%) | env %.2fs | ham %.2fs | expand %.2fs | gauge %.2fs | GC %.2fs + safepoint %.2fs (%.1f%% of sweep) | alloc %.2f GiB\n",
+        "  mv %d (%.0f ms avg) | eig %.1fs (mv %.1fs, %.0f%%) | env %.1fs | ham %.1fs%s | gauge %.1fs | GC %.1fs + safepoint %.1fs (%.1f%% of sweep) | alloc %.2f GiB\n",
         s.n_mv, s.t_mv / 1e6 / s.n_mv,
         _diag_s(s.t_eig), _diag_s(s.t_mv), 100 * s.t_mv / max(s.t_eig, eps()),
-        _diag_s(s.t_env), _diag_s(s.t_ham), _diag_s(s.t_expand), _diag_s(s.t_gauge),
+        _diag_s(s.t_env), _diag_s(s.t_ham), expand_str, _diag_s(s.t_gauge),
         gc_s, safepoint_s, 100 * (gc_s + safepoint_s) / max(sweep_seconds, eps()),
         alloc_gib
     )
@@ -449,7 +456,7 @@ function _dmrg_run!(
                 Dates.canonicalize(current_time - start_time)
             )
             @printf(
-                "  E₀ = %.10f | D = %*d | ΔE = %.3e | max ϵ = %.3e | max ϵtr = %.3e\n",
+                "  E₀ = %.10f | D = %*d | ΔE = %.3e | max res = %.3e | max ϵtr = %.3e\n",
                 E₀, wD, Dmax, ΔE,
                 maximum(view(ϵ_locals, positions)), maximum(view(ϵ_truncs, positions))
             )
