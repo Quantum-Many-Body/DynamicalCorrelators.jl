@@ -232,10 +232,13 @@ dmrg_mix(ψ, H, args...; kwargs...) = dmrg_mix!(copy(ψ), H, args...; kwargs...)
 # `krylovdim` budget for every local update (eager early exit keeps easy
 # updates cheap). This is the conventional fixed-budget choice, matching
 # e.g. FiniteMPS.jl's LanczosGS(K = 16, tol = 1e-8).
-function _default_alg_eigsolve(krylovdim::Integer = 16)
+function _default_alg_eigsolve(
+        krylovdim::Integer = 16;
+        tol::Real = 1e-8, maxiter::Integer = 1, eager::Bool = true
+    )
     return Lanczos(;
-        krylovdim = Int(krylovdim), maxiter = 1, tol = 1e-8,
-        orth = ModifiedGramSchmidt(), eager = true, verbosity = 0
+        krylovdim = Int(krylovdim), maxiter = Int(maxiter), tol = Float64(tol),
+        orth = ModifiedGramSchmidt(), eager = eager, verbosity = 0
     )
 end
 
