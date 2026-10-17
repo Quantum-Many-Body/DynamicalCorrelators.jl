@@ -1,33 +1,31 @@
 """
-    myDMRG1(; tol=1e-6, maxiter=100, krylovdim=16, adaptive=true, alg_eigsolve=nothing)
+    myDMRG1(; tol=1e-6, maxiter=100, krylovdim=16, alg_eigsolve=nothing)
 
 Construct the default one-site DMRG algorithm used by this package.
 
-The local eigensolver is adaptive by default (`AdaptiveKrylov`: tolerance,
-Krylov dimension and restart count are retuned per local update from the
-measured convergence behavior). Set `adaptive = false` to pin a one-step
-`Lanczos` with the given `krylovdim`, or pass `alg_eigsolve` explicitly for
-full manual control. `tol` and `maxiter` tune the outer DMRG stopping criterion
-and sweep count.
+The local eigensolver is a fixed one-step `Lanczos` with the given `krylovdim`
+budget (`tol = 1e-8`, `ModifiedGramSchmidt()`, eager early exit); pass
+`alg_eigsolve` explicitly for full manual control. `tol` and `maxiter` tune
+the outer DMRG stopping criterion and sweep count.
 """
-myDMRG1(; tol=1e-6, maxiter=100, krylovdim=16, adaptive::Bool=true, alg_eigsolve=nothing) =
+myDMRG1(; tol=1e-6, maxiter=100, krylovdim=16, alg_eigsolve=nothing) =
     DMRG(; tol=tol, maxiter=maxiter, verbosity=3,
-            alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim))
+            alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, krylovdim))
 
 """
-    myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16, adaptive=true, alg_eigsolve=nothing)
+    myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16, alg_eigsolve=nothing)
 
 Construct the default two-site DMRG algorithm.
 
 `trunc` is passed as the SVD truncation scheme, so callers can use either a
 fixed-rank rule such as `truncrank(D)` or a tolerance-based rule. The default
-keeps at most 4096 states. The local eigensolver is adaptive by default
-(`AdaptiveKrylov`); set `adaptive = false` to pin a one-step `Lanczos` with the
-given `krylovdim`, or pass `alg_eigsolve` explicitly for full manual control.
+keeps at most 4096 states. The local eigensolver is a fixed one-step `Lanczos`
+with the given `krylovdim` budget (`tol = 1e-8`, `ModifiedGramSchmidt()`,
+eager early exit); pass `alg_eigsolve` explicitly for full manual control.
 """
-myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16, adaptive::Bool=true, alg_eigsolve=nothing) =
+myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(4096), krylovdim=16, alg_eigsolve=nothing) =
     DMRG2(; tol=tol, maxiter=maxiter, verbosity=3,
-            alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim),
+            alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, krylovdim),
             alg_svd= SafeDivideAndConquer(),
             trunc=trunc)
 
@@ -105,7 +103,7 @@ myTDVP2(; trunc = truncrank(4096), krylovdim = 30) = TDVP2(;
             trunc=trunc)
 
 """
-    myDMRG1_CBE(; tol=1e-6, maxiter=100, D=4096, delta=0.1, krylovdim=16, adaptive=true, alg_eigsolve=nothing)
+    myDMRG1_CBE(; tol=1e-6, maxiter=100, D=4096, delta=0.1, krylovdim=16, alg_eigsolve=nothing)
 
 Construct the default one-site DMRG algorithm with Controlled Bond Expansion.
 
@@ -116,15 +114,15 @@ projected two-site update, and the truncating gauge (`trunc = truncrank(D)`)
 cuts the enlarged bond back to `D` when the center moves. Note that the `trunc`
 of `CBEExpand` counts the directions *added* per bond, so the former
 overexpansion factor `delta` enters through `ceil(Int, delta*D)`. The local
-eigensolver is adaptive by default (`AdaptiveKrylov`); set `adaptive = false`
-to pin a one-step `Lanczos` with the given `krylovdim`, or pass `alg_eigsolve`
+eigensolver is a fixed one-step `Lanczos` with the given `krylovdim` budget
+(`tol = 1e-8`, `ModifiedGramSchmidt()`, eager early exit); pass `alg_eigsolve`
 explicitly for full manual control.
 """
-myDMRG1_CBE(; tol=1e-6, maxiter=100, D=4096, delta=0.1, krylovdim=16, adaptive::Bool=true, alg_eigsolve=nothing) = DMRG(;
+myDMRG1_CBE(; tol=1e-6, maxiter=100, D=4096, delta=0.1, krylovdim=16, alg_eigsolve=nothing) = DMRG(;
             tol = tol,
             maxiter = maxiter,
             verbosity = 3,
-            alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim),
+            alg_eigsolve = _resolve_alg_eigsolve(alg_eigsolve, krylovdim),
             alg_expand = CBEExpand(;
                 alg_svd = SafeDivideAndConquer(),
                 trunc = truncrank(ceil(Int, delta*D))),

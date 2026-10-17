@@ -156,10 +156,13 @@ function _cbe_channel_at(groups::Tuple, idx::Int)
 end
 
 # Work-stealing reduction over the channel groups with per-task local
-# accumulation and a single locked merge per task (same pattern as
-# `_apply_channels` in hamiltonian_threaded.jl). Contractions inside spawned
-# tasks use the default allocator: MPSKit's scratch BufferAllocator is not
-# thread-safe. Returns `nothing` when no channel contributes.
+# accumulation and a single locked merge per task (the preallocation-heavy
+# one-shot path; the per-matvec hot path `_execute_tasks!` in
+# hamiltonian_threaded.jl additionally accumulates in place and bypasses the
+# GC for contraction temporaries, which is not worth the complexity for this
+# once-per-expansion kernel). Contractions inside spawned tasks use the
+# default allocator: MPSKit's scratch BufferAllocator is not thread-safe.
+# Returns `nothing` when no channel contributes.
 function _cbe_apply_all(groups::Tuple, NL, NR, left, right_tail)
     total = sum(length, groups)
     total == 0 && return nothing

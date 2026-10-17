@@ -43,13 +43,16 @@ Memory-frugal environment manager for finite MPSKit calculations.
 
 # Keyword arguments
 - `disk`: `false` (default) keeps environments in RAM; `true` serializes them
-  under a fresh random subdirectory of `tempdir()`; a string uses that
-  directory as the root (created when missing; each array gets its own random
-  subdirectory underneath, so concurrent runs never collide). Disk backing
-  trades I/O for memory at the largest bond dimensions; freed entries are
-  deleted. Point this at fast node-local or burst-buffer storage (e.g. via
-  `TMPDIR` or an explicit string like `"/bbfs/scratch/<user>"`), not at a
-  shared network filesystem.
+  under a fresh random subdirectory of `tempdir()` — node-local storage,
+  exactly the scheme of FiniteMPS.jl's `disk = true` (on cluster compute nodes
+  honor `TMPDIR`); a string overrides the root directory (created when
+  missing; each array gets its own random subdirectory underneath, so
+  concurrent runs never collide). Disk backing trades I/O for memory at the
+  largest bond dimensions; freed entries are deleted. An explicit string must
+  point at fast node-local or burst-buffer storage, not at a shared network
+  filesystem (SerializedElementArray does many small reads/writes per file,
+  which network filesystems amplify into a latency storm — measured
+  ~1.5-3 MB/s effective on /bbfs vs page-cache speed node-locally).
 - `threaded_transfer`: build each environment from the Jordan-MPO channel list
   contracted across Julia threads (per-task local accumulation + locked merge,
   the same pattern as the threaded Hamiltonian). Defaults to
@@ -326,15 +329,32 @@ end
 # (linearity of the contraction):
 #   GL′[..., r, ...] = Σ_{(I, Wij): I[4] == r} transfer_left(GL[..., I[1], ...], Wij, A, A)
 # where `nonzero_pairs(W)` covers the full JordanMPOTensor (A/B/C/D blocks plus
-# the materialized corner identities). Each channel is a dense contraction;
-# channels are distributed over Julia threads with per-task local accumulation
-# and a single locked merge per task — the same pattern as `_apply_channels`
-# in algorithms/hamiltonian_threaded.jl.
-
+# the materialized corner identities). Each channel is a dense contraction.
+#
+# Allocation discipline: distribute the individual channels over Julia threads
+# with per-task local accumulation and a single locked merge per task. This is
+# deliberately channel-level rather than slot-grouped: grouping by output slot
+# serializes all channels that feed the same block and was measured to lose
+# more wall time than it saves in allocation at D=4096 (see the 2026-10-17
+# cluster A/B). A transfer pass therefore allocates per-channel outputs plus
+# one local accumulator per worker; per-slot accumulation is in place via
+# `VectorInterface.add!`, so the merge does not allocate another full tensor.
+# The reduction order stays ascending channel index, matching the serial
+# `threaded_transfer = false` fallback up to floating-point associativity.
+#
 # Work-stealing over channels; `f(pair) -> (slot, contribution)`; returns a
 # vector of per-slot accumulated tensors (`nothing` where no channel landed).
 # The first channel is peeled off and run eagerly so the accumulators get the
 # concrete element type `Union{Nothing, typeof(y)}` instead of `Any`.
+function _accumulate_slot!(acc, r::Int, y)
+    if acc[r] === nothing
+        acc[r] = y
+    else
+        VectorInterface.add!(acc[r], y, VectorInterface.One(), VectorInterface.One())
+    end
+    return acc[r]
+end
+
 function _threaded_channel_accumulate(f, pairs, nslots::Int)
     isempty(pairs) && throw(ArgumentError("no channels to accumulate"))
     r0, y0 = f(first(pairs))
@@ -345,7 +365,7 @@ function _threaded_channel_accumulate(f, pairs, nslots::Int)
         acc[r0] = y0
         for i in 2:length(pairs)
             r, y = f(pairs[i])
-            acc[r] = acc[r] === nothing ? y : acc[r] + y
+            _accumulate_slot!(acc, r, y)
         end
         return acc
     end
@@ -361,12 +381,12 @@ function _threaded_channel_accumulate(f, pairs, nslots::Int)
                 i = Threads.atomic_add!(idx, 1)
                 i > length(pairs) && break
                 r, y = f(pairs[i])
-                local_acc[r] = local_acc[r] === nothing ? y : local_acc[r] + y
+                _accumulate_slot!(local_acc, r, y)
             end
             lock(lk) do
                 for r in 1:nslots
                     local_acc[r] === nothing && continue
-                    total[r] = total[r] === nothing ? local_acc[r] : total[r] + local_acc[r]
+                    _accumulate_slot!(total, r, local_acc[r])
                 end
             end
         end
