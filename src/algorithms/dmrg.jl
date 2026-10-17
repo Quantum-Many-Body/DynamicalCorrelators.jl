@@ -33,8 +33,9 @@ extra sweeps; a warning is issued if the tolerance is not reached).
 
 # Keyword arguments
 - `alg_eigsolve`: eigensolver for the one-site effective Hamiltonian
-  (default: adaptive [`AdaptiveKrylov`]; pass an explicit `Lanczos(...)` to pin
-  fixed Krylov parameters)
+  (default: a fixed one-step `Lanczos(krylovdim = 16, maxiter = 1, tol = 1e-8,
+  ModifiedGramSchmidt(), eager = true)`; pass an explicit KrylovKit solver to
+  override)
 - `alg_svd`: SVD algorithm (default: `SafeDivideAndConquer()`)
 - `alg_expand`: bond-expansion strategy — an instance (used as-is for every
   sweep), a callable `D -> alg` (rebuilt from each sweep's target `D`), or
@@ -62,8 +63,10 @@ extra sweeps; a warning is issued if the tolerance is not reached).
   the local-update method, the per-sweep energy estimate and the memory
   bookkeeping of the sweep driver
 - `disk`: environment disk backing when the driver builds the cache — `false`
-  (default) keeps environments in RAM, `true` or a directory string serializes
-  them to disk. Must be `false` when `envs` is supplied
+  (default) keeps environments in RAM, `true` serializes them to a node-local
+  temporary directory (`tempdir()`, the same scheme as FiniteMPS.jl's
+  `disk = true`), and a directory string uses that directory instead. Must be
+  `false` when `envs` is supplied
 - `manual_gc`: `HalfFiniteEnvironments` only (default: `true`): a full
   `GC.gc(true)` collection and memory report after every sweep. GC is
   deliberately not triggered per local update — with many states evolving
@@ -72,7 +75,7 @@ extra sweeps; a warning is issued if the tolerance is not reached).
 Returns `(ψ, envs, E₀)`; see also [`dmrg1`](@ref), [`dmrg2!`](@ref).
 """
 function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
-        alg_eigsolve = _default_alg_eigsolve(true, 16),
+        alg_eigsolve = _default_alg_eigsolve(),
         alg_svd = SafeDivideAndConquer(),
         alg_expand = D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
         etol::Float64 = 1.0e-8,
@@ -121,7 +124,7 @@ update grows the bond itself) and `filename` defaults to
 Returns `(ψ, envs, E₀)`; see also [`dmrg2`](@ref), [`dmrg1!`](@ref).
 """
 function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
-        alg_eigsolve = _default_alg_eigsolve(true, 16),
+        alg_eigsolve = _default_alg_eigsolve(),
         alg_svd = SafeDivideAndConquer(),
         etol::Float64 = 1.0e-8,
         max_tailsweeps::Integer = 20,
@@ -180,7 +183,7 @@ function dmrg_mix!(
         ψ::AbstractFiniteMPS, H,
         truncdims_2site::AbstractVector{<:Integer},
         truncdims_1site::AbstractVector{<:Integer};
-        alg_eigsolve = _default_alg_eigsolve(true, 16),
+        alg_eigsolve = _default_alg_eigsolve(),
         alg_svd = SafeDivideAndConquer(),
         alg_expand = D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
         etol::Float64 = 1.0e-8,
@@ -225,20 +228,20 @@ dmrg_mix(ψ, H, args...; kwargs...) = dmrg_mix!(copy(ψ), H, args...; kwargs...)
 # internals
 # ---------------------------------------------------------------------------
 
-# Default local eigensolver: MPSKit's adaptive controller (`AdaptiveKrylov`),
-# or with `adaptive = false` a fixed one-step `Lanczos` with the given
-# `krylovdim`.
-function _default_alg_eigsolve(adaptive::Bool, krylovdim::Integer)
-    adaptive && return AdaptiveKrylov(; orth = ModifiedGramSchmidt())
+# Default local eigensolver: a fixed one-step `Lanczos` with the given
+# `krylovdim` budget for every local update (eager early exit keeps easy
+# updates cheap). This is the conventional fixed-budget choice, matching
+# e.g. FiniteMPS.jl's LanczosGS(K = 16, tol = 1e-8).
+function _default_alg_eigsolve(krylovdim::Integer = 16)
     return Lanczos(;
         krylovdim = Int(krylovdim), maxiter = 1, tol = 1e-8,
         orth = ModifiedGramSchmidt(), eager = true, verbosity = 0
     )
 end
 
-# `alg_eigsolve === nothing` → built from `adaptive`/`krylovdim`
-_resolve_alg_eigsolve(alg_eigsolve, adaptive, krylovdim) =
-    something(alg_eigsolve, _default_alg_eigsolve(adaptive, krylovdim))
+# `alg_eigsolve === nothing` → the fixed default with the given `krylovdim`
+_resolve_alg_eigsolve(alg_eigsolve, krylovdim) =
+    something(alg_eigsolve, _default_alg_eigsolve(krylovdim))
 
 # Per-sweep expansion algorithm: instance used as-is / callable `D -> alg` /
 # `nothing` disables expansion (see the `alg_expand` docstring of `dmrg1!`)
@@ -260,7 +263,16 @@ _move_bond(::DMRG, ::Val{:left}, pos::Int) = pos - 1
 _move_bond(::DMRG2, ::Val{:right}, pos::Int) = pos
 _move_bond(::DMRG2, ::Val{:left}, pos::Int) = pos
 
-function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, ϵ_local, ϵ_trunc, wpos::Int, wD::Int) where {D}
+_diag_s(ns::Real) = ns / 1e9   # nanoseconds → seconds, for log formatting
+
+# Per-update log line. With the half engine's `diag` NamedTuple the line
+# carries the matvec count K and per-phase wall times (eigsolve split into
+# matvec vs Gram–Schmidt/bookkeeping rest, environment rebuild, operator
+# construction, CBE expand, gauge), matching the information FiniteMPS.jl logs
+# per update (its `K = ...` line and per-step TimerOutput). `λ` is the local
+# eigenvalue (the per-update energy estimate). `diag === nothing` is the
+# reference-engine fallback (MPSKit's `local_update!` returns no diagnostics).
+function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, λ, ϵ_local, ϵ_trunc, wpos::Int, wD::Int, diag) where {D}
     b = _move_bond(alg, dir, pos)
     # One-site R2L: the gauge just truncated the LEFT leg of AR[pos] (bond
     # pos-1). right_virtualspace(ψ, pos-1) would instead show the CBE-expanded
@@ -269,12 +281,59 @@ function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, ϵ_local, ϵ_trunc, wpos
     Db = alg isa DMRG && D === :left ? dim(left_virtualspace(ψ, pos)) : dim(right_virtualspace(ψ, b))
     arrow = D === :right ? "=>" : "<="
     tag = D === :right ? "SweepL2R" : "SweepR2L"
-    @printf(
-        "  %s: site %*d %s site %*d | D = %*d | ϵ = %.2e | ϵtr = %.2e | %s\n",
-        tag, wpos, b, arrow, wpos, b + 1, wD, Db, ϵ_local, ϵ_trunc,
-        Dates.format(now(), "d.u yyyy HH:MM")
-    )
+    timestamp = Dates.format(now(), "d.u yyyy HH:MM:SS")
+    if diag === nothing
+        @printf(
+            "  %s: site %*d %s site %*d | D = %*d | ϵ = %.2e | ϵtr = %.2e | %s\n",
+            tag, wpos, b, arrow, wpos, b + 1, wD, Db, ϵ_local, ϵ_trunc, timestamp
+        )
+    else
+        @printf(
+            "  %s: site %*d %s site %*d | D = %*d | E = %.8f | K = %3d | eig %8.3fs (mv %8.3fs %4.1f%%) | env %7.3fs | ham %7.3fs | exp %6.3fs | gauge %6.3fs | ϵ = %.2e | ϵtr = %.2e | %s\n",
+            tag, wpos, b, arrow, wpos, b + 1, wD, Db, real(λ), diag.numops,
+            _diag_s(diag.t_eig), _diag_s(diag.t_mv), 100 * diag.t_mv / max(diag.t_eig, eps()),
+            _diag_s(diag.t_env), _diag_s(diag.t_ham), _diag_s(diag.t_expand), _diag_s(diag.t_gauge),
+            ϵ_local, ϵ_trunc, timestamp
+        )
+    end
     return nothing
+end
+
+# Per-sweep aggregate of the per-update diagnostics plus GC statistics
+# (`Base.gc_num` deltas: collection time, allocations, safepoint waits)
+struct _SweepDiag
+    n_mv::Int        # matvecs this sweep
+    t_mv::Float64    # matvec time (ns)
+    t_eig::Float64   # eigsolve time (ns)
+    t_env::Float64   # environment rebuild (ns)
+    t_ham::Float64   # effective-Hamiltonian construction (ns; envs already fresh)
+    t_expand::Float64
+    t_gauge::Float64
+end
+_SweepDiag() = _SweepDiag(0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+function _accum!(s::_SweepDiag, diag)
+    diag === nothing && return s
+    return _SweepDiag(
+        s.n_mv + diag.numops, s.t_mv + diag.t_mv, s.t_eig + diag.t_eig,
+        s.t_env + diag.t_env, s.t_ham + diag.t_ham,
+        s.t_expand + diag.t_expand, s.t_gauge + diag.t_gauge
+    )
+end
+function _print_sweep_diag(io::IO, s::_SweepDiag, gc0, gc1, sweep_seconds::Float64)
+    s.n_mv == 0 && return nothing
+    gc_s = (gc1.total_time - gc0.total_time) / 1e9
+    safepoint_s = (gc1.total_time_to_safepoint - gc0.total_time_to_safepoint) / 1e9
+    alloc_gib = (gc1.total_allocd - gc0.total_allocd) / 2^30
+    @printf(
+        io,
+        "  matvecs %d (avg %.1f ms) | eig %.2fs (mv %.2fs %.1f%%) | env %.2fs | ham %.2fs | expand %.2fs | gauge %.2fs | GC %.2fs + safepoint %.2fs (%.1f%% of sweep) | alloc %.2f GiB\n",
+        s.n_mv, s.t_mv / 1e6 / s.n_mv,
+        _diag_s(s.t_eig), _diag_s(s.t_mv), 100 * s.t_mv / max(s.t_eig, eps()),
+        _diag_s(s.t_env), _diag_s(s.t_ham), _diag_s(s.t_expand), _diag_s(s.t_gauge),
+        gc_s, safepoint_s, 100 * (gc_s + safepoint_s) / max(sweep_seconds, eps()),
+        alloc_gib
+    )
+    return flush(io)
 end
 
 function _dmrg_run!(
@@ -295,10 +354,9 @@ function _dmrg_run!(
     # DMRG updates sites (n = N), DMRG2 updates bonds (n = N - 1); mixed
     # schedules size the bookkeeping arrays by the larger engine
     n = maximum(alg -> alg isa DMRG ? N : N - 1, algs)
-    ϵ_locals = ones(n)          # per-position Galerkin errors (drive adaptive solvers)
+    ϵ_locals = ones(n)          # per-position Galerkin errors (per-update log; checkpoint)
     ϵ_truncs = zeros(n)         # per-position truncation errors of the gauge step
-    decay_rates = zeros(n)      # per-position observed eigensolver contraction factors
-    ϵ_global = 1.0
+    ϵ_global = 1.0              # only the reference engine's `local_update!` takes it
     allocator = default_allocator(ψ, SerialScheduler())
     timer = TimerOutput()
     wpos = ndigits(N)      # log column width: site index
@@ -335,34 +393,36 @@ function _dmrg_run!(
         # `H - E_prev` (a pure shift leaves the Krylov subspace unchanged)
         shift = envs isa HalfFiniteEnvironments && !isnan(E_prev) ? E_prev : 0.0
 
+        gc0 = Base.gc_num()
+        sweepdiag = _SweepDiag()
         @timeit timer "L2R sweep" begin
             for pos in fwd
-                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], decay_rates[pos] =
+                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], diag =
                     _dmrg_update!(
                         pos, Val(:right), ψ, H, alg, envs,
-                        ϵ_global, ϵ_truncs[pos], decay_rates[pos],
-                        iter, timer, allocator, shift
+                        ϵ_global, ϵ_truncs[pos], iter, timer, allocator, shift
                     )
+                sweepdiag = _accum!(sweepdiag, diag)
                 envs isa HalfFiniteEnvironments && _free_after_move!(envs, alg, Val(:right), pos)
                 ϵ_global = maximum(view(ϵ_locals, positions))
                 if Int(verbose) > 1
-                    _dmrg_log_move(alg, Val(:right), pos, ψ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD)
+                    _dmrg_log_move(alg, Val(:right), pos, ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD, diag)
                     flush(stdout)
                 end
             end
         end
         @timeit timer "R2L sweep" begin
             for pos in bwd
-                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], decay_rates[pos] =
+                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], diag =
                     _dmrg_update!(
                         pos, Val(:left), ψ, H, alg, envs,
-                        ϵ_global, ϵ_truncs[pos], decay_rates[pos],
-                        iter, timer, allocator, shift
+                        ϵ_global, ϵ_truncs[pos], iter, timer, allocator, shift
                     )
+                sweepdiag = _accum!(sweepdiag, diag)
                 envs isa HalfFiniteEnvironments && _free_after_move!(envs, alg, Val(:left), pos)
                 ϵ_global = maximum(view(ϵ_locals, positions))
                 if Int(verbose) > 1
-                    _dmrg_log_move(alg, Val(:left), pos, ψ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD)
+                    _dmrg_log_move(alg, Val(:left), pos, ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD, diag)
                     flush(stdout)
                 end
             end
@@ -392,6 +452,10 @@ function _dmrg_run!(
                 "  E₀ = %.10f | D = %*d | ΔE = %.3e | max ϵ = %.3e | max ϵtr = %.3e\n",
                 E₀, wD, Dmax, ΔE,
                 maximum(view(ϵ_locals, positions)), maximum(view(ϵ_truncs, positions))
+            )
+            _print_sweep_diag(
+                stdout, sweepdiag, gc0, Base.gc_num(),
+                (current_time - start_time).value / 1000
             )
             flush(stdout)
         end
@@ -498,23 +562,25 @@ end
 # ---------------------------------------------------------------------------
 
 # The half-engine method (finiteengine/localupdate.jl) returns the local
-# eigenvalue λ and takes `energy_shift`; the reference path is MPSKit's own
-# `local_update!` (λ placeholder NaN, unused — its sweep energy comes from
-# `expectation_value`).
+# eigenvalue λ and a per-update diagnostics NamedTuple, and takes
+# `energy_shift`; the reference path is MPSKit's own `local_update!` (λ
+# placeholder NaN, unused — its sweep energy comes from `expectation_value` —
+# and no diagnostics). MPSKit's method keeps its signature (including the
+# `decay_rate` slot, inert for a fixed `Lanczos` solver), so the reference
+# branch passes `0.0` and discards the returned value.
 function _dmrg_update!(pos, direction::Val, ψ, H, alg,
-        envs::HalfFiniteEnvironments, ϵ_global, ϵ_trunc, decay_rate,
+        envs::HalfFiniteEnvironments, ϵ_global, ϵ_trunc,
         iter, timer, allocator, energy_shift::Real)
     return local_update!(
-        pos, direction, ψ, H, alg, envs, ϵ_global, ϵ_trunc, decay_rate,
-        timer, allocator; energy_shift
+        pos, direction, ψ, H, alg, envs, timer, allocator; energy_shift
     )
 end
 function _dmrg_update!(pos, direction::Val, ψ, H, alg,
-        envs::FiniteEnvironments, ϵ_global, ϵ_trunc, decay_rate,
+        envs::FiniteEnvironments, ϵ_global, ϵ_trunc,
         iter, timer, allocator, ::Real)
-    ψ, ϵ_local, ϵ_trunc, decay_rate = local_update!(
-        pos, direction, ψ, H, alg, envs, ϵ_global, ϵ_trunc, decay_rate,
+    ψ, ϵ_local, ϵ_trunc, _decay = local_update!(
+        pos, direction, ψ, H, alg, envs, ϵ_global, ϵ_trunc, 0.0,
         iter, timer, allocator
     )
-    return ψ, NaN, ϵ_local, ϵ_trunc, decay_rate
+    return ψ, NaN, ϵ_local, ϵ_trunc, nothing
 end

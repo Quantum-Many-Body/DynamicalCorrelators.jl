@@ -146,8 +146,7 @@ Bond Expansion through the `alg_expand` keyword of `DMRG` and `TDVP`
 overrides in this package have been removed in favor of the upstream
 implementations. On top of them, v0.14.0 adds schedule-driven DMRG drivers
 with explicit per-sweep bond-dimension control, thread-parallel sparse
-Jordan-MPO effective Hamiltonians for finite systems, and adaptive local
-eigensolvers by default. The finite-system DMRG and TDVP drivers share a new
+Jordan-MPO effective Hamiltonians for finite systems. The finite-system DMRG and TDVP drivers share a new
 lazy, optionally disk-backed environment manager (the fast finite engine)
 that removes the dominant memory bottleneck of large-bond-dimension runs.
 
@@ -248,17 +247,21 @@ that removes the dominant memory bottleneck of large-bond-dimension runs.
   `Zipup(; trunc = (truncrank(2D), truncrank(D)))`), or bring a custom
   initial state through `chargedMPS!`.
 
-## Adaptive local eigensolvers
+## Local eigensolvers
 
-- DMRG local eigensolves now default to MPSKit's `AdaptiveKrylov`, which
-  retunes the tolerance, Krylov dimension, and restart count per local update
-  from the measured decay rate, Galerkin errors, and truncation errors.
-- Pin the previous fixed behavior with `adaptive = false` (plus `krylovdim`),
-  or pass `alg_eigsolve` explicitly:
+- DMRG local eigensolves use a fixed one-step `Lanczos` budget
+  (`krylovdim = 16`, `tol = 1e-8`, `ModifiedGramSchmidt()`, eager early exit),
+  the same conventional fixed-budget scheme as e.g. FiniteMPS.jl. (An earlier
+  adaptive controller, MPSKit's `AdaptiveKrylov`, was tried as the default and
+  reverted: its per-bond feedback misjudged the cold-start sweep of a
+  bond-dimension ramp — cheap 3-dimensional solves followed by max-budget
+  oscillation — while the converged-regime savings are already captured by
+  eager early exit.)
+- Pin a different budget with `krylovdim`, or pass `alg_eigsolve` explicitly:
 
 ```julia
-alg = myDMRG1_CBE(; D = 1024)                               # adaptive (default)
-alg = myDMRG2(; trunc = truncrank(1024), adaptive = false)  # fixed one-step Lanczos
+alg = myDMRG1_CBE(; D = 1024)                        # fixed Lanczos (krylovdim = 16)
+alg = myDMRG2(; trunc = truncrank(1024), krylovdim = 24)
 ```
 
 - TDVP time integrators intentionally remain fixed `Lanczos`: the Krylov
@@ -285,8 +288,8 @@ alg = myDMRG2(; trunc = truncrank(1024), adaptive = false)  # fixed one-step Lan
   `alg_expand = OptimalExpand(...)`; its `cbe_tol`/`project_error` keywords
   were removed (the upstream expansion is parameterized by `trunc` and
   `delta`).
-- `myDMRG1`/`myDMRG2`/`myDMRG1_CBE` accept the `adaptive` and `alg_eigsolve`
-  keywords.
+- `myDMRG1`/`myDMRG2`/`myDMRG1_CBE` accept the `krylovdim` and
+  `alg_eigsolve` keywords.
 
 # DynamicalCorrelators.jl v0.13.0 Release Notes
 

@@ -6,7 +6,7 @@ import TensorKit
 using LinearAlgebra: inv, mul!, I, tr, dot, BLAS, logabsdet
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
-using TensorOperations: promote_contract, AbstractBackend, DefaultBackend, DefaultAllocator
+using TensorOperations: promote_contract, AbstractBackend, DefaultBackend, DefaultAllocator, ManualAllocator
 using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, sectors, Bosonic, SpaceMismatch
 using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dual, fuse, svd_trunc, svd_trunc!, svd_compact!, oneunit, notrunc, similarstoragetype, insertleftunit, insertrightunit, removeunit
 using TensorKit: left_null, right_null!, catdomain, catcodomain, qr_compact!, lq_compact!, left_orth, right_orth, scale!, absorb!
@@ -22,7 +22,7 @@ using MPSKit: add_util_leg, _firstspace, decompose_localmpo, TransferMatrix, env
 using MPSKit: FiniteEnvironments
 using MPSKit: spacetype, fuse_mul_mpo, fuser, MPOTensor, timestep, timestep!
 using MPSKit: AbstractFiniteMPS, Algorithm, MPSTensor, MPSBondTensor, check_unambiguous_braiding
-using MPSKit: default_allocator, SerialScheduler, AdaptiveKrylov, adapt_solver
+using MPSKit: default_allocator, SerialScheduler
 using MPSKit: JordanMPOTensor, JordanMPO_AC_Hamiltonian, JordanMPO_AC2_Hamiltonian, prepare_operator!!
 using MPSKit: site_type, calc_galerkin, AC2, project_complement!, fixedpoint, gauge!, gauge2!, _transpose_tail, _transpose_front
 using MPSKit: left_gauge, _lastspace

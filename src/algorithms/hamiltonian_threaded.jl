@@ -5,22 +5,46 @@
 # that each matvec is one big contraction. For Hamiltonians built from sparse
 # Jordan MPOs with symmetry sectors, that fusion multiplies a large number of
 # exactly-zero blocks. Here the continuing `A`/`AA` blocks are instead kept as
-# their nonzero channel list `(GLᵢ, Wᵢⱼ, GRⱼ)` and the channels are contracted
-# independently across Julia threads (each task accumulates a local partial sum,
-# merged under a lock), which exploits the sparsity *and* the available Julia
-# threads. All other (dense) blocks are assembled by MPSKit's own constructors
-# and applied exactly as in MPSKit.
+# their nonzero channel list `(GLᵢ, Wᵢⱼ, GRⱼ)` and contracted independently, which
+# exploits the sparsity *and* the available Julia threads. The remaining dense
+# boundary blocks (onsite/not-started/finished/starting/ending) enter the same
+# work-stealing pool as cheap tasks, so one matvec is a single flat list of
+# independent tasks with no serial tail (the old layout — channels parallel, then
+# ~9 boundary terms serial — was the Amdahl bottleneck at small thread counts).
+#
+# Allocation discipline (what makes the channel split competitive with the fused
+# operator; the structure mirrors FiniteMPS.jl's `action!`):
+#   * the output `y` is allocated exactly once per matvec, with the promoted
+#     eltype over the state and every operator component;
+#   * every task writes its contribution *directly* into an accumulator with
+#     `y += ...` — in the serial pool that accumulator is `y` itself, in the
+#     threaded pool each worker owns one local accumulator (allocated once per
+#     matvec) that is added into `y` under a single locked merge per worker.
+#     There are no per-task output tensors and no `acc + tmp` merge copies;
+#   * all contractions pass `allocator = ManualAllocator()`, so intermediate
+#     (and permutation) temporaries are backed by `Libc.malloc`/`free` and
+#     bypass the GC entirely. This is safe inside spawned tasks: the manual
+#     allocator only backs the `istemp` intermediates (freed by the
+#     @plansor-generated code itself), while accumulators stay GC-managed.
+#     MPSKit's scratch BufferAllocator remains unusable here — it is not
+#     thread-safe.
+#
+# Contraction order: left to the TensorOperations optree — at YC-Hubbard sizes
+# it matches the hand-picked left-leaning (env·x first) order, while the
+# right-leaning tree is ~6x slower (aa_matvec_bench.jl measurement).
+#
+# Numerics: identical up to floating-point reduction order (the accumulation
+# order over tasks differs from the serial fused path), i.e. ~ulp-level
+# differences, as with any parallel reduction.
 #
 # The `AC_hamiltonian`/`AC2_hamiltonian` methods overloaded here accept MPSKit's
 # `prepare`/`backend`/`allocator` keywords so internal MPSKit calls (which always
 # pass them) keep working unchanged. The channel-split operator is used whenever
 # more than one channel exists and the module cap is nonzero (see
 # `set_threaded_hamiltonian!`); the cap only controls how many worker tasks the
-# channels are fanned out over — with cap 1 the channels are contracted serially
-# in the calling task (the sparsity win is kept either way), and cap 0 falls
-# back to MPSKit's default fused operator. Note that contractions inside
-# spawned tasks intentionally use the default allocator: MPSKit's scratch
-# BufferAllocator is not thread-safe.
+# pool fans out over — with cap 1 the tasks are evaluated serially in the
+# calling task (the sparsity win is kept either way), and cap 0 falls back to
+# MPSKit's default fused operator.
 #
 # BEFORE writing any new contraction here, read
 # docs/tensorkit-plansor-conventions.md (the @plansor planar leg-order rules)
@@ -31,7 +55,7 @@
 
 Set the maximum number of worker tasks that the channel-split effective
 Hamiltonians fan each matvec out over (default: `Threads.nthreads()`).
-`n = 1` evaluates the channels serially in the calling task — the sparse
+`n = 1` evaluates the tasks serially in the calling task — the sparse
 channel decomposition (and its savings over MPSKit's fused dense operator) is
 kept, only the threading is off; this is the right setting when the caller
 already parallelizes over states. `n = 0` disables the channel-split operator
@@ -113,17 +137,20 @@ function _collect_AA_channels(GL2, A1, A2, GR2)
     return channels
 end
 
-function _apply_A_channel(ch::_AChannel, x)
-    @plansor tmp[-1 -2; -3] :=
+# In-place channel kernels: `y += channel·x`. Temporaries (including any output
+# permutation the optree needs) go through the manual allocator, so a task
+# performs no GC-tracked allocation at all.
+function _apply_A_channel!(y, ch::_AChannel, x)
+    @plansor allocator = ManualAllocator() y[-1 -2; -3] +=
         ch.leftenv[-1 5; 4] * x[4 2; 1] * ch.localop[5 -2; 2 3] * ch.rightenv[1 3; -3]
-    return tmp
+    return y
 end
 
-function _apply_AA_channel(ch::_AAChannel, x)
-    @plansor tmp[-1 -2; -3 -4] :=
+function _apply_AA_channel!(y, ch::_AAChannel, x)
+    @plansor allocator = ManualAllocator() y[-1 -2; -3 -4] +=
         ch.leftenv[-1 2; 1] * x[1 3; 7 5] * ch.localop1[2 -2; 3 4] *
         ch.localop2[4 -4; 5 6] * ch.rightenv[7 6; -3]
-    return tmp
+    return y
 end
 
 """One-site channel with the environment prefused into the MPO tensor: `P = GLᵢ ⊗ Wᵢⱼ`."""
@@ -139,53 +166,102 @@ function _prefuse_A_channel(ch::_AChannel)
     return _PrefusedAChannel(P, ch.rightenv)
 end
 
-function _apply_A_channel(ch::_PrefusedAChannel, x)
+function _apply_A_channel!(y, ch::_PrefusedAChannel, x)
     # inverse substitution of the fusion: contracts P's domain with x and P's
     # MPO-virtual codomain leg with the right environment (planar)
-    @plansor tmp[-1 -2; -3] := ch.fused[-1 -2 3; 4 2] * x[4 2; 1] * ch.rightenv[1 3; -3]
-    return tmp
+    @plansor allocator = ManualAllocator() y[-1 -2; -3] +=
+        ch.fused[-1 -2 3; 4 2] * x[4 2; 1] * ch.rightenv[1 3; -3]
+    return y
 end
 
-# Work-stealing over channels with per-task local accumulation and a single
-# locked reduction per task. The fan-out is capped by
-# `_THREADED_HAMILTONIAN_THREADS[]`: cap 1 (or a single channel) evaluates
-# serially in the calling task — no spawn, no atomic, no lock
-function _apply_channels(channels, x, apply_channel)
-    isempty(channels) && return zerovector(x)
-    # clamp to >= 1: an operator built while the cap was positive must still
-    # evaluate its channels (serially) if the cap is lowered to 0 afterwards —
-    # silently dropping them would corrupt the matvec
-    nt = clamp(min(threaded_hamiltonian_threads(), Threads.nthreads()),
-               1, length(channels))
-    if nt == 1
-        acc = nothing
-        for ch in channels
-            tmp = apply_channel(ch, x)
-            acc = acc === nothing ? tmp : acc + tmp
-        end
-        return something(acc, zerovector(x))
-    end
+# ---------------------------------------------------------------------------
+# boundary blocks as pool tasks
+# ---------------------------------------------------------------------------
 
+# In-place two-tensor boundary maps `y += op·x` (the permutation temporaries
+# some of them need go through the manual allocator as well); pooled with the
+# channels via `(y, x) -> ...` closures.
+_apply_onsite!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3] += x[-1 1; -3] * op[-2; 1]; y)
+_apply_finished!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3] += op[-1; 1] * x[1 -2; -3]; y)
+_apply_notstarted!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3] += x[-1 -2; 1] * op[1; -3]; y)
+_apply_starting!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3] += x[-1 2; 1] * op[-2 -3; 2 1]; y)
+_apply_ending!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3] += op[-1 -2; 1 2] * x[1 2; -3]; y)
+
+_apply_II!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] += x[-1 -2; 1 -4] * op[-3; 1]; y)
+_apply_IC!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] += x[-1 -2; 1 2] * op[-4 -3; 2 1]; y)
+_apply_ID!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] += x[-1 -2; -3 1] * op[-4; 1]; y)
+_apply_CB!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] += x[-1 1; -3 2] * op[-2 -4; 1 2]; y)
+_apply_CA!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] += x[-1 1; 3 2] * op[-2 -4 -3; 1 2 3]; y)
+_apply_AB!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] += x[1 2; -3 3] * op[-1 -2 -4; 1 2 3]; y)
+_apply_BE!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] += x[1 2; -3 -4] * op[-1 -2; 1 2]; y)
+_apply_DE!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] += x[-1 1; -3 -4] * op[-2; 1]; y)
+_apply_EE!(y, op, x) =
+    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] += x[1 -2; -3 -4] * op[-1; 1]; y)
+
+function _push_boundary!(tasks, T, apply!, op)
+    ismissing(op) && return T
+    push!(tasks, (y, x) -> apply!(y, op, x))
+    return promote_type(T, eltype(op))
+end
+
+_channel_eltype(T, ch::_AChannel) =
+    promote_type(T, eltype(ch.leftenv), eltype(ch.localop), eltype(ch.rightenv))
+_channel_eltype(T, ch::_AAChannel) =
+    promote_type(T, eltype(ch.leftenv), eltype(ch.localop1), eltype(ch.localop2),
+                 eltype(ch.rightenv))
+_channel_eltype(T, ch::_PrefusedAChannel) =
+    promote_type(T, eltype(ch.fused), eltype(ch.rightenv))
+
+# Work-stealing over channels + boundary tasks. Serial pool (cap 1): every task
+# accumulates directly into `y`. Threaded pool: each worker owns one local
+# accumulator (a single allocation per matvec), tasks write into it, and the
+# accumulators are merged into `y` under one locked in-place add per worker —
+# so a matvec's GC-tracked allocations are `y` plus one accumulator per worker,
+# nothing more. The clamp to >= 1 keeps an operator built while the cap was
+# positive correct if the cap is lowered to 0 afterwards.
+function _execute_tasks!(y, channels, apply_channel!, btasks, x)
+    nch = length(channels)
+    total = nch + length(btasks)
+    total == 0 && return y
+    nt = clamp(min(threaded_hamiltonian_threads(), Threads.nthreads()), 1, total)
+    if nt == 1
+        for ch in channels
+            apply_channel!(y, ch, x)
+        end
+        for f in btasks
+            f(y, x)
+        end
+        return y
+    end
     idx = Threads.Atomic{Int}(1)
     lk = ReentrantLock()
-    total = Ref{Any}(nothing)
     Threads.@sync for _ in 1:nt
         Threads.@spawn begin
-            local_acc = nothing
+            yl = VectorInterface.zerovector(y)
             while true
                 i = Threads.atomic_add!(idx, 1)
-                i > length(channels) && break
-                tmp = apply_channel(channels[i], x)
-                local_acc = local_acc === nothing ? tmp : local_acc + tmp
+                i > total && break
+                i <= nch ? apply_channel!(yl, channels[i], x) : btasks[i - nch](yl, x)
             end
-            if local_acc !== nothing
-                lock(lk) do
-                    total[] = total[] === nothing ? local_acc : total[] + local_acc
-                end
+            lock(lk) do
+                VectorInterface.add!(y, yl, VectorInterface.One(), VectorInterface.One())
             end
         end
     end
-    return something(total[], zerovector(x))
+    return y
 end
 
 # ---------------------------------------------------------------------------
@@ -194,77 +270,78 @@ end
 
 """
 One-site effective Hamiltonian of a finite Jordan-MPO operator whose sparse
-continuing `A` block is evaluated as independent channels across Julia threads.
-Assembled from MPSKit's unprepared `JordanMPO_AC_Hamiltonian`.
+continuing `A` block is evaluated as independent channels across Julia threads,
+with the dense boundary blocks pooled as cheap tasks. Assembled from MPSKit's
+unprepared `JordanMPO_AC_Hamiltonian`. `channels` is kept as a typed field for
+inspection/probes; the matvec runs through the unified task pool.
 """
-struct ThreadedJordanMPO_AC_Hamiltonian{O1, O2, C} <: DerivativeOperator
-    D::Union{O1, Missing}  # onsite
-    I::Union{O1, Missing}  # not started
-    E::Union{O1, Missing}  # finished
-    C::Union{O2, Missing}  # starting
-    B::Union{O2, Missing}  # ending
-    channels::C            # continuing A channels
+struct ThreadedJordanMPO_AC_Hamiltonian{C} <: DerivativeOperator
+    channels::C               # continuing A channels
+    btasks::Vector{Function}  # boundary blocks as `(y, x) -> y += ...` tasks
+    promoted_eltype::Type     # promote_type over all operator components
 end
 
 function ThreadedJordanMPO_AC_Hamiltonian(H0::JordanMPO_AC_Hamiltonian)
     channels = ismissing(H0.A) ? _AChannel[] :
         _collect_A_channels(H0.A.leftenv, H0.A.operators[1], H0.A.rightenv)
     if _PREFUSED_HAMILTONIAN[] && !isempty(channels)
-        return ThreadedJordanMPO_AC_Hamiltonian(
-            H0.D, H0.I, H0.E, H0.C, H0.B, map(_prefuse_A_channel, channels)
-        )
+        channels = map(_prefuse_A_channel, channels)
     end
-    return ThreadedJordanMPO_AC_Hamiltonian(H0.D, H0.I, H0.E, H0.C, H0.B, channels)
+    btasks = Function[]
+    T = Union{}
+    for ch in channels
+        T = _channel_eltype(T, ch)
+    end
+    T = _push_boundary!(btasks, T, _apply_onsite!, H0.D)
+    T = _push_boundary!(btasks, T, _apply_finished!, H0.E)
+    T = _push_boundary!(btasks, T, _apply_notstarted!, H0.I)
+    T = _push_boundary!(btasks, T, _apply_starting!, H0.C)
+    T = _push_boundary!(btasks, T, _apply_ending!, H0.B)
+    return ThreadedJordanMPO_AC_Hamiltonian(channels, btasks, T)
 end
 
 function (H::ThreadedJordanMPO_AC_Hamiltonian)(x::MPSTensor)
-    y = _apply_channels(H.channels, x, _apply_A_channel)
-    ismissing(H.D) || @plansor y[-1 -2; -3] += x[-1 1; -3] * H.D[-2; 1]
-    ismissing(H.E) || @plansor y[-1 -2; -3] += H.E[-1; 1] * x[1 -2; -3]
-    ismissing(H.I) || @plansor y[-1 -2; -3] += x[-1 -2; 1] * H.I[1; -3]
-    ismissing(H.C) || @plansor y[-1 -2; -3] += x[-1 2; 1] * H.C[-2 -3; 2 1]
-    ismissing(H.B) || @plansor y[-1 -2; -3] += H.B[-1 -2; 1 2] * x[1 2; -3]
-    return y
+    y = VectorInterface.zerovector(x, promote_type(eltype(x), H.promoted_eltype))
+    return _execute_tasks!(y, H.channels, _apply_A_channel!, H.btasks, x)
 end
 
 """
 Two-site effective Hamiltonian of a finite Jordan-MPO operator whose sparse
 continuing-continuing `AA` block is evaluated channel by channel across Julia
-threads. Assembled from MPSKit's unprepared `JordanMPO_AC2_Hamiltonian`.
+threads, with the dense boundary blocks pooled as cheap tasks. Assembled from
+MPSKit's unprepared `JordanMPO_AC2_Hamiltonian`.
 """
-struct ThreadedJordanMPO_AC2_Hamiltonian{O1, O2, O3, C} <: DerivativeOperator
-    II::Union{O1, Missing}
-    IC::Union{O2, Missing}
-    ID::Union{O1, Missing}
-    CB::Union{O2, Missing}
-    CA::Union{O3, Missing}
-    AB::Union{O3, Missing}
-    channels::C
-    BE::Union{O2, Missing}
-    DE::Union{O1, Missing}
-    EE::Union{O1, Missing}
+struct ThreadedJordanMPO_AC2_Hamiltonian{C} <: DerivativeOperator
+    channels::C               # continuing AA channels
+    btasks::Vector{Function}  # boundary blocks as `(y, x) -> y += ...` tasks
+    promoted_eltype::Type
 end
 
 function ThreadedJordanMPO_AC2_Hamiltonian(H0::JordanMPO_AC2_Hamiltonian)
     channels = ismissing(H0.AA) ? _AAChannel[] :
-        _collect_AA_channels(H0.AA.leftenv, H0.AA.operators[1], H0.AA.operators[2], H0.AA.rightenv)
-    return ThreadedJordanMPO_AC2_Hamiltonian(
-        H0.II, H0.IC, H0.ID, H0.CB, H0.CA, H0.AB, channels, H0.BE, H0.DE, H0.EE
-    )
+        _collect_AA_channels(H0.AA.leftenv, H0.AA.operators[1], H0.AA.operators[2],
+                             H0.AA.rightenv)
+    btasks = Function[]
+    sizehint!(btasks, 9)
+    T = Union{}
+    for ch in channels
+        T = _channel_eltype(T, ch)
+    end
+    T = _push_boundary!(btasks, T, _apply_II!, H0.II)
+    T = _push_boundary!(btasks, T, _apply_IC!, H0.IC)
+    T = _push_boundary!(btasks, T, _apply_ID!, H0.ID)
+    T = _push_boundary!(btasks, T, _apply_CB!, H0.CB)
+    T = _push_boundary!(btasks, T, _apply_CA!, H0.CA)
+    T = _push_boundary!(btasks, T, _apply_AB!, H0.AB)
+    T = _push_boundary!(btasks, T, _apply_BE!, H0.BE)
+    T = _push_boundary!(btasks, T, _apply_DE!, H0.DE)
+    T = _push_boundary!(btasks, T, _apply_EE!, H0.EE)
+    return ThreadedJordanMPO_AC2_Hamiltonian(channels, btasks, T)
 end
 
 function (H::ThreadedJordanMPO_AC2_Hamiltonian)(x::MPOTensor)
-    y = _apply_channels(H.channels, x, _apply_AA_channel)
-    ismissing(H.II) || @plansor y[-1 -2; -3 -4] += x[-1 -2; 1 -4] * H.II[-3; 1]
-    ismissing(H.IC) || @plansor y[-1 -2; -3 -4] += x[-1 -2; 1 2] * H.IC[-4 -3; 2 1]
-    ismissing(H.ID) || @plansor y[-1 -2; -3 -4] += x[-1 -2; -3 1] * H.ID[-4; 1]
-    ismissing(H.CB) || @plansor y[-1 -2; -3 -4] += x[-1 1; -3 2] * H.CB[-2 -4; 1 2]
-    ismissing(H.CA) || @plansor y[-1 -2; -3 -4] += x[-1 1; 3 2] * H.CA[-2 -4 -3; 1 2 3]
-    ismissing(H.AB) || @plansor y[-1 -2; -3 -4] += x[1 2; -3 3] * H.AB[-1 -2 -4; 1 2 3]
-    ismissing(H.BE) || @plansor y[-1 -2; -3 -4] += x[1 2; -3 -4] * H.BE[-1 -2; 1 2]
-    ismissing(H.DE) || @plansor y[-1 -2; -3 -4] += x[-1 1; -3 -4] * H.DE[-2; 1]
-    ismissing(H.EE) || @plansor y[-1 -2; -3 -4] += x[1 -2; -3 -4] * H.EE[-1; 1]
-    return y
+    y = VectorInterface.zerovector(x, promote_type(eltype(x), H.promoted_eltype))
+    return _execute_tasks!(y, H.channels, _apply_AA_channel!, H.btasks, x)
 end
 
 # ---------------------------------------------------------------------------

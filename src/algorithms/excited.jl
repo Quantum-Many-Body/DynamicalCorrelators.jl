@@ -25,8 +25,8 @@
 #     [`excited_states`](@ref)).
 #
 # The drivers mirror dmrg1!/dmrg2! (algorithms/dmrg.jl) and reuse their
-# building blocks (adaptive solvers, CBE expansion, gauge steps, environment
-# freeing schedule).
+# building blocks (fixed-budget Lanczos eigensolver, CBE expansion, gauge
+# steps, environment freeing schedule, per-update diagnostics).
 
 # ---------------------------------------------------------------------------
 # folded local tensors and the penalized local operator
@@ -78,56 +78,73 @@ Base.:*(p::PenalizedLocalOperator, x) = p(x)
 function penalized_local_update!(
         site, direction::Val,
         ψ, O, alg::DMRG, henv::HalfFiniteEnvironments, oenvs::Tuple, weights::Tuple,
-        ϵ_global, ϵ_trunc, decay_rate,
         timeroutput, allocator;
         energy_shift::Real = 0.0
     )
+    # H-environment rebuild forced up front under its own timer section
+    # (mirror of finiteengine/localupdate.jl; the overlap environments rebuild
+    # lazily inside the folds below and stay attributed to the constructor)
+    t_env = _force_envs!(timeroutput, henv, site, site, ψ)
     ϵ_local = calc_galerkin(site, ψ, O, ψ, henv; alg.backend, allocator)
 
     # 1. expand (CBE): driven by the H environments only - the penalties do
     #    not take part in the bond expansion; the overlap environments
     #    rebuild lazily from the replaced AL/AR tensors
+    t_expand = 0.0
     if !isnothing(alg.alg_expand)
+        t0 = time_ns()
         @timeit timeroutput "expand" changebond!(
             site, direction, ψ, O, alg.alg_expand, henv; allocator
         )
+        t_expand = _elapsed_ns(t0)
     end
 
-    # 2. penalized local update
-    alg_eigsolve = adapt_solver(
-        alg.alg_eigsolve; decay_rate, g_local = ϵ_local, g_global = ϵ_global, eps_trunc = ϵ_trunc
+    # 2. penalized local update (the expand replaced tensors, so the H
+    #    environments are stale again — force the second rebuild first)
+    t_env += _force_envs!(timeroutput, henv, site, site, ψ)
+    t0 = time_ns()
+    H_ac = @timeit timeroutput "AC_hamiltonian" AC_hamiltonian(
+        site, ψ, O, ψ, henv; alg.backend, allocator
     )
+    us = ntuple(i -> _fold_ac(oenvs[i], site, ψ), length(oenvs))
+    Heff = PenalizedLocalOperator(H_ac, us, weights)
+    t_ham = _elapsed_ns(t0)
     ac_old = ψ.AC[site]
+    t_mv = Ref(0.0)
+    t0 = time_ns()
     λ, ACnew, info = @timeit timeroutput "AC_eigsolve" begin
-        H_ac = AC_hamiltonian(site, ψ, O, ψ, henv; alg.backend, allocator)
-        us = ntuple(i -> _fold_ac(oenvs[i], site, ψ), length(oenvs))
-        Heff = PenalizedLocalOperator(H_ac, us, weights)
-        _fixedpoint_shifted(Heff, ac_old, alg_eigsolve, energy_shift, timeroutput)
+        _fixedpoint_shifted(Heff, ac_old, alg.alg_eigsolve, energy_shift, timeroutput, t_mv)
     end
+    t_eig = _elapsed_ns(t0)
 
     # 3. gauge
+    t0 = time_ns()
     ψ, ϵ_trunc = @timeit timeroutput "gauge" _fast_gauge!(
         ψ, site, direction, ACnew, alg.alg_gauge; normalize = true
     )
+    t_gauge = _elapsed_ns(t0)
 
-    # 4. bookkeeping (identical to MPSKit)
-    decay_rate = clamp((first(info.normres) / ϵ_local)^(1 / max(1, info.numops)), 1.0e-3, 0.999)
-
-    return ψ, λ, ϵ_local, ϵ_trunc, decay_rate
+    diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[], t_expand, t_gauge)
+    return ψ, λ, ϵ_local, ϵ_trunc, diag
 end
 
 function penalized_local_update!(
         pos, direction::Val,
         ψ, O, alg::DMRG2, henv::HalfFiniteEnvironments, oenvs::Tuple, weights::Tuple,
-        ϵ_global, ϵ_trunc, decay_rate,
         timeroutput, allocator;
         energy_shift::Real = 0.0
     )
+    # H-environment rebuild forced up front under its own timer section; the
+    # "AC2_hamiltonian" bucket then measures only the constructor (plus the
+    # penalty folds, which lazily rebuild the overlap environments)
+    t_env = _force_envs!(timeroutput, henv, pos, pos + 1, ψ)
+    t0 = time_ns()
     Heff = @timeit timeroutput "AC2_hamiltonian" begin
         H_ac2 = AC2_hamiltonian(pos, ψ, O, ψ, henv; alg.backend, allocator)
         us = ntuple(i -> _fold_ac2(oenvs[i], pos, ψ), length(oenvs))
         PenalizedLocalOperator(H_ac2, us, weights)
     end
+    t_ham = _elapsed_ns(t0)
 
     kind = direction === Val(:right) ? :ACAR : :ALAC
     ac2 = AC2(ψ, pos; kind)
@@ -136,22 +153,22 @@ function penalized_local_update!(
     ϵ_local = norm(AC2new)
 
     # 1. penalized local two-site update
-    alg_eigsolve = adapt_solver(
-        alg.alg_eigsolve; decay_rate, g_local = ϵ_local, g_global = ϵ_global, eps_trunc = ϵ_trunc
-    )
+    t_mv = Ref(0.0)
+    t0 = time_ns()
     λ, newA2center, info = @timeit timeroutput "AC2_eigsolve" begin
-        _fixedpoint_shifted(Heff, ac2, alg_eigsolve, energy_shift, timeroutput)
+        _fixedpoint_shifted(Heff, ac2, alg.alg_eigsolve, energy_shift, timeroutput, t_mv)
     end
+    t_eig = _elapsed_ns(t0)
 
     # 2. gauge: truncated SVD split back into single-site tensors
+    t0 = time_ns()
     ψ, ϵ_trunc = @timeit timeroutput "gauge" _fast_gauge2!(
         ψ, pos, direction, newA2center, alg.alg_gauge
     )
+    t_gauge = _elapsed_ns(t0)
 
-    # 3. bookkeeping (identical to MPSKit)
-    decay_rate = clamp((first(info.normres) / ϵ_local)^(1 / max(1, info.numops)), 1.0e-3, 0.999)
-
-    return ψ, λ, ϵ_local, ϵ_trunc, decay_rate
+    diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[], t_expand = 0.0, t_gauge)
+    return ψ, λ, ϵ_local, ϵ_trunc, diag
 end
 
 # ---------------------------------------------------------------------------
@@ -178,10 +195,8 @@ function _excited_run!(
     save_iters = save isa Bool ? Int[] : collect(Int, save)
     all(>=(1), save_iters) || throw(ArgumentError("save indices must be >= 1"))
     n = maximum(alg -> alg isa DMRG ? N : N - 1, algs)
-    ϵ_locals = ones(n)        # per-position Galerkin errors (drive adaptive solvers)
+    ϵ_locals = ones(n)        # per-position Galerkin errors (per-update log; checkpoint)
     ϵ_truncs = zeros(n)       # per-position truncation errors of the gauge step
-    decay_rates = zeros(n)      # per-position observed eigensolver contraction factors
-    ϵ_global = 1.0
     allocator = default_allocator(ψ, SerialScheduler())
     timer = TimerOutput()
     wpos = ndigits(N)
@@ -205,36 +220,36 @@ function _excited_run!(
         shift = !isnan(E_prev) ? E_prev : 0.0
         λ = 0.0
 
+        gc0 = Base.gc_num()
+        sweepdiag = _SweepDiag()
         @timeit timer "L2R sweep" begin
             for pos in fwd
-                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], decay_rates[pos] =
+                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], diag =
                     penalized_local_update!(
                         pos, Val(:right), ψ, H, alg, henv, oenvs, weights,
-                        ϵ_global, ϵ_truncs[pos], decay_rates[pos],
                         timer, allocator; energy_shift = shift
                     )
+                sweepdiag = _accum!(sweepdiag, diag)
                 _free_after_move!(henv, alg, Val(:right), pos)
                 foreach(oenv -> _free_after_move!(oenv, alg, Val(:right), pos), oenvs)
-                ϵ_global = maximum(view(ϵ_locals, positions))
                 if Int(verbose) > 1
-                    _dmrg_log_move(alg, Val(:right), pos, ψ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD)
+                    _dmrg_log_move(alg, Val(:right), pos, ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD, diag)
                     flush(stdout)
                 end
             end
         end
         @timeit timer "R2L sweep" begin
             for pos in bwd
-                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], decay_rates[pos] =
+                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], diag =
                     penalized_local_update!(
                         pos, Val(:left), ψ, H, alg, henv, oenvs, weights,
-                        ϵ_global, ϵ_truncs[pos], decay_rates[pos],
                         timer, allocator; energy_shift = shift
                     )
+                sweepdiag = _accum!(sweepdiag, diag)
                 _free_after_move!(henv, alg, Val(:left), pos)
                 foreach(oenv -> _free_after_move!(oenv, alg, Val(:left), pos), oenvs)
-                ϵ_global = maximum(view(ϵ_locals, positions))
                 if Int(verbose) > 1
-                    _dmrg_log_move(alg, Val(:left), pos, ψ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD)
+                    _dmrg_log_move(alg, Val(:left), pos, ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD, diag)
                     flush(stdout)
                 end
             end
@@ -265,6 +280,10 @@ function _excited_run!(
                 "  E = %.10f | D = %*d | ΔE = %.3e | P = %.3e | max ϵ = %.3e | max ϵtr = %.3e\n",
                 E₀, wD, Dmax, ΔE, P,
                 maximum(view(ϵ_locals, positions)), maximum(view(ϵ_truncs, positions))
+            )
+            _print_sweep_diag(
+                stdout, sweepdiag, gc0, Base.gc_num(),
+                (current_time - start_time).value / 1000
             )
             flush(stdout)
         end
@@ -365,7 +384,7 @@ function excited_dmrg2!(ψ::FiniteMPS, H, penalize::AbstractVector{<:FiniteMPS},
         weight::Union{Real, AbstractVector{<:Real}} = 10.0,
         etol::Float64 = 1.0e-8,
         max_tailsweeps::Integer = 20,
-        alg_eigsolve = _default_alg_eigsolve(true, 16),
+        alg_eigsolve = _default_alg_eigsolve(),
         alg_svd = SafeDivideAndConquer(),
         filename::String = "default_excited_dmrg2.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = false,
@@ -398,7 +417,7 @@ function excited_dmrg1!(ψ::FiniteMPS, H, penalize::AbstractVector{<:FiniteMPS},
         weight::Union{Real, AbstractVector{<:Real}} = 10.0,
         etol::Float64 = 1.0e-8,
         max_tailsweeps::Integer = 20,
-        alg_eigsolve = _default_alg_eigsolve(true, 16),
+        alg_eigsolve = _default_alg_eigsolve(),
         alg_svd = SafeDivideAndConquer(),
         alg_expand = D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1 * D)), alg_svd),
         filename::String = "default_excited_dmrg1.jld2",
