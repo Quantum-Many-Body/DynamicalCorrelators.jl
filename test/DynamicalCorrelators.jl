@@ -94,12 +94,13 @@ end
 end
 
 const ED_TOL_ENERGY = 1e-12
-# The default local solver is a fixed one-step K=16 Lanczos.  It reaches
-# ~1e-13 in energy, but the wavefunction (and therefore Green-function and
-# pairing observables) is only accurate to ~1e-9; the old adaptive solver was
-# tighter.  Keep the energy check strict and allow the fixed-budget solver's
-# observable accuracy here.
-const ED_TOL_OBS = 1e-8
+const ED_TOL_OBS = 1e-10
+# The production default is a fixed one-step K=16 Lanczos.  The ED benchmark
+# checks observables at 1e-10, so give its DMRG runs a larger Krylov budget
+# while keeping the production default unchanged.
+const ED_EIGSOLVE = DynamicalCorrelators._default_alg_eigsolve(
+    24; tol=1e-12, eager=false
+)
 
 @testset "operators" begin
     elt = Float64
@@ -271,7 +272,9 @@ end
         st = randFiniteMPS(elt, SU2Irrep, U1Irrep, N; filling=filling)
         truncdims = [64, 64, 128, 128, 128, 128]
         H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t=-1-0.5im, U=8, filling=filling)
-        gs, env, E0 = dmrg2!(st, H, truncdims; save=false, verbose=false)
+        gs, env, E0 = dmrg2!(
+            st, H, truncdims; save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE
+        )
 
         cm = e_min(elt, SU2Irrep, U1Irrep; filling=filling)
         gf = zeros(ComplexF64, 8, 8)
@@ -307,7 +310,9 @@ end
         vs = repeat([Vect[(FermionParity ⊠ SU2Irrep)]((Int(!isinteger(i)), i) => 1  for i in 0:1//2:1),], L - 1)
         st = FiniteMPS(rand, elt, physicalspace(H), vs; right=Vect[(FermionParity ⊠ SU2Irrep)]((1, 1/2) => 1))
         truncs = [64, 64, 128, 128, 128, 128]
-        gs, env, E0 = dmrg2!(st, H, truncs; save=false, verbose=false)
+        gs, env, E0 = dmrg2!(
+            st, H, truncs; save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE
+        )
 
         cm = e_min(elt, SU2Irrep)
         gf = zeros(ComplexF64, 8, 8)
