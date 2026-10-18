@@ -336,25 +336,13 @@ end
 # deliberately channel-level rather than slot-grouped: grouping by output slot
 # serializes all channels that feed the same block and was measured to lose
 # more wall time than it saves in allocation at D=4096 (see the 2026-10-17
-# cluster A/B). A transfer pass therefore allocates per-channel outputs plus
-# one local accumulator per worker; per-slot accumulation is in place via
-# `VectorInterface.add!`, so the merge does not allocate another full tensor.
-# The reduction order stays ascending channel index, matching the serial
-# `threaded_transfer = false` fallback up to floating-point associativity.
+# cluster A/B). This is the same channel-level reduction used by the 20823
+# benchmark; the later in-place `add!` experiment is intentionally not used.
 #
 # Work-stealing over channels; `f(pair) -> (slot, contribution)`; returns a
 # vector of per-slot accumulated tensors (`nothing` where no channel landed).
 # The first channel is peeled off and run eagerly so the accumulators get the
 # concrete element type `Union{Nothing, typeof(y)}` instead of `Any`.
-function _accumulate_slot!(acc, r::Int, y)
-    if acc[r] === nothing
-        acc[r] = y
-    else
-        VectorInterface.add!(acc[r], y, VectorInterface.One(), VectorInterface.One())
-    end
-    return acc[r]
-end
-
 function _threaded_channel_accumulate(f, pairs, nslots::Int)
     isempty(pairs) && throw(ArgumentError("no channels to accumulate"))
     r0, y0 = f(first(pairs))
@@ -365,7 +353,7 @@ function _threaded_channel_accumulate(f, pairs, nslots::Int)
         acc[r0] = y0
         for i in 2:length(pairs)
             r, y = f(pairs[i])
-            _accumulate_slot!(acc, r, y)
+            acc[r] = acc[r] === nothing ? y : acc[r] + y
         end
         return acc
     end
@@ -381,12 +369,12 @@ function _threaded_channel_accumulate(f, pairs, nslots::Int)
                 i = Threads.atomic_add!(idx, 1)
                 i > length(pairs) && break
                 r, y = f(pairs[i])
-                _accumulate_slot!(local_acc, r, y)
+                local_acc[r] = local_acc[r] === nothing ? y : local_acc[r] + y
             end
             lock(lk) do
                 for r in 1:nslots
                     local_acc[r] === nothing && continue
-                    _accumulate_slot!(total, r, local_acc[r])
+                    total[r] = total[r] === nothing ? local_acc[r] : total[r] + local_acc[r]
                 end
             end
         end
