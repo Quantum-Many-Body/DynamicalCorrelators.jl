@@ -5,17 +5,18 @@
 # step — same expand → eigsolve → gauge structure — with these differences:
 #
 #   1. the environments are lazy and self-invalidating (environments.jl);
-#   2. they force the lazy environment rebuild under a dedicated
-#      "env_transfer" timer section (`t_env` in the diagnostics), so the
-#      Hamiltonian-construction bucket measures only the constructor;
+#   2. environments rebuild lazily inside `calc_galerkin` / the Hamiltonian
+#      constructor (the 20823 behavior); `t_env` is kept at zero for
+#      diagnostic compatibility and the rebuild time is part of `t_ham`;
 #   3. they return the local eigenvalue `λ`, which the driver uses as the
 #      per-sweep energy estimate;
 #   4. optional `energy_shift`: solves `(H - E_shift)·x` and adds the shift
 #      back to `λ` (a pure shift is a Krylov no-op);
 #   5. the eigensolver is used as given (a concrete KrylovKit solver) — the
 #      per-update `diag` NamedTuple carries the matvec count and per-phase
-#      wall times (`t_env` = environment rebuild, `t_ham` = operator
-#      construction, `t_eig`/`t_mv` = eigsolve and its matvec share,
+#      wall times (`t_env` = zero on the lazy path, `t_ham` = operator
+#      construction including any lazy environment rebuild,
+#      `t_eig`/`t_mv` = eigsolve and its matvec share,
 #      `t_expand`, `t_gauge`) for the driver's per-update log line.
 #
 # A plain `TruncatedAlgorithm` gauge goes through the block-parallel SVD
@@ -34,7 +35,9 @@ engine. Unlike MPSKit's own methods (which return
 `(ψ, λ, ϵ_local, ϵ_trunc, diag)` with `λ` the local eigenvalue (energy
 estimate of the normalized state after the update) and `diag` a NamedTuple
 of per-update diagnostics (`numops`, `t_env`, `t_ham`, `t_eig`, `t_mv`,
-`t_expand`, `t_gauge`; times in nanoseconds).
+`t_expand`, `t_gauge`; times in nanoseconds). `t_env` is zero on the lazy
+20823-style environment path; environment rebuild time is included in
+`t_ham`.
 """
 function local_update!(
         site, direction::Val,
@@ -42,9 +45,10 @@ function local_update!(
         timeroutput, allocator;
         energy_shift::Real = 0.0
     )
-    # environment rebuild for this update's envs, forced up front so it is
-    # timed separately (calc_galerkin would otherwise trigger it untimed)
-    t_env = _force_envs!(timeroutput, env, site, site, ψ)
+    # 20823-style lazy environments: `calc_galerkin` and the Hamiltonian
+    # constructor trigger the rebuild themselves, so its time is included in
+    # the `ham`/eigensolve accounting rather than in a separate `env` bucket.
+    t_env = 0.0
     ϵ_local = calc_galerkin(site, ψ, O, ψ, env; alg.backend, allocator)
 
     # 1. expand (CBE): mutates AL[site]/AR[site±1]; the === staleness checks in
@@ -59,9 +63,7 @@ function local_update!(
     end
 
     # 2. local update: the expand step replaced tensors, so the environments
-    #    are stale again — force the second rebuild (still "env_transfer"),
-    #    then build the effective Hamiltonian (pure constructor time) and solve
-    t_env += _force_envs!(timeroutput, env, site, site, ψ)
+    #    are stale again; the constructor below rebuilds them lazily.
     t0 = time_ns()
     H_effective = @timeit timeroutput "AC_hamiltonian" AC_hamiltonian(
         site, ψ, O, ψ, env; alg.backend, allocator
@@ -92,9 +94,9 @@ function local_update!(
         timeroutput, allocator;
         energy_shift::Real = 0.0
     )
-    # environment rebuild forced up front (timed separately); the
-    # "AC2_hamiltonian" bucket then measures only the operator constructor
-    t_env = _force_envs!(timeroutput, env, pos, pos + 1, ψ)
+    # 20823-style lazy environments: the `AC2_hamiltonian` constructor
+    # triggers the rebuild itself, so its time is included in `ham`.
+    t_env = 0.0
     t0 = time_ns()
     Heff = @timeit timeroutput "AC2_hamiltonian" AC2_hamiltonian(pos, ψ, O, ψ, env; alg.backend, allocator)
     t_ham = _elapsed_ns(t0)
@@ -133,23 +135,6 @@ end
 # themselves carry no instrumentation. `t_mv` additionally accumulates the
 # per-update matvec wall time for the driver's per-update diagnostics.
 _elapsed_ns(t0::UInt) = Float64(time_ns() - t0)
-
-# Trigger the lazy rebuild of the two environments the update will query —
-# MPSKit's constructors call `leftenv(envs, site, below)` /
-# `rightenv(envs, site, below)` (one-site) or `rightenv(envs, site + 1,
-# below)` (two-site) — timed under the driver's "env_transfer" section, so
-# the rebuild is no longer conflated with the operator construction (the
-# TimerOutput "AC(2)_hamiltonian" bucket and `t_ham` then measure only the
-# constructor). A no-op when the environments are already fresh. Returns the
-# wall time in nanoseconds.
-function _force_envs!(timeroutput, env::HalfFiniteEnvironments, siteL::Int, siteR::Int, ψ)
-    t0 = time_ns()
-    @timeit timeroutput "env_transfer" begin
-        leftenv(env, siteL, ψ)
-        rightenv(env, siteR, ψ)
-    end
-    return _elapsed_ns(t0)
-end
 
 function _fixedpoint_shifted(H_effective, x0, alg_eigsolve, energy_shift::Real, timeroutput,
         t_mv::Ref{Float64} = Ref(0.0))

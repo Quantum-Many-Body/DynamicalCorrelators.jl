@@ -294,13 +294,15 @@ function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, λ, ϵ_local, ϵ_trunc, 
             tag, wpos, b, arrow, wpos, b + 1, wD, Db, ϵ_local, ϵ_trunc, timestamp
         )
     else
+        env_str = diag.t_env > 1e6 ?
+            @sprintf("env %.1fs | ", _diag_s(diag.t_env)) : ""
         expand_str = diag.t_expand > 1e7 ?
             @sprintf(" | exp %.2fs", _diag_s(diag.t_expand)) : ""
         @printf(
-            "  %s: %*d%s%*d | D=%*d | E=%.6f | K=%2d | eig %.1fs (mv %.1fs) | env %.1fs | ham %.1fs%s | gauge %.1fs | res %.1e | ϵtr %.1e | %s\n",
+            "  %s: %*d%s%*d | D=%*d | E=%.6f | K=%2d | eig %.1fs (mv %.1fs) | %sham %.1fs%s | gauge %.1fs | res %.1e | ϵtr %.1e | %s\n",
             tag, wpos, b, arrow, wpos, b + 1, wD, Db, real(λ), diag.numops,
             _diag_s(diag.t_eig), _diag_s(diag.t_mv),
-            _diag_s(diag.t_env), _diag_s(diag.t_ham), expand_str, _diag_s(diag.t_gauge),
+            env_str, _diag_s(diag.t_ham), expand_str, _diag_s(diag.t_gauge),
             ϵ_local, ϵ_trunc, timestamp
         )
     end
@@ -313,7 +315,7 @@ struct _SweepDiag
     n_mv::Int        # matvecs this sweep
     t_mv::Float64    # matvec time (ns)
     t_eig::Float64   # eigsolve time (ns)
-    t_env::Float64   # environment rebuild (ns)
+    t_env::Float64   # zero on the lazy 20823-style env path (ns)
     t_ham::Float64   # effective-Hamiltonian construction (ns; envs already fresh)
     t_expand::Float64
     t_gauge::Float64
@@ -332,14 +334,16 @@ function _print_sweep_diag(io::IO, s::_SweepDiag, gc0, gc1, sweep_seconds::Float
     gc_s = (gc1.total_time - gc0.total_time) / 1e9
     safepoint_s = (gc1.total_time_to_safepoint - gc0.total_time_to_safepoint) / 1e9
     alloc_gib = (gc1.total_allocd - gc0.total_allocd) / 2^30
+    env_str = s.t_env > 1e6 ?
+        @sprintf("env %.1fs | ", _diag_s(s.t_env)) : ""
     expand_str = s.t_expand > 1e7 ?
         @sprintf(" | exp %.2fs", _diag_s(s.t_expand)) : ""
     @printf(
         io,
-        "  mv %d (%.0f ms avg) | eig %.1fs (mv %.1fs, %.0f%%) | env %.1fs | ham %.1fs%s | gauge %.1fs | GC %.1fs + safepoint %.1fs (%.1f%% of sweep) | alloc %.2f GiB\n",
+        "  mv %d (%.0f ms avg) | eig %.1fs (mv %.1fs, %.0f%%) | %sham %.1fs%s | gauge %.1fs | GC %.1fs + safepoint %.1fs (%.1f%% of sweep) | alloc %.2f GiB\n",
         s.n_mv, s.t_mv / 1e6 / s.n_mv,
         _diag_s(s.t_eig), _diag_s(s.t_mv), 100 * s.t_mv / max(s.t_eig, eps()),
-        _diag_s(s.t_env), _diag_s(s.t_ham), expand_str, _diag_s(s.t_gauge),
+        env_str, _diag_s(s.t_ham), expand_str, _diag_s(s.t_gauge),
         gc_s, safepoint_s, 100 * (gc_s + safepoint_s) / max(sweep_seconds, eps()),
         alloc_gib
     )

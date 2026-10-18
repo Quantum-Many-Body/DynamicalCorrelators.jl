@@ -81,10 +81,10 @@ function penalized_local_update!(
         timeroutput, allocator;
         energy_shift::Real = 0.0
     )
-    # H-environment rebuild forced up front under its own timer section
-    # (mirror of finiteengine/localupdate.jl; the overlap environments rebuild
-    # lazily inside the folds below and stay attributed to the constructor)
-    t_env = _force_envs!(timeroutput, henv, site, site, ψ)
+    # 20823-style lazy environments: the H environments rebuild inside
+    # `calc_galerkin`/`AC_hamiltonian`; overlap environments rebuild lazily
+    # inside the folds below. Both are included in the surrounding timers.
+    t_env = 0.0
     ϵ_local = calc_galerkin(site, ψ, O, ψ, henv; alg.backend, allocator)
 
     # 1. expand (CBE): driven by the H environments only - the penalties do
@@ -99,9 +99,8 @@ function penalized_local_update!(
         t_expand = _elapsed_ns(t0)
     end
 
-    # 2. penalized local update (the expand replaced tensors, so the H
-    #    environments are stale again — force the second rebuild first)
-    t_env += _force_envs!(timeroutput, henv, site, site, ψ)
+    # 2. penalized local update (the expand replaced tensors; the constructor
+    #    below rebuilds the H environments lazily)
     t0 = time_ns()
     H_ac = @timeit timeroutput "AC_hamiltonian" AC_hamiltonian(
         site, ψ, O, ψ, henv; alg.backend, allocator
@@ -134,10 +133,9 @@ function penalized_local_update!(
         timeroutput, allocator;
         energy_shift::Real = 0.0
     )
-    # H-environment rebuild forced up front under its own timer section; the
-    # "AC2_hamiltonian" bucket then measures only the constructor (plus the
-    # penalty folds, which lazily rebuild the overlap environments)
-    t_env = _force_envs!(timeroutput, henv, pos, pos + 1, ψ)
+    # 20823-style lazy environments: the H environments rebuild inside
+    # `AC2_hamiltonian`; the penalty folds rebuild overlap environments lazily.
+    t_env = 0.0
     t0 = time_ns()
     Heff = @timeit timeroutput "AC2_hamiltonian" begin
         H_ac2 = AC2_hamiltonian(pos, ψ, O, ψ, henv; alg.backend, allocator)
