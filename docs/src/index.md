@@ -96,8 +96,8 @@ trunc1 = [8192 for _ in 1:10]
     # chains — point it at node-local scratch or a burst buffer (clusters
     # often mount one at /bbfs), not NFS.
     disk = "/bbfs/scratch/username/jobname",
-    # GC after every local update + full collection per sweep (default true).
-    # Keep it on at large D; turn off only for small tests.
+    # Full GC + memory report per sweep (default false).
+    # Enable it when you want explicit per-sweep collection at large D.
     manual_gc = true,
     # 0 silent, 1 per-sweep summary, 2 also per-move lines
     verbose = 2,

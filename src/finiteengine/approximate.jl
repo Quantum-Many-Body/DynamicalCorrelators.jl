@@ -26,9 +26,9 @@
 
 """
     fast_approximate!(ψ, (O, ϕ), alg::DMRG, envs::HalfFiniteEnvironments;
-        verbose = alg.verbosity, manual_gc = true)
+        verbose = alg.verbosity, manual_gc = false)
     fast_approximate!(ψ, (O, ϕ), alg::DMRG2, envs::HalfFiniteEnvironments;
-        verbose = alg.verbosity, manual_gc = true)
+        verbose = alg.verbosity, manual_gc = false)
 
 Variational compression of `O * ϕ` onto the MPS `ψ` (updated in place),
 mirroring MPSKit's `approximate!` with the same single-site (`DMRG`) or
@@ -36,14 +36,14 @@ two-site (`DMRG2`) algorithm. Returns `(ψ, envs, ϵ)` with `ϵ` the final
 sweep's largest relative update. `envs` must be the mixed environments
 `HalfFiniteEnvironments(ψ, O, ϕ)`.
 
-`manual_gc` (default `true`) runs a full `GC.gc(true)` collection once at the
-end of each iteration, as in the other fast drivers. (GC is deliberately not
-triggered per local update — see `fast_timestep!`.)
+`manual_gc` (default `false`) runs a full `GC.gc(true)` collection once at the
+end of each iteration when enabled, as in the other fast drivers. (GC is
+deliberately not triggered per local update — see `fast_timestep!`.)
 """
 function fast_approximate!(
         ψ::AbstractFiniteMPS, (O, ϕ)::Tuple, alg::DMRG,
         envs::HalfFiniteEnvironments;
-        verbose::Int = alg.verbosity, manual_gc::Bool = true
+        verbose::Int = alg.verbosity, manual_gc::Bool = false
     )
     N = length(ψ)
     allocator = default_allocator(ψ, SerialScheduler())
@@ -77,7 +77,7 @@ end
 function fast_approximate!(
         ψ::AbstractFiniteMPS, (O, ϕ)::Tuple, alg::DMRG2,
         envs::HalfFiniteEnvironments;
-        verbose::Int = alg.verbosity, manual_gc::Bool = true
+        verbose::Int = alg.verbosity, manual_gc::Bool = false
     )
     N = length(ψ)
     allocator = default_allocator(ψ, SerialScheduler())

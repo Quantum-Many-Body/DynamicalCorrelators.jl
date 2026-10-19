@@ -36,9 +36,8 @@ large `D`.
   storage, not a shared network filesystem. Trade I/O for memory only when RAM
   is actually the bottleneck — run once with `disk = false` and watch the
   memory report first.
-- `manual_gc` (default `true`): runs an incremental garbage collection after
-  every local update and a full collection plus a memory report after every
-  sweep. Set to `false` only for small systems.
+- `manual_gc` (default `false`): when enabled, runs a full garbage collection
+  plus a memory report after every sweep. Local updates never trigger GC.
 - `envs`: pass an explicit environment manager to control its construction.
   Passing MPSKit's `environments(ψ, H, ψ)` selects the reference
   (full-cache) driver instead, which is useful for cross-checking the engine.
@@ -103,9 +102,8 @@ separate recoupling and index-manipulation thread pools on top.
 
 When `Threads.nthreads() > 1`, three stages are parallelized automatically:
 
-- the channel-split effective Hamiltonians (`AC`/`AC2` matvecs; toggle with
-  `set_threaded_hamiltonian!(false)`, prefuse one-site channels with
-  `set_prefused_hamiltonian!(true)`);
+- the nonzero-MPO-path effective Hamiltonians (`AC`/`AC2` matvecs; toggle with
+  `set_threaded_hamiltonian!(false)`);
 - environment construction (the transfer-matrix channel list);
 - the block-parallel truncated SVD used by gauge steps and the TDVP2 split.
 

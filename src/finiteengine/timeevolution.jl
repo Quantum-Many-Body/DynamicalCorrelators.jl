@@ -29,20 +29,20 @@
 
 """
     fast_timestep!(ψ, H, t, dt, alg::TDVP, envs::HalfFiniteEnvironments;
-        imaginary_evolution = false, normalize = false, manual_gc = true,
+        imaginary_evolution = false, normalize = false, manual_gc = false,
         timeroutput = TimerOutputs.get_defaulttimer())
     fast_timestep!(ψ, H, t, dt, alg::TDVP2, envs::HalfFiniteEnvironments;
-        imaginary_evolution = false, normalize = false, manual_gc = true,
+        imaginary_evolution = false, normalize = false, manual_gc = false,
         timeroutput = TimerOutputs.get_defaulttimer())
 
 One full TDVP sweep (left→right→left) on the fast finite engine, evolving `ψ`
 in place by `dt` starting from time `t`. Returns `(ψ, envs)`.
 
-`manual_gc` (default `true`) runs a full `GC.gc(true)` collection once at the
-end of each sweep — the same bookkeeping as the DMRG fast driver; set it to
-`false` only for small systems. (GC is deliberately not triggered per local
-update: with many states evolving concurrently, per-bond collections make the
-threads spend most of their time waiting at GC safepoints.)
+`manual_gc` (default `false`) runs a full `GC.gc(true)` collection once at the
+end of each sweep when enabled — the same bookkeeping as the DMRG fast driver.
+(GC is deliberately not triggered per local update: with many states evolving
+concurrently, per-bond collections make the threads spend most of their time
+waiting at GC safepoints.)
 `timeroutput` records the two sweeps and, inside them, the `expand` (CBE),
 Hamiltonian-construction, integration and gauge/split sections; pass a shared
 `TimerOutput` to accumulate across steps.
@@ -51,7 +51,7 @@ function fast_timestep!(
         ψ::AbstractFiniteMPS, H, t::Number, dt::Number, alg::TDVP,
         envs::HalfFiniteEnvironments;
         imaginary_evolution::Bool = false, normalize::Bool = false,
-        manual_gc::Bool = true,
+        manual_gc::Bool = false,
         timeroutput::TimerOutput = TimerOutputs.get_defaulttimer()
     )
     scalartype(ψ) <: Complex || throw(ArgumentError(
@@ -152,7 +152,7 @@ function fast_timestep!(
         ψ::AbstractFiniteMPS, H, t::Number, dt::Number, alg::TDVP2,
         envs::HalfFiniteEnvironments;
         imaginary_evolution::Bool = false, normalize::Bool = false,
-        manual_gc::Bool = true,
+        manual_gc::Bool = false,
         timeroutput::TimerOutput = TimerOutputs.get_defaulttimer()
     )
     scalartype(ψ) <: Complex || throw(ArgumentError(

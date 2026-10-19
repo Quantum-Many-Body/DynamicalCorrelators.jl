@@ -182,8 +182,8 @@ that removes the dominant memory bottleneck of large-bond-dimension runs.
   by channel without materializing the two-site effective Hamiltonian.
 - Engine keywords shared by all drivers: `disk` (`false`, `true` for a
   `tempdir()` subdirectory, or a directory path) backs the environments by
-  disk; `manual_gc` (default `true`) collects garbage per update and reports
-  memory per sweep; `envs` accepts an explicit environment manager — pass
+  disk; `manual_gc` (default `false`), when enabled, runs a full collection
+  and reports memory after every sweep; `envs` accepts an explicit environment manager — pass
   MPSKit's `environments(ψ, H, ψ)` to run the reference full-cache driver for
   cross-checks.
 - `dmrg_mix` combines a robust two-site warmup at small D with cheap one-site
@@ -281,7 +281,7 @@ alg = myDMRG2(; trunc = truncrank(1024), krylovdim = 24)
 - Removed exports: `TDVP1_CBE`, `dmrg1_cbe!`/`dmrg1_cbe`, `idmrg2`,
   `dmrg2_sweep!`, `myDMRG1CBE_eigsolve`.
 - New exports: `dmrg1`/`dmrg1!`, `dmrg2`/`dmrg2!`, `dmrg_mix`/`dmrg_mix!`,
-  `set_threaded_hamiltonian!`, `set_prefused_hamiltonian!`,
+  `set_threaded_hamiltonian!`,
   `HalfFiniteEnvironments`, `fast_timestep!`, `configure_finite_engine!`,
   `free_left!`/`free_right!`, `env_memory_bytes`.
 - `myTDVP1_CBE` keeps its name but now returns MPSKit's `TDVP` configured with
@@ -761,8 +761,8 @@ This release also updates the package version to `0.10.0`, adds
 
 ## Multithreaded AC Hamiltonian
 
-The new `JordanMPO_AC_Hamiltonian_Multithreading` implementation specializes
-the finite-MPS Jordan-MPO case:
+The threaded `AC_hamiltonian`/`AC2_hamiltonian` implementations specialize the
+finite-MPS Jordan-MPO case:
 
 ```julia
 AC_hamiltonian(
@@ -774,45 +774,13 @@ AC_hamiltonian(
 )
 ```
 
-Compared with the MPSKit v0.13.10 implementation, the `D`, `I`, `E`, `C`, and
-`B` terms are kept in the same contraction form. The improvement targets the
-continuing `A` block, which can be very large as an MPO bond but contain only a
-small number of nonzero block entries in symmetry-resolved Hamiltonians.
-
-Internally, the implementation:
-
-- collects valid sparse `A` channels with `BlockTensorKit.nonzero_pairs`;
-- stores concrete `JordanMPO_AChannel_Multithreading` objects for type-stable
-  local-Hamiltonian actions;
-- evaluates the nonzero `A` channels with dynamic thread scheduling;
-- leaves other MPS/operator combinations on MPSKit's original dispatch path.
-
-This is especially useful for wide-MPO Hamiltonians where the MPO virtual bond
-dimension is large but the local `A.data` block list is sparse.
+Internally, the implementation enumerates every nonzero MPO path as one task,
+keeps the staged contractions in a per-task scratch cache, sorts the task list
+heavy-first, and executes it with `Threads.@threads :greedy` (or serially when
+`set_threaded_hamiltonian!(1)` is set). Other MPS/operator combinations stay on
+MPSKit's original dispatch path.
 
 ## Benchmarks
-
-On the local 16-site bilayer-Hubbard benchmark used during development, a
-middle-site MPO block had an `A` right bond of 114 with only 23 nonzero block
-entries. For this sparse-`A` case, the new AC action agrees numerically with
-the original MPSKit action and is substantially faster:
-
-| Operation | Implementation | Median time |
-|------|------|------:|
-| `Hac(x)` | MPSKit v0.13.10 AC Hamiltonian | `8.966 ms` |
-| `Hac(x)` | `JordanMPO_AC_Hamiltonian_Multithreading` | `3.927 ms` |
-
-The relative error in the tested `Hac(x)` result was at the level of
-`~2e-18`. Effective-Hamiltonian construction itself remains essentially the
-same cost as the original implementation:
-
-| Operation | Implementation | Median time |
-|------|------|------:|
-| construct `AC_hamiltonian(...)` | MPSKit v0.13.10 | `2.046 ms` |
-| construct `AC_hamiltonian(...)` | v0.10.0 multithreaded version | `2.051 ms` |
-
-The speedup is therefore in repeated local-Hamiltonian actions, which is the
-part repeatedly used by eigensolvers and time-evolution integrators.
 
 ## DMRG/CBE Updates
 
