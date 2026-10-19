@@ -67,7 +67,7 @@ extra sweeps; a warning is issued if the tolerance is not reached).
   temporary directory (`tempdir()`, the same scheme as FiniteMPS.jl's
   `disk = true`), and a directory string uses that directory instead. Must be
   `false` when `envs` is supplied
-- `manual_gc`: `HalfFiniteEnvironments` only (default: `true`): a full
+- `manual_gc`: `HalfFiniteEnvironments` only (default: `false`): a full
   `GC.gc(true)` collection and memory report after every sweep. GC is
   deliberately not triggered per local update — with many states evolving
   concurrently, per-update collections make threads wait at GC safepoints
@@ -84,7 +84,7 @@ function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
-        manual_gc::Bool = true,
+        manual_gc::Bool = false,
         envs::Union{Nothing,FiniteEnvironments,HalfFiniteEnvironments} = nothing)
     algs = map(truncdims) do D
         DMRG(;
@@ -132,7 +132,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
-        manual_gc::Bool = true,
+        manual_gc::Bool = false,
         envs::Union{Nothing,FiniteEnvironments,HalfFiniteEnvironments} = nothing)
     algs = map(truncdims) do D
         DMRG2(; alg_eigsolve, alg_svd, trunc = truncrank(Int(D)))
@@ -192,7 +192,7 @@ function dmrg_mix!(
         save::Union{Bool, AbstractVector{<:Integer}} = true,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
-        manual_gc::Bool = true,
+        manual_gc::Bool = false,
         envs::Union{Nothing,FiniteEnvironments,HalfFiniteEnvironments} = nothing)
     algs = Union{DMRG, DMRG2}[
         (DMRG2(; alg_eigsolve, alg_svd, trunc = truncrank(Int(D))) for D in truncdims_2site)...,
@@ -356,7 +356,7 @@ function _dmrg_run!(
         envs::Union{FiniteEnvironments, HalfFiniteEnvironments};
         filename::String, save::Union{Bool, AbstractVector{<:Integer}}, verbose,
         etol::Float64, max_tailsweeps::Int,
-        manual_gc::Bool = true
+        manual_gc::Bool = false
     )
     N = length(ψ)
     isempty(algs) && throw(ArgumentError("truncdims cannot be empty"))

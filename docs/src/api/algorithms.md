@@ -51,7 +51,6 @@ HalfFiniteEnvironments
 fast_timestep!
 configure_finite_engine!
 set_threaded_hamiltonian!
-set_prefused_hamiltonian!
 env_memory_bytes
 ```
 

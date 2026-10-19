@@ -61,142 +61,91 @@ end
 # channel-decomposed projected two-site update (Jordan MPOs)
 # ---------------------------------------------------------------------------
 
-"""Nonzero `C-A` (starting-continuing) channel of a two-site Jordan-MPO sandwich."""
-struct _CAChannel{O1, O2, R}
-    localop1::O1
-    localop2::O2
-    rightenv::R
-end
-
-"""Nonzero `A-B` (continuing-ending) channel of a two-site Jordan-MPO sandwich."""
-struct _ABChannel{L, O1, O2}
-    leftenv::L
-    localop1::O1
-    localop2::O2
-end
-
-"""Nonzero `C-B` (starting-ending) channel of a two-site Jordan-MPO sandwich."""
-struct _CBChannel{O1, O2}
-    localop1::O1
-    localop2::O2
-end
-
-function _collect_CA_channels(C1, A2, GR2)
-    channels = _CAChannel[]
-    sizehint!(channels, nonzero_length(C1) * nonzero_length(A2))
-    for (I1, W1ij) in nonzero_pairs(C1), (I2, W2jk) in nonzero_pairs(A2)
-        I1[3] == I2[1] || continue
-        push!(channels, _CAChannel(W1ij, W2jk, GR2[I2[4]]))
-    end
-    return channels
-end
-
-function _collect_AB_channels(GL2, A1, B2)
-    channels = _ABChannel[]
-    sizehint!(channels, nonzero_length(A1) * nonzero_length(B2))
-    for (I1, W1ij) in nonzero_pairs(A1), (I2, W2jk) in nonzero_pairs(B2)
-        I1[4] == I2[1] || continue
-        push!(channels, _ABChannel(GL2[I1[1]], W1ij, W2jk))
-    end
-    return channels
-end
-
-function _collect_CB_channels(C1, B2)
-    channels = _CBChannel[]
-    sizehint!(channels, nonzero_length(C1) * nonzero_length(B2))
-    for (I1, W1ij) in nonzero_pairs(C1), (I2, W2jk) in nonzero_pairs(B2)
-        I1[3] == I2[1] || continue
-        push!(channels, _CBChannel(W1ij, W2jk))
-    end
-    return channels
-end
-
-# Each `_cbe_apply` contracts one channel directly into the projected matrix
-# `g2 = NL†·H|ψ₂⟩·NR̄`: `left` is the left site tensor (`AC[site]` for
+# Each kernel contracts one nonzero MPO path directly into the projected
+# matrix `g2 = NL†·H|ψ₂⟩·NR̄`: `left` is the left site tensor (`AC[site]` for
 # `Val(:right)`, `AL[site-1]` for `Val(:left)`) and `right_tail` is
 # `_transpose_tail` of the right one (`AR[site+1]`/`AC[site]`). The @plansor
 # leg orderings follow the planar conventions of the validated pre-v0.14 code.
-function _cbe_apply(ch::_AAChannel, NL, NR, left, right_tail)
-    @plansor tmp[-1; -2] :=
-        conj(NL[4 5; -1]) * ch.leftenv[4 2; 1] * left[1 3; 11] * right_tail[11; 6 7] *
-        ch.localop1[2 5; 3 12] * ch.localop2[12 10; 7 8] * ch.rightenv[6 8; 9] *
+# Keep `conj(...)` inline: TensorKit's planar parser relies on it to determine
+# leg directions, so precomputing a conjugated tensor changes the planarity.
+function _cbe_apply_aa!(y, NL, NR, left, right_tail, leftenv, localop1, localop2,
+                        rightenv)
+    @plansor allocator = ManualAllocator() y[-1; -2] +=
+        conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 11] * right_tail[11; 6 7] *
+        localop1[2 5; 3 12] * localop2[12 10; 7 8] * rightenv[6 8; 9] *
         conj(NR[-2; 9 10])
-    return tmp
+    return y
 end
 
-function _cbe_apply(ch::_CAChannel, NL, NR, left, right_tail)
-    @plansor tmp[-1; -2] :=
-        conj(NL[1 3; -1]) * left[1 2; 9] * right_tail[9; 4 5] * ch.localop1[3; 2 10] *
-        ch.localop2[10 8; 5 6] * ch.rightenv[4 6; 7] * conj(NR[-2; 7 8])
-    return tmp
+function _cbe_apply_ca!(y, NL, NR, left, right_tail, localop1, localop2, rightenv)
+    @plansor allocator = ManualAllocator() y[-1; -2] +=
+        conj(NL[1 3; -1]) * left[1 2; 9] * right_tail[9; 4 5] * localop1[3; 2 10] *
+        localop2[10 8; 5 6] * rightenv[4 6; 7] * conj(NR[-2; 7 8])
+    return y
 end
 
-function _cbe_apply(ch::_ABChannel, NL, NR, left, right_tail)
-    @plansor tmp[-1; -2] :=
-        conj(NL[4 5; -1]) * ch.leftenv[4 2; 1] * left[1 3; 9] * right_tail[9; 6 7] *
-        ch.localop1[2 5; 3 10] * ch.localop2[10 8; 7] * conj(NR[-2; 6 8])
-    return tmp
+function _cbe_apply_ab!(y, NL, NR, left, right_tail, leftenv, localop1, localop2)
+    @plansor allocator = ManualAllocator() y[-1; -2] +=
+        conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 9] * right_tail[9; 6 7] *
+        localop1[2 5; 3 10] * localop2[10 8; 7] * conj(NR[-2; 6 8])
+    return y
 end
 
-function _cbe_apply(ch::_CBChannel, NL, NR, left, right_tail)
-    @plansor tmp[-1; -2] :=
-        conj(NL[1 3; -1]) * left[1 2; 7] * right_tail[7; 4 5] * ch.localop1[3; 2 8] *
-        ch.localop2[8 6; 5] * conj(NR[-2; 4 6])
-    return tmp
+function _cbe_apply_cb!(y, NL, NR, left, right_tail, localop1, localop2)
+    @plansor allocator = ManualAllocator() y[-1; -2] +=
+        conj(NL[1 3; -1]) * left[1 2; 7] * right_tail[7; 4 5] * localop1[3; 2 8] *
+        localop2[8 6; 5] * conj(NR[-2; 4 6])
+    return y
 end
 
-# linear index across the heterogeneously typed channel groups
-function _cbe_channel_at(groups::Tuple, idx::Int)
-    for group in groups
-        n = length(group)
-        idx <= n && return group[idx]
-        idx -= n
+# Directly collect every nonzero MPO path into one flat costed-task pool,
+# mirroring `_threaded_AC2_hamiltonian`. No intermediate channel-type vectors.
+function _cbe_tasks(GL2, W1, W2, GR2, NL, NR, left, right_tail)
+    tasks = _CostedTask[]
+    T = promote_type(eltype(NL), eltype(NR), eltype(left), eltype(right_tail))
+
+    # continuing left - continuing right
+    for (I1, A1b) in nonzero_pairs(W1.A), (I2, A2b) in nonzero_pairs(W2.A)
+        I1[4] == I2[1] || continue
+        GLb, GRb = GL2[I1[1]], GR2[I2[4]]
+        push!(tasks, _CostedTask(12, :AA,
+              (y, _) -> _cbe_apply_aa!(y, NL, NR, left, right_tail, GLb, A1b, A2b, GRb)))
+        T = promote_type(T, eltype(GLb), eltype(A1b), eltype(A2b), eltype(GRb))
     end
-    throw(BoundsError(groups, idx))
+    # starting left - continuing right
+    for (Ic, C1b) in nonzero_pairs(W1.C), (Ia, A2b) in nonzero_pairs(W2.A)
+        Ic[3] == Ia[1] || continue
+        GRb = GR2[Ia[4]]
+        push!(tasks, _CostedTask(10, :CA,
+              (y, _) -> _cbe_apply_ca!(y, NL, NR, left, right_tail, C1b, A2b, GRb)))
+        T = promote_type(T, eltype(C1b), eltype(A2b), eltype(GRb))
+    end
+    # continuing left - ending right
+    for (Ia, A1b) in nonzero_pairs(W1.A), (Ib, B2b) in nonzero_pairs(W2.B)
+        Ia[4] == Ib[1] || continue
+        GLb = GL2[Ia[1]]
+        push!(tasks, _CostedTask(10, :AB,
+              (y, _) -> _cbe_apply_ab!(y, NL, NR, left, right_tail, GLb, A1b, B2b)))
+        T = promote_type(T, eltype(GLb), eltype(A1b), eltype(B2b))
+    end
+    # starting left - ending right
+    for (Ic, C1b) in nonzero_pairs(W1.C), (Ib, B2b) in nonzero_pairs(W2.B)
+        Ic[3] == Ib[1] || continue
+        push!(tasks, _CostedTask(8, :CB,
+              (y, _) -> _cbe_apply_cb!(y, NL, NR, left, right_tail, C1b, B2b)))
+        T = promote_type(T, eltype(C1b), eltype(B2b))
+    end
+    return tasks, T
 end
 
-# Work-stealing reduction over the channel groups with per-task local
-# accumulation and a single locked merge per task (the preallocation-heavy
-# one-shot path; the per-matvec hot path `_execute_tasks!` in
-# hamiltonian_threaded.jl additionally accumulates in place and bypasses the
-# GC for contraction temporaries, which is not worth the complexity for this
-# once-per-expansion kernel). Contractions inside spawned tasks use the
-# default allocator: MPSKit's scratch BufferAllocator is not thread-safe.
-# Returns `nothing` when no channel contributes.
-function _cbe_apply_all(groups::Tuple, NL, NR, left, right_tail)
-    total = sum(length, groups)
-    total == 0 && return nothing
-
-    if Threads.nthreads() == 1 || total == 1
-        acc = nothing
-        for group in groups, ch in group
-            tmp = _cbe_apply(ch, NL, NR, left, right_tail)
-            acc = acc === nothing ? tmp : acc + tmp
-        end
-        return acc
-    end
-
-    idx = Threads.Atomic{Int}(1)
-    lk = ReentrantLock()
-    total_acc = Ref{Any}(nothing)
-    nt = min(Threads.nthreads(), total)
-    Threads.@sync for _ in 1:nt
-        Threads.@spawn begin
-            local_acc = nothing
-            while true
-                i = Threads.atomic_add!(idx, 1)
-                i > total && break
-                tmp = _cbe_apply(_cbe_channel_at(groups, i), NL, NR, left, right_tail)
-                local_acc = local_acc === nothing ? tmp : local_acc + tmp
-            end
-            if local_acc !== nothing
-                lock(lk) do
-                    total_acc[] = total_acc[] === nothing ? local_acc : total_acc[] + local_acc
-                end
-            end
-        end
-    end
-    return total_acc[]
+# Accumulate all paths into the preallocated projected matrix `y` with the
+# shared executor: serial branch writes into `y` directly; the parallel branch
+# uses per-worker buffers and `add!`, honouring `set_threaded_hamiltonian!`.
+function _cbe_apply_all!(y, tasks::Vector{_CostedTask})
+    isempty(tasks) && return y
+    btasks, _ = _sorted_tasks(tasks)
+    _execute_tasks!(y, btasks, _accumulator_workspace(), nothing)
+    return y
 end
 
 # ---------------------------------------------------------------------------
@@ -216,14 +165,14 @@ function _cbe_g2(
     GR = rightenv(envs, site + 1, ψ)
     W1, W2 = H[site], H[site + 1]
     GL2, GR2 = GL[2:(end - 1)], GR[2:(end - 1)]
-    groups = (
-        _collect_AA_channels(GL2, W1.A, W2.A, GR2),
-        _collect_CA_channels(W1.C, W2.A, GR2),
-        _collect_AB_channels(GL2, W1.A, W2.B),
-        _collect_CB_channels(W1.C, W2.B),
-    )
-    g2 = _cbe_apply_all(groups, NL, NR, left, _transpose_tail(right))
-    return g2 === nothing ? zerovector!(similar(left, space(NL, 3) ← space(NR, 1))) : g2
+    right_tail = _transpose_tail(right)
+    tasks, T = _cbe_tasks(GL2, W1, W2, GR2, NL, NR, left, right_tail)
+    # `TensorMap{T}(undef, space)` dualizes the first argument internally;
+    # pass the dual would-be codomain so the resulting tensor has the same
+    # space as the channel contractions.
+    g2_space = dual(space(NL, 3)) ← space(NR, 1)
+    g2 = VectorInterface.zerovector(TensorMap{T}(undef, g2_space), T)
+    return _cbe_apply_all!(g2, tasks)
 end
 
 # generic MPO (or multi-physical-leg state) fallback: one explicit two-site

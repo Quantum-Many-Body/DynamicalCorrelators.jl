@@ -184,7 +184,7 @@ function _excited_run!(
         henv::HalfFiniteEnvironments, oenvs::Tuple, weights::Tuple;
         etol::Float64, max_tailsweeps::Int,
         filename::String, save::Union{Bool, AbstractVector{<:Integer}}, verbose,
-        manual_gc::Bool = true
+        manual_gc::Bool = false
     )
     N = length(ψ)
     isempty(algs) && throw(ArgumentError("truncdims cannot be empty"))
@@ -388,7 +388,7 @@ function excited_dmrg2!(ψ::FiniteMPS, H, penalize::AbstractVector{<:FiniteMPS},
         save::Union{Bool, AbstractVector{<:Integer}} = false,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
-        manual_gc::Bool = true)
+        manual_gc::Bool = false)
     _check_penalize_sectors(ψ, penalize)
     algs = map(truncdims) do D
         DMRG2(; alg_eigsolve, alg_svd, trunc = truncrank(Int(D)))
@@ -422,7 +422,7 @@ function excited_dmrg1!(ψ::FiniteMPS, H, penalize::AbstractVector{<:FiniteMPS},
         save::Union{Bool, AbstractVector{<:Integer}} = false,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
-        manual_gc::Bool = true)
+        manual_gc::Bool = false)
     _check_penalize_sectors(ψ, penalize)
     algs = map(truncdims) do D
         DMRG(;

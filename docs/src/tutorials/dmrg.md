@@ -90,7 +90,7 @@ serialized to disk when RAM is the bottleneck:
 ```julia
 gs, envs, E0 = dmrg1(ψ0, H, truncdims;
     disk = true,                # or a directory path, e.g. "/scratch/myuser"
-    manual_gc = true,           # default; per-update GC + per-sweep memory report
+    manual_gc = false,          # default; set true for full GC + memory report per sweep
     verbose = 1,
 )
 ```

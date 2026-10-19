@@ -108,7 +108,7 @@ export CBEExpand
 export dmrg1, dmrg1!, dmrg2, dmrg2!
 export dmrg_mix, dmrg_mix!
 export excited_dmrg1!, excited_dmrg2!, excited_states
-export set_threaded_hamiltonian!, threaded_hamiltonian_threads, set_prefused_hamiltonian!
+export set_threaded_hamiltonian!, threaded_hamiltonian_threads
 export HalfFiniteEnvironments, free_left!, free_right!, env_memory_bytes, configure_finite_engine!
 export fast_timestep!, fast_approximate!
 export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates, GrandPotential, OrderParameters
