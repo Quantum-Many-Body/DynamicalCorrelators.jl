@@ -5,7 +5,7 @@ using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, 
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
 using TensorOperations: promote_contract, AbstractBackend, DefaultBackend, DefaultAllocator, ManualAllocator
 using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, sectors, Bosonic, SpaceMismatch
-using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dual, fuse, svd_trunc, svd_trunc!, svd_compact!, oneunit, notrunc, similarstoragetype, insertleftunit, insertrightunit, removeunit
+using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, numind, dual, fuse, svd_trunc, svd_trunc!, svd_compact!, oneunit, notrunc, similarstoragetype, insertleftunit, insertrightunit, removeunit
 using TensorKit: left_null, right_null!, catdomain, catcodomain, qr_compact!, lq_compact!, left_orth, right_orth, scale!, absorb!
 using TensorKit: ⊠, ⊗, ⊕, permute, repartition, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum, id, zerovector, zerovector!, tensormaptype
 using TensorKit: diagview, ProductSpace, set_num_transformer_threads, set_num_manipulation_threads, get_num_transformer_threads, get_num_manipulation_threads
