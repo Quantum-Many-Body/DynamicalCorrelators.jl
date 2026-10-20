@@ -36,22 +36,6 @@ _apply_DE(op, x) =
 _apply_EE(op, x) =
     (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] := x[1 -2; -3 -4] * op[-1; 1]; y)
 
-# Unused alternatives retained for contraction-order experiments.
-_apply_starting(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3] := x[-1 2; 1] * op[-2 -3; 2 1]; y)
-_apply_ending(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3] := op[-1 -2; 1 2] * x[1 2; -3]; y)
-_apply_IC(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] := x[-1 -2; 1 2] * op[-4 -3; 2 1]; y)
-_apply_CB(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] := x[-1 1; -3 2] * op[-2 -4; 1 2]; y)
-_apply_CA(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] := x[-1 1; 3 2] * op[-2 -4 -3; 1 2 3]; y)
-_apply_AB(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] := x[1 2; -3 3] * op[-1 -2 -4; 1 2 3]; y)
-_apply_BE(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] := x[1 2; -3 -4] * op[-1 -2; 1 2]; y)
-
 struct _ManualCacheAllocator end
 
 const _MANUAL_CACHE_BYTES = Threads.Atomic{Int}(0)
@@ -332,15 +316,35 @@ struct _CostedTask
     apply::Function  # AC/AC2: (y, x) -> y; CBE: _ -> term
 end
 
-function _push_costed_boundary!(tasks, T, cost, kind::Symbol, apply, op)
+# Estimate a path from its tensor legs, as FiniteMPS's `_countIntr` does:
+# non-identity local operators contribute `numind(H) - 2`, identities zero.
+_task_cost(noperators::Int, nidentity::Int, tensors...) =
+    sum(numind, tensors; init = 0) - 2 * (noperators - nidentity)
+
+_isidentity_A(W, I) =
+    haskey(W.scalars, CartesianIndex(I[1] + 1, 1, 1, I[4] + 1))
+_isidentity_B(W, I) =
+    haskey(W.scalars, CartesianIndex(I[1] + 1, 1, 1, size(W, 4)))
+_isidentity_C(W, I) =
+    haskey(W.scalars, CartesianIndex(1, 1, 1, I[3] + 1))
+
+function _push_costed_boundary!(
+        tasks, T, kind::Symbol, apply, op,
+        noperators::Int = 0, nidentity::Int = 0
+    )
     ismissing(op) && return T
+    cost = _task_cost(noperators, nidentity, op)
     push!(tasks, _CostedTask(cost, kind,
         (y, x) -> (add!(y, apply(op, x), One(), One()); y)))
     return promote_type(T, eltype(op))
 end
 
 function _sorted_tasks(tasks)
-    return Function[t.apply for t in tasks], Symbol[t.kind for t in tasks]
+    # FiniteMPS orders its valid paths once when the projective Hamiltonian is
+    # built; action then consumes that ordered list directly.
+    perms = sortperm(Int[task.cost for task in tasks]; rev = true)
+    return Function[tasks[i].apply for i in perms],
+        Symbol[tasks[i].kind for i in perms]
 end
 
 mutable struct _AccumulatorWorkspace
@@ -415,29 +419,32 @@ function _threaded_AC_hamiltonian(GL::MPSTensor, W::JordanMPOTensor, GR::MPSTens
 
     for (I, Ab) in nonzero_pairs(W.A)
         GLb, GRb = GL2[I[1]], GR2[I[4]]
-        push!(tasks, _CostedTask(9, :A, _a_task(GLb, Ab, GRb)))
+        cost = _task_cost(1, Int(_isidentity_A(W, I)), GLb, Ab, GRb)
+        push!(tasks, _CostedTask(cost, :A, _a_task(GLb, Ab, GRb)))
         T = promote_type(T, eltype(GLb), eltype(Ab), eltype(GRb))
     end
     for (I, Bb) in nonzero_pairs(W.B)
         GLb = GL2[I[1]]
-        push!(tasks, _CostedTask(7, :B, _b_task(GLb, Bb)))
+        cost = _task_cost(1, Int(_isidentity_B(W, I)), GLb, Bb)
+        push!(tasks, _CostedTask(cost, :B, _b_task(GLb, Bb)))
         T = promote_type(T, eltype(GLb), eltype(Bb))
     end
     for (I, Cb) in nonzero_pairs(W.C)
         GRb = GR2[I[3]]
-        push!(tasks, _CostedTask(7, :C, _c_task(Cb, GRb)))
+        cost = _task_cost(1, Int(_isidentity_C(W, I)), Cb, GRb)
+        push!(tasks, _CostedTask(cost, :C, _c_task(Cb, GRb)))
         T = promote_type(T, eltype(Cb), eltype(GRb))
     end
     T = _push_costed_boundary!(
-        tasks, T, 5, :onsite, _apply_onsite,
+        tasks, T, :onsite, _apply_onsite,
         nonzero_length(W.D) > 0 ? only(W.D) : missing
     )
     T = _push_costed_boundary!(
-        tasks, T, 4, :finished, _apply_finished,
+        tasks, T, :finished, _apply_finished,
         size(W, 1) == 1 ? missing : removeunit(GL[end], 2)
     )
     T = _push_costed_boundary!(
-        tasks, T, 4, :notstarted, _apply_notstarted,
+        tasks, T, :notstarted, _apply_notstarted,
         size(W, 4) == 1 ? missing : removeunit(GR[1], 2)
     )
     btasks, kinds = _sorted_tasks(tasks)
@@ -470,50 +477,60 @@ function _threaded_AC2_hamiltonian(
     for (I1, A1b) in nonzero_pairs(W1.A), (I2, A2b) in nonzero_pairs(W2.A)
         I1[4] == I2[1] || continue
         GLb, GRb = GL2[I1[1]], GR2[I2[4]]
-        push!(tasks, _CostedTask(12, :AA, _aa_task(GLb, A1b, A2b, GRb)))
+        nidentity = Int(_isidentity_A(W1, I1)) + Int(_isidentity_A(W2, I2))
+        cost = _task_cost(2, nidentity, GLb, A1b, A2b, GRb)
+        push!(tasks, _CostedTask(cost, :AA, _aa_task(GLb, A1b, A2b, GRb)))
         T = promote_type(T, eltype(GLb), eltype(A1b), eltype(A2b), eltype(GRb))
     end
     for (Ic, C1b) in nonzero_pairs(W1.C), (Ia, A2b) in nonzero_pairs(W2.A)
         Ic[3] == Ia[1] || continue
         GRb = GR2[Ia[4]]
-        push!(tasks, _CostedTask(10, :CA, _ca_task(C1b, A2b, GRb)))
+        nidentity = Int(_isidentity_C(W1, Ic)) + Int(_isidentity_A(W2, Ia))
+        cost = _task_cost(2, nidentity, C1b, A2b, GRb)
+        push!(tasks, _CostedTask(cost, :CA, _ca_task(C1b, A2b, GRb)))
         T = promote_type(T, eltype(C1b), eltype(A2b), eltype(GRb))
     end
     for (Ia, A1b) in nonzero_pairs(W1.A), (Ib, B2b) in nonzero_pairs(W2.B)
         Ia[4] == Ib[1] || continue
         GLb = GL2[Ia[1]]
-        push!(tasks, _CostedTask(10, :AB, _ab_task(GLb, A1b, B2b)))
+        nidentity = Int(_isidentity_A(W1, Ia)) + Int(_isidentity_B(W2, Ib))
+        cost = _task_cost(2, nidentity, GLb, A1b, B2b)
+        push!(tasks, _CostedTask(cost, :AB, _ab_task(GLb, A1b, B2b)))
         T = promote_type(T, eltype(GLb), eltype(A1b), eltype(B2b))
     end
     for (Ic, C1b) in nonzero_pairs(W1.C), (Ib, B2b) in nonzero_pairs(W2.B)
         Ic[3] == Ib[1] || continue
-        push!(tasks, _CostedTask(8, :CB, _cb_task(C1b, B2b)))
+        nidentity = Int(_isidentity_C(W1, Ic)) + Int(_isidentity_B(W2, Ib))
+        cost = _task_cost(2, nidentity, C1b, B2b)
+        push!(tasks, _CostedTask(cost, :CB, _cb_task(C1b, B2b)))
         T = promote_type(T, eltype(C1b), eltype(B2b))
     end
     for (Ic, C2b) in nonzero_pairs(W2.C)
         GRb = GR2[Ic[3]]
-        push!(tasks, _CostedTask(7, :IC, _ic_task(C2b, GRb)))
+        cost = _task_cost(1, Int(_isidentity_C(W2, Ic)), C2b, GRb)
+        push!(tasks, _CostedTask(cost, :IC, _ic_task(C2b, GRb)))
         T = promote_type(T, eltype(C2b), eltype(GRb))
     end
     for (Ib, B1b) in nonzero_pairs(W1.B)
         GLb = GL2[Ib[1]]
-        push!(tasks, _CostedTask(7, :BE, _be_task(GLb, B1b)))
+        cost = _task_cost(1, Int(_isidentity_B(W1, Ib)), GLb, B1b)
+        push!(tasks, _CostedTask(cost, :BE, _be_task(GLb, B1b)))
         T = promote_type(T, eltype(GLb), eltype(B1b))
     end
     T = _push_costed_boundary!(
-        tasks, T, 4, :II, _apply_II,
+        tasks, T, :II, _apply_II,
         size(W2, 4) == 1 ? missing : transpose(removeunit(GR[1], 2))
     )
     T = _push_costed_boundary!(
-        tasks, T, 5, :ID, _apply_ID,
+        tasks, T, :ID, _apply_ID,
         nonzero_length(W2.D) > 0 ? only(W2.D) : missing
     )
     T = _push_costed_boundary!(
-        tasks, T, 5, :DE, _apply_DE,
+        tasks, T, :DE, _apply_DE,
         nonzero_length(W1.D) > 0 ? only(W1.D) : missing
     )
     T = _push_costed_boundary!(
-        tasks, T, 4, :EE, _apply_EE,
+        tasks, T, :EE, _apply_EE,
         size(W1, 1) == 1 ? missing : removeunit(GL[end], 2)
     )
     btasks, kinds = _sorted_tasks(tasks)
