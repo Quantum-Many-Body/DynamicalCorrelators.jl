@@ -205,7 +205,7 @@ function _excited_run!(
     start_time, record_start = now(), now()
     Int(verbose) > 0 && println(
         label, " Sweep Started (half engine, ", length(oenvs), " penalized state(s)): ",
-        Dates.format(start_time, "d.u yyyy HH:MM")
+        format(start_time, "d.u yyyy HH:MM")
     )
     Int(verbose) > 0 && flush(stdout)
 
@@ -272,7 +272,7 @@ function _excited_run!(
             println(
                 "[", lpad(iter, witer), "] ", label, "/",
                 nameof(typeof(alg)), " sweep | duration: ",
-                Dates.canonicalize(current_time - start_time)
+                canonicalize(current_time - start_time)
             )
             @printf(
                 "  E = %.10f | D = %*d | ΔE = %.3e | P = %.3e | max res = %.3e | max ϵtr = %.3e\n",
@@ -316,8 +316,8 @@ function _excited_run!(
     end
     if Int(verbose) > 0
         println(
-            "Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"),
-            " | total duration: ", Dates.canonicalize(record_end - record_start),
+            "Ended: ", format(record_end, "d.u yyyy HH:MM"),
+            " | total duration: ", canonicalize(record_end - record_start),
             " | ", iter, " sweep(s) (", iter - nscheduled, " tail)"
         )
         for (i, oenv) in enumerate(oenvs)

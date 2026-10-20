@@ -287,7 +287,7 @@ function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, λ, ϵ_local, ϵ_trunc, 
     Db = alg isa DMRG && D === :left ? dim(left_virtualspace(ψ, pos)) : dim(right_virtualspace(ψ, b))
     arrow = D === :right ? "=>" : "<="
     tag = D === :right ? "L2R" : "R2L"
-    timestamp = Dates.format(now(), "HH:MM:SS")
+    timestamp = format(now(), "HH:MM:SS")
     if diag === nothing
         @printf(
             "  %s: %*d%s%*d | D=%*d | res %.1e | ϵtr %.1e | %s\n",
@@ -388,7 +388,7 @@ function _dmrg_run!(
     Int(verbose) > 0 && println(
         "$label Sweep Started (",
         envs isa HalfFiniteEnvironments ? "half engine" : "reference engine",
-        "): ", Dates.format(start_time, "d.u yyyy HH:MM")
+        "): ", format(start_time, "d.u yyyy HH:MM")
     )
     Int(verbose) > 0 && flush(stdout)
 
@@ -460,7 +460,7 @@ function _dmrg_run!(
             println(
                 "[", lpad(iter, witer), "] ", label, "/",
                 nameof(typeof(alg)), " sweep | duration: ",
-                Dates.canonicalize(current_time - start_time)
+                canonicalize(current_time - start_time)
             )
             @printf(
                 "  E₀ = %.10f | D = %*d | ΔE = %.3e | max res = %.3e | max ϵtr = %.3e\n",
@@ -521,8 +521,8 @@ function _dmrg_run!(
     end
     if Int(verbose) > 0
         println(
-            "Ended: ", Dates.format(record_end, "d.u yyyy HH:MM"),
-            " | total duration: ", Dates.canonicalize(record_end - record_start),
+            "Ended: ", format(record_end, "d.u yyyy HH:MM"),
+            " | total duration: ", canonicalize(record_end - record_start),
             " | ", iter, " sweep(s) (", iter - nscheduled, " tail)"
         )
         println(timer)
@@ -553,14 +553,14 @@ function _print_krylov_breakdown(timer::TimerOutput, io::IO = stdout)
         " normalization, KrylovKit bookkeeping):"
     )
     for (name, sec) in found
-        t_all = TimerOutputs.time(sec)
+        t_all = timer_time(sec)
         t_all == 0 && continue
-        n_all = TimerOutputs.ncalls(sec)
+        n_all = timer_ncalls(sec)
         mv = get(sec.inner_timers, "matvec", nothing)
-        t_mv = isnothing(mv) ? 0 : TimerOutputs.time(mv)
-        n_mv = isnothing(mv) ? 0 : TimerOutputs.ncalls(mv)
+        t_mv = isnothing(mv) ? 0 : timer_time(mv)
+        n_mv = isnothing(mv) ? 0 : timer_ncalls(mv)
         t_rest = t_all - t_mv
-        f(ns) = ns == 0 ? "0" : string(Dates.canonicalize(Dates.Millisecond(ns ÷ 1_000_000)))
+        f(ns) = ns == 0 ? "0" : string(canonicalize(Millisecond(ns ÷ 1_000_000)))
         pct(x) = round(100 * x / t_all; digits = 1)
         println(
             io, "  ", name, ": ", n_all, " call(s) | total ", f(t_all),

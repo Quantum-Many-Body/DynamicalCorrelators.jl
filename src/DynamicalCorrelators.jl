@@ -1,8 +1,5 @@
 module DynamicalCorrelators
 
-import LinearAlgebra: norm
-import LinearAlgebra
-import TensorKit
 using LinearAlgebra: inv, mul!, I, tr, dot, BLAS, logabsdet
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
@@ -12,11 +9,9 @@ using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, dua
 using TensorKit: left_null, right_null!, catdomain, catcodomain, qr_compact!, lq_compact!, left_orth, right_orth, scale!, absorb!
 using TensorKit: ⊠, ⊗, ⊕, permute, repartition, domain, codomain, isomorphism, isometry, storagetype, @plansor, @planar, @tensor, blocks, block, flip, dim, infimum, id, zerovector, zerovector!, tensormaptype
 using TensorKit: diagview, ProductSpace, set_num_transformer_threads, set_num_manipulation_threads, get_num_transformer_threads, get_num_manipulation_threads
-import TensorKit: normalize!, normalize, lmul!, rmul!, scalartype
 using BlockTensorKit: nonzero_pairs, nonzero_length, SumSpace, BlockTensorMap
 using MatrixAlgebraKit: TruncatedAlgorithm, TruncationStrategy, TruncationByOrder, TruncationByError, TruncationIntersection, initialize_output, truncate, truncation_error, SafeDivideAndConquer
 using SerializedElementArrays: SerializedElementArray, filename, disk as serialize_disk
-import VectorInterface
 using MPSKit: FiniteMPS, InfiniteMPS, WindowMPS, InfiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG, DMRG2, SvdCut
 using MPSKit: add_util_leg, _firstspace, decompose_localmpo, TransferMatrix, environments, expectation_value, l_LL, r_RR
 using MPSKit: FiniteEnvironments
@@ -38,10 +33,17 @@ using SharedArrays: SharedArray
 using NumericalIntegration: integrate
 using JLD2: save, load, jldopen, write, close, keys
 using Printf: @printf, @sprintf
-using Dates
-import TimerOutputs
+using Dates: canonicalize, format, now, CompoundPeriod, Day, Hour, Millisecond, Minute, Nanosecond, Period, Second, Week, value
 using TimerOutputs: TimerOutput, @timeit, reset_timer!
 
+import LinearAlgebra: norm
+import TensorOperations: tensoralloc, tensorfree!
+import TensorKit: normalize!, normalize, lmul!, rmul!, scalartype
+import TensorKit: InnerProductStyle, EuclideanInnerProduct, throw_invalid_innerproduct, FusionStyle, UniqueFusion, blocksectors, _norm
+import VectorInterface: inner, add!, add, One, promote_add, promote_inner, promote_scale, scale
+import VectorInterface: scale! as vi_scale!
+import VectorInterface: zerovector as vi_zerovector, zerovector! as vi_zerovector!
+import TimerOutputs: time as timer_time, ncalls as timer_ncalls, get_defaulttimer
 import QuantumLattices: expand
 import MPSKit: FiniteMPO, dot, correlator, transfer_left, transfer_right, AC_hamiltonian, AC2_hamiltonian, DerivativeOperator, local_update!
 import MPSKit: left_virtualspace, right_virtualspace, physicalspace

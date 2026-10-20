@@ -54,37 +54,62 @@ function local_update!(
     # 1. expand (CBE): mutates AL[site]/AR[site±1]; the === staleness checks in
     #    the environment manager make the dependent environments rebuild lazily
     t_expand = 0.0
+    gc_expand = 0.0
+    alloc_expand = 0.0
     if !isnothing(alg.alg_expand)
+        g0 = Base.gc_num()
         t0 = time_ns()
         @timeit timeroutput "expand" changebond!(
             site, direction, ψ, O, alg.alg_expand, env; allocator
         )
         t_expand = _elapsed_ns(t0)
+        g1 = Base.gc_num()
+        gc_expand = Float64(g1.total_time - g0.total_time)
+        alloc_expand = Float64(g1.total_allocd - g0.total_allocd)
     end
 
     # 2. local update: the expand step replaced tensors, so the environments
     #    are stale again; the constructor below rebuilds them lazily.
+    g0 = Base.gc_num()
     t0 = time_ns()
     H_effective = @timeit timeroutput "AC_hamiltonian" AC_hamiltonian(
         site, ψ, O, ψ, env; alg.backend, allocator
     )
     t_ham = _elapsed_ns(t0)
+    g1 = Base.gc_num()
+    gc_ham = Float64(g1.total_time - g0.total_time)
+    alloc_ham = Float64(g1.total_allocd - g0.total_allocd)
     ac_old = ψ.AC[site]
     t_mv = Ref(0.0)
+    gc_mv = Ref(0.0)
+    alloc_mv = Ref(0.0)
+    g0 = Base.gc_num()
     t0 = time_ns()
     λ, AC′, info = @timeit timeroutput "AC_eigsolve" begin
-        _fixedpoint_shifted(H_effective, ac_old, alg.alg_eigsolve, energy_shift, timeroutput, t_mv)
+        _fixedpoint_shifted(H_effective, ac_old, alg.alg_eigsolve, energy_shift,
+                            timeroutput, t_mv, gc_mv, alloc_mv)
     end
     t_eig = _elapsed_ns(t0)
+    g1 = Base.gc_num()
+    gc_eig = Float64(g1.total_time - g0.total_time)
+    alloc_eig = Float64(g1.total_allocd - g0.total_allocd)
 
     # 3. gauge
+    g0 = Base.gc_num()
     t0 = time_ns()
     ψ, ϵ_trunc = @timeit timeroutput "gauge" _fast_gauge!(
         ψ, site, direction, AC′, alg.alg_gauge; normalize = true
     )
     t_gauge = _elapsed_ns(t0)
+    g1 = Base.gc_num()
+    gc_gauge = Float64(g1.total_time - g0.total_time)
+    alloc_gauge = Float64(g1.total_allocd - g0.total_allocd)
 
-    diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[], t_expand, t_gauge)
+    diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[], t_expand,
+            t_gauge, gc_expand, gc_ham, gc_eig, gc_gauge,
+            alloc_expand, alloc_ham, alloc_eig, alloc_gauge,
+            gc_mv = gc_mv[], alloc_mv = alloc_mv[],
+            gc_krylov = gc_eig - gc_mv[], alloc_krylov = alloc_eig - alloc_mv[])
     return ψ, λ, ϵ_local, ϵ_trunc, diag
 end
 
@@ -97,9 +122,13 @@ function local_update!(
     # 20823-style lazy environments: the `AC2_hamiltonian` constructor
     # triggers the rebuild itself, so its time is included in `ham`.
     t_env = 0.0
+    g0 = Base.gc_num()
     t0 = time_ns()
     Heff = @timeit timeroutput "AC2_hamiltonian" AC2_hamiltonian(pos, ψ, O, ψ, env; alg.backend, allocator)
     t_ham = _elapsed_ns(t0)
+    g1 = Base.gc_num()
+    gc_ham = Float64(g1.total_time - g0.total_time)
+    alloc_ham = Float64(g1.total_allocd - g0.total_allocd)
 
     kind = direction === Val(:right) ? :ACAR : :ALAC
     ac2 = AC2(ψ, pos; kind)
@@ -109,20 +138,35 @@ function local_update!(
 
     # 1. local two-site update
     t_mv = Ref(0.0)
+    gc_mv = Ref(0.0)
+    alloc_mv = Ref(0.0)
+    g0 = Base.gc_num()
     t0 = time_ns()
     λ, newA2center, info = @timeit timeroutput "AC2_eigsolve" begin
-        _fixedpoint_shifted(Heff, ac2, alg.alg_eigsolve, energy_shift, timeroutput, t_mv)
+        _fixedpoint_shifted(Heff, ac2, alg.alg_eigsolve, energy_shift,
+                            timeroutput, t_mv, gc_mv, alloc_mv)
     end
     t_eig = _elapsed_ns(t0)
+    g1 = Base.gc_num()
+    gc_eig = Float64(g1.total_time - g0.total_time)
+    alloc_eig = Float64(g1.total_allocd - g0.total_allocd)
 
     # 2. gauge: truncated SVD split back into single-site tensors
+    g0 = Base.gc_num()
     t0 = time_ns()
     ψ, ϵ_trunc = @timeit timeroutput "gauge" _fast_gauge2!(
         ψ, pos, direction, newA2center, alg.alg_gauge
     )
     t_gauge = _elapsed_ns(t0)
+    g1 = Base.gc_num()
+    gc_gauge = Float64(g1.total_time - g0.total_time)
+    alloc_gauge = Float64(g1.total_allocd - g0.total_allocd)
 
-    diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[], t_expand = 0.0, t_gauge)
+    diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[],
+            t_expand = 0.0, t_gauge, gc_ham, gc_eig, gc_gauge,
+            alloc_ham, alloc_eig, alloc_gauge,
+            gc_mv = gc_mv[], alloc_mv = alloc_mv[],
+            gc_krylov = gc_eig - gc_mv[], alloc_krylov = alloc_eig - alloc_mv[])
     return ψ, λ, ϵ_local, ϵ_trunc, diag
 end
 
@@ -137,19 +181,28 @@ end
 _elapsed_ns(t0::UInt) = Float64(time_ns() - t0)
 
 function _fixedpoint_shifted(H_effective, x0, alg_eigsolve, energy_shift::Real, timeroutput,
-        t_mv::Ref{Float64} = Ref(0.0))
+        t_mv::Ref{Float64} = Ref(0.0), gc_mv::Ref{Float64} = Ref(0.0),
+        alloc_mv::Ref{Float64} = Ref(0.0))
     f = if iszero(energy_shift)
         function (x)
+            g0 = Base.gc_num()
             t = time_ns()
             y = @timeit(timeroutput, "matvec", H_effective(x))
             t_mv[] += _elapsed_ns(t)
+            g1 = Base.gc_num()
+            gc_mv[] += Float64(g1.total_time - g0.total_time)
+            alloc_mv[] += Float64(g1.total_allocd - g0.total_allocd)
             return y
         end
     else
         function (x)
+            g0 = Base.gc_num()
             t = time_ns()
             y = @timeit(timeroutput, "matvec", H_effective(x))
             t_mv[] += _elapsed_ns(t)
+            g1 = Base.gc_num()
+            gc_mv[] += Float64(g1.total_time - g0.total_time)
+            alloc_mv[] += Float64(g1.total_allocd - g0.total_allocd)
             return y - energy_shift * x
         end
     end

@@ -98,8 +98,7 @@ function _cbe_apply_cb!(y, NL, NR, left, right_tail, localop1, localop2)
     return y
 end
 
-# Directly collect every nonzero MPO path into one flat costed-task pool,
-# mirroring `_threaded_AC2_hamiltonian`. No intermediate channel-type vectors.
+# Directly collect every nonzero MPO path into one flat costed-task pool.
 function _cbe_tasks(GL2, W1, W2, GR2, NL, NR, left, right_tail)
     tasks = _CostedTask[]
     T = promote_type(eltype(NL), eltype(NR), eltype(left), eltype(right_tail))
@@ -138,9 +137,8 @@ function _cbe_tasks(GL2, W1, W2, GR2, NL, NR, left, right_tail)
     return tasks, T
 end
 
-# Accumulate all paths into the preallocated projected matrix `y` with the
-# shared executor: serial branch writes into `y` directly; the parallel branch
-# uses per-worker buffers and `add!`, honouring `set_threaded_hamiltonian!`.
+# Accumulate all paths into `y`; parallel execution uses one accumulator per
+# worker and merges those buffers through `_execute_tasks!`.
 function _cbe_apply_all!(y, tasks::Vector{_CostedTask})
     isempty(tasks) && return y
     btasks, _ = _sorted_tasks(tasks)
@@ -171,7 +169,7 @@ function _cbe_g2(
     # pass the dual would-be codomain so the resulting tensor has the same
     # space as the channel contractions.
     g2_space = dual(space(NL, 3)) ← space(NR, 1)
-    g2 = VectorInterface.zerovector(TensorMap{T}(undef, g2_space), T)
+    g2 = vi_zerovector(TensorMap{T}(undef, g2_space), T)
     return _cbe_apply_all!(g2, tasks)
 end
 
