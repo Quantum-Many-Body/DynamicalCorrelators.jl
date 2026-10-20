@@ -836,7 +836,7 @@ function _ts_dist_dcorrelator(gs, H, op;
     else
         rm(_ts_dist_slice_dir(workdir, nrec); recursive = true, force = true)
     end
-    verbose && println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"),
+    verbose && println("Ended: ", format(now(), "d.u yyyy HH:MM"),
                        " | total duration: ", _short_duration(now() - wall_start))
     return gf
 end

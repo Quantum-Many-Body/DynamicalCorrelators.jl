@@ -115,48 +115,48 @@ end
 # `__init__` instead (see DynamicalCorrelators.jl).
 const _THREADED_VECTOROPS_INIT = quote
 
-function VectorInterface.inner(tx::TensorMap, ty::TensorMap)
+function inner(tx::TensorMap, ty::TensorMap)
     if space(tx) != space(ty)
         throw(SpaceMismatch("$(space(tx)) ≠ $(space(ty))"))
     end
-    TensorKit.InnerProductStyle(tx) === TensorKit.EuclideanInnerProduct() ||
-        TensorKit.throw_invalid_innerproduct(:inner)
-    if TensorKit.FusionStyle(sectortype(tx)) isa TensorKit.UniqueFusion
+    InnerProductStyle(tx) === EuclideanInnerProduct() ||
+        throw_invalid_innerproduct(:inner)
+    if FusionStyle(sectortype(tx)) isa UniqueFusion
         # all quantum dimensions are one: the blocks tile the flat data
         if _vectorops_parallel(length(tx.data))
             return _flat_inner(tx.data, ty.data)
         end
-        return VectorInterface.inner(tx.data, ty.data)
+        return inner(tx.data, ty.data)
     end
     # non-abelian: TensorKit's serial block loop with dim(c) weights
-    T = VectorInterface.promote_inner(tx, ty)
+    T = promote_inner(tx, ty)
     s = zero(T)
-    for c in TensorKit.blocksectors(tx)
+    for c in blocksectors(tx)
         bx = parent(block(tx, c))
         by = parent(block(ty, c))
-        s += convert(T, dim(c)) * VectorInterface.inner(bx, by)
+        s += convert(T, dim(c)) * inner(bx, by)
     end
     return s
 end
 
-function LinearAlgebra.norm(t::TensorMap, p::Real = 2)
-    TensorKit.InnerProductStyle(t) === TensorKit.EuclideanInnerProduct() ||
-        TensorKit.throw_invalid_innerproduct(:norm)
-    if TensorKit.FusionStyle(sectortype(t)) isa TensorKit.UniqueFusion
+function norm(t::TensorMap, p::Real = 2)
+    InnerProductStyle(t) === EuclideanInnerProduct() ||
+        throw_invalid_innerproduct(:norm)
+    if FusionStyle(sectortype(t)) isa UniqueFusion
         if p == 2 && _vectorops_parallel(length(t.data))
             return sqrt(real(_flat_inner(t.data, t.data)))
         end
         return norm(t.data, p)
     end
-    return TensorKit._norm(blocks(t), p, float(zero(real(scalartype(t)))))
+    return _norm(blocks(t), p, float(zero(real(scalartype(t)))))
 end
 
 end
 
-function VectorInterface.add!!(
+function add!!(
         ty::TensorMap, tx::TensorMap, α::Number, β::Number
     )
-    T = VectorInterface.promote_add(ty, tx, α, β)
+    T = promote_add(ty, tx, α, β)
     if T <: scalartype(ty)
         if _vectorops_parallel(length(ty.data))
             if space(ty) != space(tx)
@@ -165,29 +165,29 @@ function VectorInterface.add!!(
             _flat_add!(ty.data, tx.data, α, β)
             return ty
         end
-        return VectorInterface.add!(ty, tx, α, β)
+        return add!(ty, tx, α, β)
     else
-        return VectorInterface.add(ty, tx, α, β)
+        return add(ty, tx, α, β)
     end
 end
 
-function VectorInterface.scale!!(t::TensorMap, α::Number)
-    α === VectorInterface.One() && return t
-    T = VectorInterface.promote_scale(t, α)
+function scale!!(t::TensorMap, α::Number)
+    α === One() && return t
+    T = promote_scale(t, α)
     if T <: scalartype(t)
         if _vectorops_parallel(length(t.data))
             _flat_scale!(t.data, α)
         else
-            VectorInterface.scale!(t.data, α)
+            vi_scale!(t.data, α)
         end
         return t
     else
-        return VectorInterface.scale(t, α)
+        return scale(t, α)
     end
 end
 
-function VectorInterface.scale!!(ty::TensorMap, tx::TensorMap, α::Number)
-    T = VectorInterface.promote_scale(tx, α)
+function scale!!(ty::TensorMap, tx::TensorMap, α::Number)
+    T = promote_scale(tx, α)
     if T <: scalartype(ty)
         if space(ty) != space(tx)
             throw(SpaceMismatch("$(space(ty)) ≠ $(space(tx))"))
@@ -205,8 +205,8 @@ function VectorInterface.scale!!(ty::TensorMap, tx::TensorMap, α::Number)
             end
             return ty
         end
-        return VectorInterface.scale!(ty, tx, α)
+        return vi_scale!(ty, tx, α)
     else
-        return VectorInterface.scale(tx, α)
+        return scale(tx, α)
     end
 end

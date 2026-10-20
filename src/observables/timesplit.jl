@@ -241,7 +241,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                     if verbose
                         println("[chargedMPS] site $i/$L | ", from_cache ? "cache" : "computed",
                                 " | maxD = ", _ts_max_bonddim((ψ,)), " | ",
-                                _short_duration(Dates.Nanosecond(time_ns() - t0)))
+                                _short_duration(Nanosecond(time_ns() - t0)))
                         flush(stdout)
                     end
                     (ψ, copy(ψ), from_cache)
@@ -407,7 +407,7 @@ function _gc_stamp()
             full=g.full_sweep, allocd=g.total_allocd, rss=_rss_bytes())
 end
 
-_ts_ns_str(ns) = _short_duration(Dates.Nanosecond(round(Int, ns)))
+_ts_ns_str(ns) = _short_duration(Nanosecond(round(Int, ns)))
 
 # aggregate the timed sections of every per-state TDVP timer by name,
 # summed over all states; returns name => (ncalls, ns). The two sweep
@@ -424,8 +424,8 @@ function _ts_accum_sections!(stats, section)
     for (name, child) in section.inner_timers
         if name != "L2R sweep" && name != "R2L sweep"
             calls, ns = get(stats, name, (0, 0))
-            stats[name] = (calls + TimerOutputs.ncalls(child),
-                           ns + TimerOutputs.time(child))
+            stats[name] = (calls + timer_ncalls(child),
+                           ns + timer_time(child))
         end
         _ts_accum_sections!(stats, child)
     end
@@ -592,7 +592,7 @@ function _charged_cache_save(file::AbstractString, ψ, site::Integer, alg)
         f["state"] = ψ
         # provenance metadata, informational only — never read back
         f["site"] = site
-        f["created"] = Dates.format(now(), "yyyy-mm-dd HH:MM:SS")
+        f["created"] = format(now(), "yyyy-mm-dd HH:MM:SS")
         f["approxalg"] = repr(alg)
     end
     return mv(tmp, file; force=true)

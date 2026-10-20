@@ -117,36 +117,36 @@ function evolve_mps(H::Function, ts::AbstractVector, mus::AbstractVector, rho_mp
     return rho_mps
 end
 
-function _short_duration(period::Dates.CompoundPeriod)
+function _short_duration(period::CompoundPeriod)
     parts = String[]
     days = 0
     for p in period.periods
-        value = Dates.value(p)
-        value == 0 && continue
-        if p isa Dates.Week
-            days += 7 * value   # canonicalize emits Week; fold it into days
-        elseif p isa Dates.Day
-            days += value
-        elseif p isa Dates.Hour
-            push!(parts, "$(value)h")
-        elseif p isa Dates.Minute
-            push!(parts, "$(value)m")
-        elseif p isa Dates.Second
-            push!(parts, "$(value)s")
-        elseif p isa Dates.Millisecond
-            push!(parts, "$(value)ms")
+        v = value(p)
+        v == 0 && continue
+        if p isa Week
+            days += 7 * v   # canonicalize emits Week; fold it into days
+        elseif p isa Day
+            days += v
+        elseif p isa Hour
+            push!(parts, "$(v)h")
+        elseif p isa Minute
+            push!(parts, "$(v)m")
+        elseif p isa Second
+            push!(parts, "$(v)s")
+        elseif p isa Millisecond
+            push!(parts, "$(v)ms")
         end
     end
     days == 0 || pushfirst!(parts, "$(days)d")
     return isempty(parts) ? "0ms" : join(parts, ", ")
 end
 
-_short_duration(period::Dates.Period) = _short_duration(Dates.canonicalize(period))
+_short_duration(period::Period) = _short_duration(canonicalize(period))
 
 _progress_prefix(i::Integer, n::Integer) = "[$(lpad(i, ndigits(n)))/$n]"
 
 function _progress_start(i::Integer, n::Integer, message)
-    println(_progress_prefix(i, n), " ", message, " | started: ", Dates.format(now(), "d.u yyyy HH:MM"))
+    println(_progress_prefix(i, n), " ", message, " | started: ", format(now(), "d.u yyyy HH:MM"))
 end
 
 function _progress_step(i::Integer, n::Integer, message, duration)
@@ -154,7 +154,7 @@ function _progress_step(i::Integer, n::Integer, message, duration)
 end
 
 function _progress_end(start_time, timer::TimerOutput)
-    println("Ended: ", Dates.format(now(), "d.u yyyy HH:MM"), " | total duration: ", _short_duration(now() - start_time))
+    println("Ended: ", format(now(), "d.u yyyy HH:MM"), " | total duration: ", _short_duration(now() - start_time))
     println(timer)
 end
 

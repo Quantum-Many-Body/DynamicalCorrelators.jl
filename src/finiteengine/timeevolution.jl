@@ -30,10 +30,10 @@
 """
     fast_timestep!(ψ, H, t, dt, alg::TDVP, envs::HalfFiniteEnvironments;
         imaginary_evolution = false, normalize = false, manual_gc = false,
-        timeroutput = TimerOutputs.get_defaulttimer())
+        timeroutput = get_defaulttimer())
     fast_timestep!(ψ, H, t, dt, alg::TDVP2, envs::HalfFiniteEnvironments;
         imaginary_evolution = false, normalize = false, manual_gc = false,
-        timeroutput = TimerOutputs.get_defaulttimer())
+        timeroutput = get_defaulttimer())
 
 One full TDVP sweep (left→right→left) on the fast finite engine, evolving `ψ`
 in place by `dt` starting from time `t`. Returns `(ψ, envs)`.
@@ -52,7 +52,7 @@ function fast_timestep!(
         envs::HalfFiniteEnvironments;
         imaginary_evolution::Bool = false, normalize::Bool = false,
         manual_gc::Bool = false,
-        timeroutput::TimerOutput = TimerOutputs.get_defaulttimer()
+        timeroutput::TimerOutput = get_defaulttimer()
     )
     scalartype(ψ) <: Complex || throw(ArgumentError(
         "fast TDVP evolves the state in place and requires a complex state; " *
@@ -153,7 +153,7 @@ function fast_timestep!(
         envs::HalfFiniteEnvironments;
         imaginary_evolution::Bool = false, normalize::Bool = false,
         manual_gc::Bool = false,
-        timeroutput::TimerOutput = TimerOutputs.get_defaulttimer()
+        timeroutput::TimerOutput = get_defaulttimer()
     )
     scalartype(ψ) <: Complex || throw(ArgumentError(
         "fast TDVP evolves the state in place and requires a complex state; " *
