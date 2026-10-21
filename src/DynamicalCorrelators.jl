@@ -3,7 +3,7 @@ module DynamicalCorrelators
 using LinearAlgebra: inv, mul!, I, tr, dot, BLAS, logabsdet
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
-using TensorOperations: promote_contract, AbstractBackend, DefaultBackend, DefaultAllocator, ManualAllocator
+using TensorOperations: promote_contract, AbstractBackend, DefaultBackend, DefaultAllocator, BufferAllocator
 using TensorKit: FermionParity, Trivial, U1Irrep, SU2Irrep, SU2Space, Vect, Sector, ProductSector, AbstractTensorMap, TensorMap, BraidingStyle, BraidingTensor, sectortype, sectors, Bosonic, SpaceMismatch
 using TensorKit: truncrank, truncerror, trunctol, ←, space, numout, numin, numind, dual, fuse, svd_trunc, svd_trunc!, svd_compact!, oneunit, notrunc, similarstoragetype, insertleftunit, insertrightunit, removeunit
 using TensorKit: left_null, right_null!, catdomain, catcodomain, qr_compact!, lq_compact!, left_orth, right_orth, scale!, absorb!
@@ -37,7 +37,6 @@ using Dates: canonicalize, format, now, CompoundPeriod, Day, Hour, Millisecond, 
 using TimerOutputs: TimerOutput, @timeit, reset_timer!
 
 import LinearAlgebra: norm
-import TensorOperations: tensoralloc, tensorfree!
 import TensorKit: normalize!, normalize, lmul!, rmul!, scalartype
 import TensorKit: InnerProductStyle, EuclideanInnerProduct, throw_invalid_innerproduct, FusionStyle, UniqueFusion, blocksectors, _norm
 import VectorInterface: inner, add!, add, One, promote_add, promote_inner, promote_scale, scale

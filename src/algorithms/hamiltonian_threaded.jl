@@ -20,64 +20,27 @@ const _THREADED_HAMILTONIAN_THREADS = Ref{Int}(-1)
 
 _threading_enabled() = threaded_hamiltonian_threads() > 0
 
-_apply_onsite(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3] := x[-1 1; -3] * op[-2; 1]; y)
-_apply_finished(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3] := op[-1; 1] * x[1 -2; -3]; y)
-_apply_notstarted(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3] := x[-1 -2; 1] * op[1; -3]; y)
+_apply_onsite!(y, op, x, buffer) =
+    (@plansor allocator = buffer y[-1 -2; -3] += x[-1 1; -3] * op[-2; 1]; y)
+_apply_finished!(y, op, x, buffer) =
+    (@plansor allocator = buffer y[-1 -2; -3] += op[-1; 1] * x[1 -2; -3]; y)
+_apply_notstarted!(y, op, x, buffer) =
+    (@plansor allocator = buffer y[-1 -2; -3] += x[-1 -2; 1] * op[1; -3]; y)
 
-_apply_II(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] := x[-1 -2; 1 -4] * op[-3; 1]; y)
-_apply_ID(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] := x[-1 -2; -3 1] * op[-4; 1]; y)
-_apply_DE(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] := x[-1 1; -3 -4] * op[-2; 1]; y)
-_apply_EE(op, x) =
-    (@plansor allocator = ManualAllocator() y[-1 -2; -3 -4] := x[1 -2; -3 -4] * op[-1; 1]; y)
+_apply_II!(y, op, x, buffer) =
+    (@plansor allocator = buffer y[-1 -2; -3 -4] += x[-1 -2; 1 -4] * op[-3; 1]; y)
+_apply_ID!(y, op, x, buffer) =
+    (@plansor allocator = buffer y[-1 -2; -3 -4] += x[-1 -2; -3 1] * op[-4; 1]; y)
+_apply_DE!(y, op, x, buffer) =
+    (@plansor allocator = buffer y[-1 -2; -3 -4] += x[-1 1; -3 -4] * op[-2; 1]; y)
+_apply_EE!(y, op, x, buffer) =
+    (@plansor allocator = buffer y[-1 -2; -3 -4] += x[1 -2; -3 -4] * op[-1; 1]; y)
 
-struct _ManualCacheAllocator end
+# Temporary tensors are task-local because BufferAllocator is not thread-safe.
+_task_buffer() = BufferAllocator()
 
-const _MANUAL_CACHE_BYTES = Threads.Atomic{Int}(0)
-
-function _cache_payload_bytes(t)
-    if t isa AbstractArray
-        return length(t) * sizeof(eltype(t))
-    elseif hasproperty(t, :data)
-        return _cache_payload_bytes(getproperty(t, :data))
-    end
-    return 0
-end
-
-_cache_bytes_delta!(n::Integer) = Threads.atomic_add!(_MANUAL_CACHE_BYTES, Int(n))
-manual_cache_bytes() = Int(_MANUAL_CACHE_BYTES[])
-
-function tensoralloc(
-        ::Type{A}, structure, ::Val{istemp}, ::_ManualCacheAllocator
-    ) where {A<:AbstractArray, istemp}
-    a = tensoralloc(A, structure, Val(true), ManualAllocator())
-    _cache_bytes_delta!(length(a) * sizeof(eltype(a)))
-    return a
-end
-
-function tensorfree!(C::AbstractArray, ::_ManualCacheAllocator)
-    _cache_bytes_delta!(-length(C) * sizeof(eltype(C)))
-    return tensorfree!(C, ManualAllocator())
-end
-
-mutable struct _StageCache{T<:Tuple}
+struct _StageCache{T<:Tuple}
     tensors::T
-    function _StageCache{T}(tensors::T) where {T<:Tuple}
-        cache = new{T}(tensors)
-        finalizer(cache) do c
-            for t in c.tensors
-                _cache_bytes_delta!(-_cache_payload_bytes(t))
-                tensorfree!(t, ManualAllocator())
-            end
-            return nothing
-        end
-        return cache
-    end
 end
 
 _stage_cache(tensors::T) where {T<:Tuple} = _StageCache{T}(tensors)
@@ -92,222 +55,222 @@ _stage_cache(tensors::T) where {T<:Tuple} = _StageCache{T}(tensors)
 end
 
 function _a_cache(x, GL, A)
-    t1 = @plansor allocator = _ManualCacheAllocator() t1[-1 -2; -3 -4] :=
+    t1 = @plansor allocator = DefaultAllocator() t1[-1 -2; -3 -4] :=
         GL[-1 -2; 1] * x[1 -4; -3]
-    t2 = @plansor allocator = _ManualCacheAllocator() t2[-1 -2; -3 -4] :=
+    t2 = @plansor allocator = DefaultAllocator() t2[-1 -2; -3 -4] :=
         t1[-1 2; -3 1] * A[2 -2; 1 -4]
     return _stage_cache((t1, t2))
 end
 
-function _apply_A_cached!(y, cache, GL, x, A, GR)
+function _apply_A_cached!(y, cache, buffer, GL, x, A, GR)
     c = _getcache!(cache) do
         _a_cache(x, GL, A)
     end
     t1, t2 = c.tensors
-    @plansor allocator = ManualAllocator() t1[-1 -2; -3 -4] =
+    @plansor allocator = buffer t1[-1 -2; -3 -4] =
         GL[-1 -2; 1] * x[1 -4; -3]
-    @plansor allocator = ManualAllocator() t2[-1 -2; -3 -4] =
+    @plansor allocator = buffer t2[-1 -2; -3 -4] =
         t1[-1 2; -3 1] * A[2 -2; 1 -4]
-    @plansor allocator = ManualAllocator() y[-1 -2; -3] +=
+    @plansor allocator = buffer y[-1 -2; -3] +=
         t2[-1 -2; 1 2] * GR[1 2; -3]
     return y
 end
 
 function _b_cache(x, GL)
-    t = @plansor allocator = _ManualCacheAllocator() t[-1 -2; -3 -4] :=
+    t = @plansor allocator = DefaultAllocator() t[-1 -2; -3 -4] :=
         GL[-1 -2; 1] * x[1 -4; -3]
     return _stage_cache((t,))
 end
 
-function _apply_B_cached!(y, cache, GL, x, B)
+function _apply_B_cached!(y, cache, buffer, GL, x, B)
     c = _getcache!(cache) do
         _b_cache(x, GL)
     end
     t = c.tensors[1]
-    @plansor allocator = ManualAllocator() t[-1 -2; -3 -4] =
+    @plansor allocator = buffer t[-1 -2; -3 -4] =
         GL[-1 -2; 1] * x[1 -4; -3]
-    @plansor allocator = ManualAllocator() y[-1 -2; -3] +=
+    @plansor allocator = buffer y[-1 -2; -3] +=
         t[-1 2; -3 1] * B[2 -2; 1]
     return y
 end
 
 function _c_cache(x, C)
-    t = @plansor allocator = _ManualCacheAllocator() t[-1 -2; -3 -4] :=
+    t = @plansor allocator = DefaultAllocator() t[-1 -2; -3 -4] :=
         x[-1 1; -3] * C[-2; 1 -4]
     return _stage_cache((t,))
 end
 
-function _apply_C_cached!(y, cache, x, C, GR)
+function _apply_C_cached!(y, cache, buffer, x, C, GR)
     c = _getcache!(cache) do
         _c_cache(x, C)
     end
     t = c.tensors[1]
-    @plansor allocator = ManualAllocator() t[-1 -2; -3 -4] =
+    @plansor allocator = buffer t[-1 -2; -3 -4] =
         x[-1 1; -3] * C[-2; 1 -4]
-    @plansor allocator = ManualAllocator() y[-1 -2; -3] +=
+    @plansor allocator = buffer y[-1 -2; -3] +=
         t[-1 -2; 1 2] * GR[1 2; -3]
     return y
 end
 
 function _cb_cache(x, C1)
-    t = @plansor allocator = _ManualCacheAllocator() t[-1 -2; -3 -4 -5] :=
+    t = @plansor allocator = DefaultAllocator() t[-1 -2; -3 -4 -5] :=
         x[-1 1; -3 -4] * C1[-2; 1 -5]
     return _stage_cache((t,))
 end
 
-function _apply_CB_cached!(y, cache, x, C1, B2)
+function _apply_CB_cached!(y, cache, buffer, x, C1, B2)
     c = _getcache!(cache) do
         _cb_cache(x, C1)
     end
     t = c.tensors[1]
-    @plansor allocator = ManualAllocator() t[-1 -2; -3 -4 -5] =
+    @plansor allocator = buffer t[-1 -2; -3 -4 -5] =
         x[-1 1; -3 -4] * C1[-2; 1 -5]
-    @plansor allocator = ManualAllocator() y[-1 -2; -3 -4] +=
+    @plansor allocator = buffer y[-1 -2; -3 -4] +=
         t[-1 -2; -3 1 2] * B2[2 -4; 1]
     return y
 end
 
 function _ic_cache(x, C2)
-    t = @plansor allocator = _ManualCacheAllocator() t[-1 -2; -3 -4 -5] :=
+    t = @plansor allocator = DefaultAllocator() t[-1 -2; -3 -4 -5] :=
         x[-1 -2; -3 1] * C2[-5; 1 -4]
     return _stage_cache((t,))
 end
 
-function _apply_IC_cached!(y, cache, x, C2, GR)
+function _apply_IC_cached!(y, cache, buffer, x, C2, GR)
     c = _getcache!(cache) do
         _ic_cache(x, C2)
     end
     t = c.tensors[1]
-    @plansor allocator = ManualAllocator() t[-1 -2; -3 -4 -5] =
+    @plansor allocator = buffer t[-1 -2; -3 -4 -5] =
         x[-1 -2; -3 1] * C2[-5; 1 -4]
-    @plansor allocator = ManualAllocator() y[-1 -2; -3 -4] +=
+    @plansor allocator = buffer y[-1 -2; -3 -4] +=
         t[-1 -2; 1 2 -4] * GR[1 2; -3]
     return y
 end
 
 function _be_cache(x, GL)
-    t = @plansor allocator = _ManualCacheAllocator() t[-1 -2; -3 -4 -5] :=
+    t = @plansor allocator = DefaultAllocator() t[-1 -2; -3 -4 -5] :=
         GL[-1 -2; 1] * x[1 -5; -3 -4]
     return _stage_cache((t,))
 end
 
-function _apply_BE_cached!(y, cache, GL, x, B1)
+function _apply_BE_cached!(y, cache, buffer, GL, x, B1)
     c = _getcache!(cache) do
         _be_cache(x, GL)
     end
     t = c.tensors[1]
-    @plansor allocator = ManualAllocator() t[-1 -2; -3 -4 -5] =
+    @plansor allocator = buffer t[-1 -2; -3 -4 -5] =
         GL[-1 -2; 1] * x[1 -5; -3 -4]
-    @plansor allocator = ManualAllocator() y[-1 -2; -3 -4] +=
+    @plansor allocator = buffer y[-1 -2; -3 -4] +=
         t[-1 2; -3 -4 1] * B1[2 -2; 1]
     return y
 end
 
 function _aa_cache(x, GL, A1, A2)
-    t1 = @plansor allocator = _ManualCacheAllocator() t1[-1 -2; -3 -4 -5] :=
+    t1 = @plansor allocator = DefaultAllocator() t1[-1 -2; -3 -4 -5] :=
         GL[-1 -2; 1] * x[1 -5; -3 -4]
-    t2 = @plansor allocator = _ManualCacheAllocator() t2[-1 -2; -3 -4 -5] :=
+    t2 = @plansor allocator = DefaultAllocator() t2[-1 -2; -3 -4 -5] :=
         t1[-1 1; -3 -4 2] * A1[1 -2; 2 -5]
-    t3 = @plansor allocator = _ManualCacheAllocator() t3[-1 -2; -3 -4 -5] :=
+    t3 = @plansor allocator = DefaultAllocator() t3[-1 -2; -3 -4 -5] :=
         t2[-1 -2; -3 2 1] * A2[1 -5; 2 -4]
     return _stage_cache((t1, t2, t3))
 end
 
-function _apply_AA_cached!(y, cache, GL, x, A1, A2, GR)
+function _apply_AA_cached!(y, cache, buffer, GL, x, A1, A2, GR)
     c = _getcache!(cache) do
         _aa_cache(x, GL, A1, A2)
     end
     t1, t2, t3 = c.tensors
-    @plansor allocator = ManualAllocator() t1[-1 -2; -3 -4 -5] =
+    @plansor allocator = buffer t1[-1 -2; -3 -4 -5] =
         GL[-1 -2; 1] * x[1 -5; -3 -4]
-    @plansor allocator = ManualAllocator() t2[-1 -2; -3 -4 -5] =
+    @plansor allocator = buffer t2[-1 -2; -3 -4 -5] =
         t1[-1 1; -3 -4 2] * A1[1 -2; 2 -5]
-    @plansor allocator = ManualAllocator() t3[-1 -2; -3 -4 -5] =
+    @plansor allocator = buffer t3[-1 -2; -3 -4 -5] =
         t2[-1 -2; -3 2 1] * A2[1 -5; 2 -4]
-    @plansor allocator = ManualAllocator() y[-1 -2; -3 -4] +=
+    @plansor allocator = buffer y[-1 -2; -3 -4] +=
         t3[-1 -2; 1 2 -4] * GR[1 2; -3]
     return y
 end
 
 function _ca_cache(x, C1, A2)
-    t1 = @plansor allocator = _ManualCacheAllocator() t1[-1 -2; -3 -4 -5] :=
+    t1 = @plansor allocator = DefaultAllocator() t1[-1 -2; -3 -4 -5] :=
         x[-1 1; -3 -4] * C1[-2; 1 -5]
-    t2 = @plansor allocator = _ManualCacheAllocator() t2[-1 -2; -3 -4 -5] :=
+    t2 = @plansor allocator = DefaultAllocator() t2[-1 -2; -3 -4 -5] :=
         t1[-1 -2; -3 2 1] * A2[1 -5; 2 -4]
     return _stage_cache((t1, t2))
 end
 
-function _apply_CA_cached!(y, cache, x, C1, A2, GR)
+function _apply_CA_cached!(y, cache, buffer, x, C1, A2, GR)
     c = _getcache!(cache) do
         _ca_cache(x, C1, A2)
     end
     t1, t2 = c.tensors
-    @plansor allocator = ManualAllocator() t1[-1 -2; -3 -4 -5] =
+    @plansor allocator = buffer t1[-1 -2; -3 -4 -5] =
         x[-1 1; -3 -4] * C1[-2; 1 -5]
-    @plansor allocator = ManualAllocator() t2[-1 -2; -3 -4 -5] =
+    @plansor allocator = buffer t2[-1 -2; -3 -4 -5] =
         t1[-1 -2; -3 2 1] * A2[1 -5; 2 -4]
-    @plansor allocator = ManualAllocator() y[-1 -2; -3 -4] +=
+    @plansor allocator = buffer y[-1 -2; -3 -4] +=
         t2[-1 -2; 1 2 -4] * GR[1 2; -3]
     return y
 end
 
 function _ab_cache(x, GL, A1)
-    s1 = @plansor allocator = _ManualCacheAllocator() s1[-1 -2; -3 -4 -5] :=
+    s1 = @plansor allocator = DefaultAllocator() s1[-1 -2; -3 -4 -5] :=
         GL[-1 -2; 1] * x[1 -5; -3 -4]
-    s2 = @plansor allocator = _ManualCacheAllocator() s2[-1 -2; -3 -4 -5] :=
+    s2 = @plansor allocator = DefaultAllocator() s2[-1 -2; -3 -4 -5] :=
         s1[-1 1; -3 -4 2] * A1[1 -2; 2 -5]
     return _stage_cache((s1, s2))
 end
 
-function _apply_AB_cached!(y, cache, GL, x, A1, B2)
+function _apply_AB_cached!(y, cache, buffer, GL, x, A1, B2)
     c = _getcache!(cache) do
         _ab_cache(x, GL, A1)
     end
     s1, s2 = c.tensors
-    @plansor allocator = ManualAllocator() s1[-1 -2; -3 -4 -5] =
+    @plansor allocator = buffer s1[-1 -2; -3 -4 -5] =
         GL[-1 -2; 1] * x[1 -5; -3 -4]
-    @plansor allocator = ManualAllocator() s2[-1 -2; -3 -4 -5] =
+    @plansor allocator = buffer s2[-1 -2; -3 -4 -5] =
         s1[-1 1; -3 -4 2] * A1[1 -2; 2 -5]
-    @plansor allocator = ManualAllocator() y[-1 -2; -3 -4] +=
+    @plansor allocator = buffer y[-1 -2; -3 -4] +=
         s2[-1 -2; -3 2 1] * B2[1 -4; 2]
     return y
 end
 
 _a_task(GL, A, GR) =
-    let cache = Ref{Any}(nothing)
-        (y, x) -> _apply_A_cached!(y, cache, GL, x, A, GR)
+    let cache = Ref{Any}(nothing), buffer = _task_buffer()
+        (y, x) -> _apply_A_cached!(y, cache, buffer, GL, x, A, GR)
     end
 _b_task(GL, B) =
-    let cache = Ref{Any}(nothing)
-        (y, x) -> _apply_B_cached!(y, cache, GL, x, B)
+    let cache = Ref{Any}(nothing), buffer = _task_buffer()
+        (y, x) -> _apply_B_cached!(y, cache, buffer, GL, x, B)
     end
 _c_task(C, GR) =
-    let cache = Ref{Any}(nothing)
-        (y, x) -> _apply_C_cached!(y, cache, x, C, GR)
+    let cache = Ref{Any}(nothing), buffer = _task_buffer()
+        (y, x) -> _apply_C_cached!(y, cache, buffer, x, C, GR)
     end
 _cb_task(C1, B2) =
-    let cache = Ref{Any}(nothing)
-        (y, x) -> _apply_CB_cached!(y, cache, x, C1, B2)
+    let cache = Ref{Any}(nothing), buffer = _task_buffer()
+        (y, x) -> _apply_CB_cached!(y, cache, buffer, x, C1, B2)
     end
 _ic_task(C2, GR) =
-    let cache = Ref{Any}(nothing)
-        (y, x) -> _apply_IC_cached!(y, cache, x, C2, GR)
+    let cache = Ref{Any}(nothing), buffer = _task_buffer()
+        (y, x) -> _apply_IC_cached!(y, cache, buffer, x, C2, GR)
     end
 _be_task(GL, B1) =
-    let cache = Ref{Any}(nothing)
-        (y, x) -> _apply_BE_cached!(y, cache, GL, x, B1)
+    let cache = Ref{Any}(nothing), buffer = _task_buffer()
+        (y, x) -> _apply_BE_cached!(y, cache, buffer, GL, x, B1)
     end
 _aa_task(GL, A1, A2, GR) =
-    let cache = Ref{Any}(nothing)
-        (y, x) -> _apply_AA_cached!(y, cache, GL, x, A1, A2, GR)
+    let cache = Ref{Any}(nothing), buffer = _task_buffer()
+        (y, x) -> _apply_AA_cached!(y, cache, buffer, GL, x, A1, A2, GR)
     end
 _ca_task(C1, A2, GR) =
-    let cache = Ref{Any}(nothing)
-        (y, x) -> _apply_CA_cached!(y, cache, x, C1, A2, GR)
+    let cache = Ref{Any}(nothing), buffer = _task_buffer()
+        (y, x) -> _apply_CA_cached!(y, cache, buffer, x, C1, A2, GR)
     end
 _ab_task(GL, A1, B2) =
-    let cache = Ref{Any}(nothing)
-        (y, x) -> _apply_AB_cached!(y, cache, GL, x, A1, B2)
+    let cache = Ref{Any}(nothing), buffer = _task_buffer()
+        (y, x) -> _apply_AB_cached!(y, cache, buffer, GL, x, A1, B2)
     end
 
 struct _CostedTask
@@ -334,8 +297,9 @@ function _push_costed_boundary!(
     )
     ismissing(op) && return T
     cost = _task_cost(noperators, nidentity, op)
+    buffer = _task_buffer()
     push!(tasks, _CostedTask(cost, kind,
-        (y, x) -> (add!(y, apply(op, x), One(), One()); y)))
+        (y, x) -> apply(y, op, x, buffer)))
     return promote_type(T, eltype(op))
 end
 
@@ -436,15 +400,15 @@ function _threaded_AC_hamiltonian(GL::MPSTensor, W::JordanMPOTensor, GR::MPSTens
         T = promote_type(T, eltype(Cb), eltype(GRb))
     end
     T = _push_costed_boundary!(
-        tasks, T, :onsite, _apply_onsite,
+        tasks, T, :onsite, _apply_onsite!,
         nonzero_length(W.D) > 0 ? only(W.D) : missing
     )
     T = _push_costed_boundary!(
-        tasks, T, :finished, _apply_finished,
+        tasks, T, :finished, _apply_finished!,
         size(W, 1) == 1 ? missing : removeunit(GL[end], 2)
     )
     T = _push_costed_boundary!(
-        tasks, T, :notstarted, _apply_notstarted,
+        tasks, T, :notstarted, _apply_notstarted!,
         size(W, 4) == 1 ? missing : removeunit(GR[1], 2)
     )
     btasks, kinds = _sorted_tasks(tasks)
@@ -518,19 +482,19 @@ function _threaded_AC2_hamiltonian(
         T = promote_type(T, eltype(GLb), eltype(B1b))
     end
     T = _push_costed_boundary!(
-        tasks, T, :II, _apply_II,
+        tasks, T, :II, _apply_II!,
         size(W2, 4) == 1 ? missing : transpose(removeunit(GR[1], 2))
     )
     T = _push_costed_boundary!(
-        tasks, T, :ID, _apply_ID,
+        tasks, T, :ID, _apply_ID!,
         nonzero_length(W2.D) > 0 ? only(W2.D) : missing
     )
     T = _push_costed_boundary!(
-        tasks, T, :DE, _apply_DE,
+        tasks, T, :DE, _apply_DE!,
         nonzero_length(W1.D) > 0 ? only(W1.D) : missing
     )
     T = _push_costed_boundary!(
-        tasks, T, :EE, _apply_EE,
+        tasks, T, :EE, _apply_EE!,
         size(W1, 1) == 1 ? missing : removeunit(GL[end], 2)
     )
     btasks, kinds = _sorted_tasks(tasks)
