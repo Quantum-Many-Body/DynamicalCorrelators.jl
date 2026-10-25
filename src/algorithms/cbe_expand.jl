@@ -69,32 +69,60 @@ end
 # Keep `conj(...)` inline: TensorKit's planar parser relies on it to determine
 # leg directions, so precomputing a conjugated tensor changes the planarity.
 function _cbe_apply_aa!(y, buffer, NL, NR, left, right_tail, leftenv, localop1, localop2,
-                        rightenv)
-    @plansor allocator = buffer y[-1; -2] +=
-        conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 11] * right_tail[11; 6 7] *
-        localop1[2 5; 3 12] * localop2[12 10; 7 8] * rightenv[6 8; 9] *
-        conj(NR[-2; 9 10])
+                        rightenv, first::Bool)
+    if first
+        @plansor allocator = buffer y[-1; -2] =
+            conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 11] * right_tail[11; 6 7] *
+            localop1[2 5; 3 12] * localop2[12 10; 7 8] * rightenv[6 8; 9] *
+            conj(NR[-2; 9 10])
+    else
+        @plansor allocator = buffer y[-1; -2] +=
+            conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 11] * right_tail[11; 6 7] *
+            localop1[2 5; 3 12] * localop2[12 10; 7 8] * rightenv[6 8; 9] *
+            conj(NR[-2; 9 10])
+    end
     return y
 end
 
-function _cbe_apply_ca!(y, buffer, NL, NR, left, right_tail, localop1, localop2, rightenv)
-    @plansor allocator = buffer y[-1; -2] +=
-        conj(NL[1 3; -1]) * left[1 2; 9] * right_tail[9; 4 5] * localop1[3; 2 10] *
-        localop2[10 8; 5 6] * rightenv[4 6; 7] * conj(NR[-2; 7 8])
+function _cbe_apply_ca!(y, buffer, NL, NR, left, right_tail, localop1, localop2, rightenv,
+                        first::Bool)
+    if first
+        @plansor allocator = buffer y[-1; -2] =
+            conj(NL[1 3; -1]) * left[1 2; 9] * right_tail[9; 4 5] * localop1[3; 2 10] *
+            localop2[10 8; 5 6] * rightenv[4 6; 7] * conj(NR[-2; 7 8])
+    else
+        @plansor allocator = buffer y[-1; -2] +=
+            conj(NL[1 3; -1]) * left[1 2; 9] * right_tail[9; 4 5] * localop1[3; 2 10] *
+            localop2[10 8; 5 6] * rightenv[4 6; 7] * conj(NR[-2; 7 8])
+    end
     return y
 end
 
-function _cbe_apply_ab!(y, buffer, NL, NR, left, right_tail, leftenv, localop1, localop2)
-    @plansor allocator = buffer y[-1; -2] +=
-        conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 9] * right_tail[9; 6 7] *
-        localop1[2 5; 3 10] * localop2[10 8; 7] * conj(NR[-2; 6 8])
+function _cbe_apply_ab!(y, buffer, NL, NR, left, right_tail, leftenv, localop1, localop2,
+                        first::Bool)
+    if first
+        @plansor allocator = buffer y[-1; -2] =
+            conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 9] * right_tail[9; 6 7] *
+            localop1[2 5; 3 10] * localop2[10 8; 7] * conj(NR[-2; 6 8])
+    else
+        @plansor allocator = buffer y[-1; -2] +=
+            conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 9] * right_tail[9; 6 7] *
+            localop1[2 5; 3 10] * localop2[10 8; 7] * conj(NR[-2; 6 8])
+    end
     return y
 end
 
-function _cbe_apply_cb!(y, buffer, NL, NR, left, right_tail, localop1, localop2)
-    @plansor allocator = buffer y[-1; -2] +=
-        conj(NL[1 3; -1]) * left[1 2; 7] * right_tail[7; 4 5] * localop1[3; 2 8] *
-        localop2[8 6; 5] * conj(NR[-2; 4 6])
+function _cbe_apply_cb!(y, buffer, NL, NR, left, right_tail, localop1, localop2,
+                        first::Bool)
+    if first
+        @plansor allocator = buffer y[-1; -2] =
+            conj(NL[1 3; -1]) * left[1 2; 7] * right_tail[7; 4 5] * localop1[3; 2 8] *
+            localop2[8 6; 5] * conj(NR[-2; 4 6])
+    else
+        @plansor allocator = buffer y[-1; -2] +=
+            conj(NL[1 3; -1]) * left[1 2; 7] * right_tail[7; 4 5] * localop1[3; 2 8] *
+            localop2[8 6; 5] * conj(NR[-2; 4 6])
+    end
     return y
 end
 
@@ -107,43 +135,39 @@ function _cbe_tasks(GL2, W1, W2, GR2, NL, NR, left, right_tail)
     for (I1, A1b) in nonzero_pairs(W1.A), (I2, A2b) in nonzero_pairs(W2.A)
         I1[4] == I2[1] || continue
         GLb, GRb = GL2[I1[1]], GR2[I2[4]]
-        push!(tasks, _CostedTask(12, :AA, let buffer = _task_buffer()
-              (y, _) -> _cbe_apply_aa!(
-                  y, buffer, NL, NR, left, right_tail, GLb, A1b, A2b, GRb
-              )
-        end))
+        push!(tasks, _CostedTask(12, :AA,
+            (y, _, buf, first) -> _cbe_apply_aa!(
+                y, buf, NL, NR, left, right_tail, GLb, A1b, A2b, GRb, first
+            ), (; gl = I1[1], gc = 0, cache = nothing)))
         T = promote_type(T, eltype(GLb), eltype(A1b), eltype(A2b), eltype(GRb))
     end
     # starting left - continuing right
     for (Ic, C1b) in nonzero_pairs(W1.C), (Ia, A2b) in nonzero_pairs(W2.A)
         Ic[3] == Ia[1] || continue
         GRb = GR2[Ia[4]]
-        push!(tasks, _CostedTask(10, :CA, let buffer = _task_buffer()
-              (y, _) -> _cbe_apply_ca!(
-                  y, buffer, NL, NR, left, right_tail, C1b, A2b, GRb
-              )
-        end))
+        push!(tasks, _CostedTask(10, :CA,
+            (y, _, buf, first) -> _cbe_apply_ca!(
+                y, buf, NL, NR, left, right_tail, C1b, A2b, GRb, first
+            ), (; gl = 0, gc = Ic[3], cache = nothing)))
         T = promote_type(T, eltype(C1b), eltype(A2b), eltype(GRb))
     end
     # continuing left - ending right
     for (Ia, A1b) in nonzero_pairs(W1.A), (Ib, B2b) in nonzero_pairs(W2.B)
         Ia[4] == Ib[1] || continue
         GLb = GL2[Ia[1]]
-        push!(tasks, _CostedTask(10, :AB, let buffer = _task_buffer()
-              (y, _) -> _cbe_apply_ab!(
-                  y, buffer, NL, NR, left, right_tail, GLb, A1b, B2b
-              )
-        end))
+        push!(tasks, _CostedTask(10, :AB,
+            (y, _, buf, first) -> _cbe_apply_ab!(
+                y, buf, NL, NR, left, right_tail, GLb, A1b, B2b, first
+            ), (; gl = Ia[1], gc = 0, cache = nothing)))
         T = promote_type(T, eltype(GLb), eltype(A1b), eltype(B2b))
     end
     # starting left - ending right
     for (Ic, C1b) in nonzero_pairs(W1.C), (Ib, B2b) in nonzero_pairs(W2.B)
         Ic[3] == Ib[1] || continue
-        push!(tasks, _CostedTask(8, :CB, let buffer = _task_buffer()
-              (y, _) -> _cbe_apply_cb!(
-                  y, buffer, NL, NR, left, right_tail, C1b, B2b
-              )
-        end))
+        push!(tasks, _CostedTask(8, :CB,
+            (y, _, buf, first) -> _cbe_apply_cb!(
+                y, buf, NL, NR, left, right_tail, C1b, B2b, first
+            ), (; gl = 0, gc = Ic[3], cache = nothing)))
         T = promote_type(T, eltype(C1b), eltype(B2b))
     end
     return tasks, T
@@ -153,8 +177,7 @@ end
 # worker and merges those buffers through `_execute_tasks!`.
 function _cbe_apply_all!(y, tasks::Vector{_CostedTask})
     isempty(tasks) && return y
-    btasks, _ = _sorted_tasks(tasks)
-    _execute_tasks!(y, btasks, _accumulator_workspace(), nothing)
+    _execute_tasks!(y, _sorted_tasks(tasks), _accumulator_workspace(), nothing)
     return y
 end
 
