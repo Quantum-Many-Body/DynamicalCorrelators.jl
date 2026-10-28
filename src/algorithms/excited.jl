@@ -81,11 +81,9 @@ function penalized_local_update!(
         timeroutput, allocator;
         energy_shift::Real = 0.0
     )
-    # 20823-style lazy environments: the H environments rebuild inside
-    # `calc_galerkin`/`AC_hamiltonian`; overlap environments rebuild lazily
-    # inside the folds below. Both are included in the surrounding timers.
+    # H environments rebuild inside `AC_hamiltonian`; overlap environments
+    # rebuild inside the folds below. Both are included in the timers.
     t_env = 0.0
-    ϵ_local = calc_galerkin(site, ψ, O, ψ, henv; alg.backend, allocator)
 
     # 1. expand (CBE): driven by the H environments only - the penalties do
     #    not take part in the bond expansion; the overlap environments
@@ -124,7 +122,7 @@ function penalized_local_update!(
     t_gauge = _elapsed_ns(t0)
 
     diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[], t_expand, t_gauge)
-    return ψ, λ, ϵ_local, ϵ_trunc, diag
+    return ψ, λ, ϵ_trunc, diag
 end
 
 function penalized_local_update!(
@@ -146,9 +144,6 @@ function penalized_local_update!(
 
     kind = direction === Val(:right) ? :ACAR : :ALAC
     ac2 = AC2(ψ, pos; kind)
-    AC2new = normalize!(Heff * ac2)
-    project_complement!(AC2new, ψ.AL[pos])
-    ϵ_local = norm(AC2new)
 
     # 1. penalized local two-site update
     t_mv = Ref(0.0)
@@ -166,7 +161,7 @@ function penalized_local_update!(
     t_gauge = _elapsed_ns(t0)
 
     diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[], t_expand = 0.0, t_gauge)
-    return ψ, λ, ϵ_local, ϵ_trunc, diag
+    return ψ, λ, ϵ_trunc, diag
 end
 
 # ---------------------------------------------------------------------------
@@ -193,7 +188,6 @@ function _excited_run!(
     save_iters = save isa Bool ? Int[] : collect(Int, save)
     all(>=(1), save_iters) || throw(ArgumentError("save indices must be >= 1"))
     n = maximum(alg -> alg isa DMRG ? N : N - 1, algs)
-    ϵ_locals = ones(n)        # per-position Galerkin errors (per-update log; checkpoint)
     ϵ_truncs = zeros(n)       # per-position truncation errors of the gauge step
     allocator = default_allocator(ψ, SerialScheduler())
     timer = TimerOutput()
@@ -222,7 +216,7 @@ function _excited_run!(
         sweepdiag = _SweepDiag()
         @timeit timer "L2R sweep" begin
             for pos in fwd
-                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], diag =
+                ψ, λ, ϵ_truncs[pos], diag =
                     penalized_local_update!(
                         pos, Val(:right), ψ, H, alg, henv, oenvs, weights,
                         timer, allocator; energy_shift = shift
@@ -231,14 +225,14 @@ function _excited_run!(
                 _free_after_move!(henv, alg, Val(:right), pos)
                 foreach(oenv -> _free_after_move!(oenv, alg, Val(:right), pos), oenvs)
                 if Int(verbose) > 1
-                    _dmrg_log_move(alg, Val(:right), pos, ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD, diag)
+                    _dmrg_log_move(alg, Val(:right), pos, ψ, λ, ϵ_truncs[pos], wpos, wD, diag)
                     flush(stdout)
                 end
             end
         end
         @timeit timer "R2L sweep" begin
             for pos in bwd
-                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], diag =
+                ψ, λ, ϵ_truncs[pos], diag =
                     penalized_local_update!(
                         pos, Val(:left), ψ, H, alg, henv, oenvs, weights,
                         timer, allocator; energy_shift = shift
@@ -247,7 +241,7 @@ function _excited_run!(
                 _free_after_move!(henv, alg, Val(:left), pos)
                 foreach(oenv -> _free_after_move!(oenv, alg, Val(:left), pos), oenvs)
                 if Int(verbose) > 1
-                    _dmrg_log_move(alg, Val(:left), pos, ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD, diag)
+                    _dmrg_log_move(alg, Val(:left), pos, ψ, λ, ϵ_truncs[pos], wpos, wD, diag)
                     flush(stdout)
                 end
             end
@@ -275,9 +269,8 @@ function _excited_run!(
                 canonicalize(current_time - start_time)
             )
             @printf(
-                "  E = %.10f | D = %*d | ΔE = %.3e | P = %.3e | max res = %.3e | max ϵtr = %.3e\n",
-                E₀, wD, Dmax, ΔE, P,
-                maximum(view(ϵ_locals, positions)), maximum(view(ϵ_truncs, positions))
+                "  E = %.10f | D = %*d | ΔE = %.3e | P = %.3e | max ϵtr = %.3e\n",
+                E₀, wD, Dmax, ΔE, P, maximum(view(ϵ_truncs, positions))
             )
             _print_sweep_diag(
                 stdout, sweepdiag, gc0, Base.gc_num(),
@@ -300,7 +293,6 @@ function _excited_run!(
                 f["sweep_$(iter)_ψ"] = ψ
                 f["sweep_$(iter)_E"] = E₀
                 f["sweep_$(iter)_ΔE"] = ΔE
-                f["sweep_$(iter)_ϵ"] = ϵ_locals
                 f["sweep_$(iter)_ϵtrunc"] = ϵ_truncs
                 f["sweep_$(iter)_D"] = Dmax
                 f["sweep_$(iter)_P"] = P

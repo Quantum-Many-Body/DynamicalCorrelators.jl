@@ -273,12 +273,9 @@ _diag_s(ns::Real) = ns / 1e9   # nanoseconds → seconds, for log formatting
 # matvec vs Gram–Schmidt/bookkeeping rest, environment rebuild, operator
 # construction, CBE expand, gauge), matching the information FiniteMPS.jl logs
 # per update (its `K = ...` line and per-step TimerOutput). `λ` is the local
-# eigenvalue (the per-update energy estimate). `res` is the Galerkin residual
-# (`ϵ_local`); `ϵtr` is the gauge/SVD truncation error. `diag === nothing` is
-# the reference-engine fallback (MPSKit's `local_update!` returns no
-# diagnostics). `exp` is printed only for the one-site/CBE path, where the
-# expansion step is nonzero.
-function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, λ, ϵ_local, ϵ_trunc, wpos::Int, wD::Int, diag) where {D}
+# eigenvalue and `ϵtr` the gauge/SVD truncation error. `diag === nothing` is
+# the reference-engine fallback. `exp` is printed only for the one-site/CBE path.
+function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, λ, ϵ_trunc, wpos::Int, wD::Int, diag) where {D}
     b = _move_bond(alg, dir, pos)
     # One-site R2L: the gauge just truncated the LEFT leg of AR[pos] (bond
     # pos-1). right_virtualspace(ψ, pos-1) would instead show the CBE-expanded
@@ -290,8 +287,8 @@ function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, λ, ϵ_local, ϵ_trunc, 
     timestamp = format(now(), "HH:MM:SS")
     if diag === nothing
         @printf(
-            "  %s: %*d%s%*d | D=%*d | res %.1e | ϵtr %.1e | %s\n",
-            tag, wpos, b, arrow, wpos, b + 1, wD, Db, ϵ_local, ϵ_trunc, timestamp
+            "  %s: %*d%s%*d | D=%*d | ϵtr %.1e | %s\n",
+            tag, wpos, b, arrow, wpos, b + 1, wD, Db, ϵ_trunc, timestamp
         )
     else
         env_str = diag.t_env > 1e6 ?
@@ -299,11 +296,11 @@ function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, λ, ϵ_local, ϵ_trunc, 
         expand_str = diag.t_expand > 1e7 ?
             @sprintf(" | exp %.2fs", _diag_s(diag.t_expand)) : ""
         @printf(
-            "  %s: %*d%s%*d | D=%*d | E=%.6f | K=%2d | eig %.1fs (mv %.1fs) | %sham %.1fs%s | gauge %.1fs | res %.1e | ϵtr %.1e | %s\n",
+            "  %s: %*d%s%*d | D=%*d | E=%.6f | K=%2d | eig %.1fs (mv %.1fs) | %sham %.1fs%s | gauge %.1fs | ϵtr %.1e | %s\n",
             tag, wpos, b, arrow, wpos, b + 1, wD, Db, real(λ), diag.numops,
             _diag_s(diag.t_eig), _diag_s(diag.t_mv),
             env_str, _diag_s(diag.t_ham), expand_str, _diag_s(diag.t_gauge),
-            ϵ_local, ϵ_trunc, timestamp
+            ϵ_trunc, timestamp
         )
     end
     return nothing
@@ -368,9 +365,7 @@ function _dmrg_run!(
     # DMRG updates sites (n = N), DMRG2 updates bonds (n = N - 1); mixed
     # schedules size the bookkeeping arrays by the larger engine
     n = maximum(alg -> alg isa DMRG ? N : N - 1, algs)
-    ϵ_locals = ones(n)          # per-position Galerkin errors (per-update log; checkpoint)
     ϵ_truncs = zeros(n)         # per-position truncation errors of the gauge step
-    ϵ_global = 1.0              # only the reference engine's `local_update!` takes it
     allocator = default_allocator(ψ, SerialScheduler())
     timer = TimerOutput()
     wpos = ndigits(N)      # log column width: site index
@@ -411,32 +406,30 @@ function _dmrg_run!(
         sweepdiag = _SweepDiag()
         @timeit timer "L2R sweep" begin
             for pos in fwd
-                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], diag =
+                ψ, λ, ϵ_truncs[pos], diag =
                     _dmrg_update!(
                         pos, Val(:right), ψ, H, alg, envs,
-                        ϵ_global, ϵ_truncs[pos], iter, timer, allocator, shift
+                        ϵ_truncs[pos], iter, timer, allocator, shift
                     )
                 sweepdiag = _accum!(sweepdiag, diag)
                 envs isa HalfFiniteEnvironments && _free_after_move!(envs, alg, Val(:right), pos)
-                ϵ_global = maximum(view(ϵ_locals, positions))
                 if Int(verbose) > 1
-                    _dmrg_log_move(alg, Val(:right), pos, ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD, diag)
+                    _dmrg_log_move(alg, Val(:right), pos, ψ, λ, ϵ_truncs[pos], wpos, wD, diag)
                     flush(stdout)
                 end
             end
         end
         @timeit timer "R2L sweep" begin
             for pos in bwd
-                ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], diag =
+                ψ, λ, ϵ_truncs[pos], diag =
                     _dmrg_update!(
                         pos, Val(:left), ψ, H, alg, envs,
-                        ϵ_global, ϵ_truncs[pos], iter, timer, allocator, shift
+                        ϵ_truncs[pos], iter, timer, allocator, shift
                     )
                 sweepdiag = _accum!(sweepdiag, diag)
                 envs isa HalfFiniteEnvironments && _free_after_move!(envs, alg, Val(:left), pos)
-                ϵ_global = maximum(view(ϵ_locals, positions))
                 if Int(verbose) > 1
-                    _dmrg_log_move(alg, Val(:left), pos, ψ, λ, ϵ_locals[pos], ϵ_truncs[pos], wpos, wD, diag)
+                    _dmrg_log_move(alg, Val(:left), pos, ψ, λ, ϵ_truncs[pos], wpos, wD, diag)
                     flush(stdout)
                 end
             end
@@ -463,9 +456,8 @@ function _dmrg_run!(
                 canonicalize(current_time - start_time)
             )
             @printf(
-                "  E₀ = %.10f | D = %*d | ΔE = %.3e | max res = %.3e | max ϵtr = %.3e\n",
-                E₀, wD, Dmax, ΔE,
-                maximum(view(ϵ_locals, positions)), maximum(view(ϵ_truncs, positions))
+                "  E₀ = %.10f | D = %*d | ΔE = %.3e | max ϵtr = %.3e\n",
+                E₀, wD, Dmax, ΔE, maximum(view(ϵ_truncs, positions))
             )
             _print_sweep_diag(
                 stdout, sweepdiag, gc0, Base.gc_num(),
@@ -485,7 +477,7 @@ function _dmrg_run!(
         # is written to a temp file that is then atomically renamed onto
         # `filename`, so the file on disk always holds the newest completed
         # sweep and a kill mid-write cannot corrupt it. Fixed keys: "ψ", "E",
-        # "ΔE", "ϵ", "ϵtrunc", "D", "sweep" (the sweep index).
+        # "ΔE", "ϵtrunc", "D", "sweep" (the sweep index).
         # save = [i, ...]: history mode — those sweeps are appended as
         # sweep_<i>_* entries (one full state each; the file grows accordingly).
         if save === true
@@ -494,7 +486,6 @@ function _dmrg_run!(
                 f["ψ"] = ψ
                 f["E"] = E₀
                 f["ΔE"] = ΔE
-                f["ϵ"] = ϵ_locals
                 f["ϵtrunc"] = ϵ_truncs
                 f["D"] = Dmax
                 f["sweep"] = iter
@@ -506,7 +497,6 @@ function _dmrg_run!(
                 f["sweep_$(iter)_ψ"] = ψ
                 f["sweep_$(iter)_E"] = E₀
                 f["sweep_$(iter)_ΔE"] = ΔE
-                f["sweep_$(iter)_ϵ"] = ϵ_locals
                 f["sweep_$(iter)_ϵtrunc"] = ϵ_truncs
                 f["sweep_$(iter)_D"] = Dmax
             end
@@ -583,18 +573,18 @@ end
 # `decay_rate` slot, inert for a fixed `Lanczos` solver), so the reference
 # branch passes `0.0` and discards the returned value.
 function _dmrg_update!(pos, direction::Val, ψ, H, alg,
-        envs::HalfFiniteEnvironments, ϵ_global, ϵ_trunc,
+        envs::HalfFiniteEnvironments, ϵ_trunc,
         iter, timer, allocator, energy_shift::Real)
     return local_update!(
         pos, direction, ψ, H, alg, envs, timer, allocator; energy_shift
     )
 end
 function _dmrg_update!(pos, direction::Val, ψ, H, alg,
-        envs::FiniteEnvironments, ϵ_global, ϵ_trunc,
+        envs::FiniteEnvironments, ϵ_trunc,
         iter, timer, allocator, ::Real)
-    ψ, ϵ_local, ϵ_trunc, _decay = local_update!(
-        pos, direction, ψ, H, alg, envs, ϵ_global, ϵ_trunc, 0.0,
+    ψ, _, ϵ_trunc, _decay = local_update!(
+        pos, direction, ψ, H, alg, envs, 0.0, ϵ_trunc, 0.0,
         iter, timer, allocator
     )
-    return ψ, NaN, ϵ_local, ϵ_trunc, nothing
+    return ψ, NaN, ϵ_trunc, nothing
 end

@@ -11,7 +11,7 @@ using TensorKit: ⊠, ⊗, ⊕, permute, repartition, domain, codomain, isomorph
 using TensorKit: diagview, ProductSpace, set_num_transformer_threads, set_num_manipulation_threads, get_num_transformer_threads, get_num_manipulation_threads
 using BlockTensorKit: nonzero_pairs, nonzero_length, SumSpace, BlockTensorMap
 using MatrixAlgebraKit: TruncatedAlgorithm, TruncationStrategy, TruncationByOrder, TruncationByError, TruncationIntersection, initialize_output, truncate, truncation_error, SafeDivideAndConquer
-using SerializedElementArrays: SerializedElementArray, filename, disk as serialize_disk
+using SerializedElementArrays: SerializedElementArray, disk as serialize_disk
 using MPSKit: FiniteMPS, InfiniteMPS, WindowMPS, InfiniteMPO, FiniteMPOHamiltonian, MPOHamiltonian, TDVP, TDVP2, DMRG, DMRG2, SvdCut
 using MPSKit: add_util_leg, _firstspace, decompose_localmpo, TransferMatrix, environments, expectation_value, l_LL, r_RR
 using MPSKit: FiniteEnvironments
@@ -19,7 +19,7 @@ using MPSKit: spacetype, fuse_mul_mpo, fuser, MPOTensor, timestep, timestep!
 using MPSKit: AbstractFiniteMPS, Algorithm, MPSTensor, MPSBondTensor, check_unambiguous_braiding
 using MPSKit: default_allocator, SerialScheduler
 using MPSKit: JordanMPOTensor, JordanMPO_AC_Hamiltonian, JordanMPO_AC2_Hamiltonian, prepare_operator!!
-using MPSKit: site_type, calc_galerkin, AC2, project_complement!, fixedpoint, gauge!, gauge2!, _transpose_tail, _transpose_front
+using MPSKit: site_type, AC2, fixedpoint, gauge!, gauge2!, _transpose_tail, _transpose_front
 using MPSKit: left_gauge, _lastspace
 using MPSKit: AC_projection, AC2_projection, inner_alg_gauge, Zipup, approximate
 using MPSKit: C_hamiltonian
@@ -36,6 +36,7 @@ using Printf: @printf, @sprintf
 using Dates: canonicalize, format, now, CompoundPeriod, Day, Hour, Millisecond, Minute, Nanosecond, Period, Second, Week, value
 using TimerOutputs: TimerOutput, @timeit, reset_timer!
 
+import SerializedElementArrays: filename, pathname
 import LinearAlgebra: norm
 import TensorKit: normalize!, normalize, lmul!, rmul!, scalartype
 import TensorKit: InnerProductStyle, EuclideanInnerProduct, throw_invalid_innerproduct, FusionStyle, UniqueFusion, blocksectors, _norm

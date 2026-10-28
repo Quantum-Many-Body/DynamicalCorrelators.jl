@@ -5,9 +5,8 @@
 # step — same expand → eigsolve → gauge structure — with these differences:
 #
 #   1. the environments are lazy and self-invalidating (environments.jl);
-#   2. environments rebuild lazily inside `calc_galerkin` / the Hamiltonian
-#      constructor (the 20823 behavior); `t_env` is kept at zero for
-#      diagnostic compatibility and the rebuild time is part of `t_ham`;
+#   2. environments rebuild inside the Hamiltonian constructors; `t_env` is
+#      kept at zero and the rebuild time is part of `t_ham`;
 #   3. they return the local eigenvalue `λ`, which the driver uses as the
 #      per-sweep energy estimate;
 #   4. optional `energy_shift`: solves `(H - E_shift)·x` and adds the shift
@@ -30,9 +29,8 @@
         timer, allocator; energy_shift = 0.0)
 
 One-site (`alg::DMRG`) or two-site (`alg::DMRG2`) local update on the half
-engine. Unlike MPSKit's own methods (which return
-`(ψ, ϵ_local, ϵ_trunc, decay_rate)`), these return
-`(ψ, λ, ϵ_local, ϵ_trunc, diag)` with `λ` the local eigenvalue (energy
+engine. Unlike MPSKit's own methods, these return
+`(ψ, λ, ϵ_trunc, diag)` with `λ` the local eigenvalue (energy
 estimate of the normalized state after the update) and `diag` a NamedTuple
 of per-update diagnostics (`numops`, `t_env`, `t_ham`, `t_eig`, `t_mv`,
 `t_expand`, `t_gauge`; times in nanoseconds). `t_env` is zero on the lazy
@@ -45,11 +43,9 @@ function local_update!(
         timeroutput, allocator;
         energy_shift::Real = 0.0
     )
-    # 20823-style lazy environments: `calc_galerkin` and the Hamiltonian
-    # constructor trigger the rebuild themselves, so its time is included in
-    # the `ham`/eigensolve accounting rather than in a separate `env` bucket.
+    # Lazy environments rebuild inside the Hamiltonian constructor, so that
+    # time is included in `ham` rather than in a separate `env` bucket.
     t_env = 0.0
-    ϵ_local = calc_galerkin(site, ψ, O, ψ, env; alg.backend, allocator)
 
     # 1. expand (CBE): mutates AL[site]/AR[site±1]; the === staleness checks in
     #    the environment manager make the dependent environments rebuild lazily
@@ -79,38 +75,42 @@ function local_update!(
     g1 = Base.gc_num()
     gc_ham = Float64(g1.total_time - g0.total_time)
     alloc_ham = Float64(g1.total_allocd - g0.total_allocd)
-    ac_old = ψ.AC[site]
-    t_mv = Ref(0.0)
-    gc_mv = Ref(0.0)
-    alloc_mv = Ref(0.0)
-    g0 = Base.gc_num()
-    t0 = time_ns()
-    λ, AC′, info = @timeit timeroutput "AC_eigsolve" begin
-        _fixedpoint_shifted(H_effective, ac_old, alg.alg_eigsolve, energy_shift,
-                            timeroutput, t_mv, gc_mv, alloc_mv)
+    try
+        ac_old = ψ.AC[site]
+        t_mv = Ref(0.0)
+        gc_mv = Ref(0.0)
+        alloc_mv = Ref(0.0)
+        g0 = Base.gc_num()
+        t0 = time_ns()
+        λ, AC′, info = @timeit timeroutput "AC_eigsolve" begin
+            _fixedpoint_shifted(H_effective, ac_old, alg.alg_eigsolve, energy_shift,
+                                timeroutput, t_mv, gc_mv, alloc_mv)
+        end
+        t_eig = _elapsed_ns(t0)
+        g1 = Base.gc_num()
+        gc_eig = Float64(g1.total_time - g0.total_time)
+        alloc_eig = Float64(g1.total_allocd - g0.total_allocd)
+
+        # 3. gauge
+        g0 = Base.gc_num()
+        t0 = time_ns()
+        ψ, ϵ_trunc = @timeit timeroutput "gauge" _fast_gauge!(
+            ψ, site, direction, AC′, alg.alg_gauge; normalize = true
+        )
+        t_gauge = _elapsed_ns(t0)
+        g1 = Base.gc_num()
+        gc_gauge = Float64(g1.total_time - g0.total_time)
+        alloc_gauge = Float64(g1.total_allocd - g0.total_allocd)
+
+        diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[], t_expand,
+                t_gauge, gc_expand, gc_ham, gc_eig, gc_gauge,
+                alloc_expand, alloc_ham, alloc_eig, alloc_gauge,
+                gc_mv = gc_mv[], alloc_mv = alloc_mv[],
+                gc_krylov = gc_eig - gc_mv[], alloc_krylov = alloc_eig - alloc_mv[])
+        return ψ, λ, ϵ_trunc, diag
+    finally
+        _release_hamiltonian!(H_effective)
     end
-    t_eig = _elapsed_ns(t0)
-    g1 = Base.gc_num()
-    gc_eig = Float64(g1.total_time - g0.total_time)
-    alloc_eig = Float64(g1.total_allocd - g0.total_allocd)
-
-    # 3. gauge
-    g0 = Base.gc_num()
-    t0 = time_ns()
-    ψ, ϵ_trunc = @timeit timeroutput "gauge" _fast_gauge!(
-        ψ, site, direction, AC′, alg.alg_gauge; normalize = true
-    )
-    t_gauge = _elapsed_ns(t0)
-    g1 = Base.gc_num()
-    gc_gauge = Float64(g1.total_time - g0.total_time)
-    alloc_gauge = Float64(g1.total_allocd - g0.total_allocd)
-
-    diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[], t_expand,
-            t_gauge, gc_expand, gc_ham, gc_eig, gc_gauge,
-            alloc_expand, alloc_ham, alloc_eig, alloc_gauge,
-            gc_mv = gc_mv[], alloc_mv = alloc_mv[],
-            gc_krylov = gc_eig - gc_mv[], alloc_krylov = alloc_eig - alloc_mv[])
-    return ψ, λ, ϵ_local, ϵ_trunc, diag
 end
 
 function local_update!(
@@ -130,44 +130,45 @@ function local_update!(
     gc_ham = Float64(g1.total_time - g0.total_time)
     alloc_ham = Float64(g1.total_allocd - g0.total_allocd)
 
-    kind = direction === Val(:right) ? :ACAR : :ALAC
-    ac2 = AC2(ψ, pos; kind)
-    AC2′ = normalize!(Heff * ac2)
-    project_complement!(AC2′, ψ.AL[pos])
-    ϵ_local = norm(AC2′)
+    try
+        kind = direction === Val(:right) ? :ACAR : :ALAC
+        ac2 = AC2(ψ, pos; kind)
 
-    # 1. local two-site update
-    t_mv = Ref(0.0)
-    gc_mv = Ref(0.0)
-    alloc_mv = Ref(0.0)
-    g0 = Base.gc_num()
-    t0 = time_ns()
-    λ, newA2center, info = @timeit timeroutput "AC2_eigsolve" begin
-        _fixedpoint_shifted(Heff, ac2, alg.alg_eigsolve, energy_shift,
-                            timeroutput, t_mv, gc_mv, alloc_mv)
+        # 1. local two-site update
+        t_mv = Ref(0.0)
+        gc_mv = Ref(0.0)
+        alloc_mv = Ref(0.0)
+        g0 = Base.gc_num()
+        t0 = time_ns()
+        λ, newA2center, info = @timeit timeroutput "AC2_eigsolve" begin
+            _fixedpoint_shifted(Heff, ac2, alg.alg_eigsolve, energy_shift,
+                                timeroutput, t_mv, gc_mv, alloc_mv)
+        end
+        t_eig = _elapsed_ns(t0)
+        g1 = Base.gc_num()
+        gc_eig = Float64(g1.total_time - g0.total_time)
+        alloc_eig = Float64(g1.total_allocd - g0.total_allocd)
+
+        # 2. gauge: truncated SVD split back into single-site tensors
+        g0 = Base.gc_num()
+        t0 = time_ns()
+        ψ, ϵ_trunc = @timeit timeroutput "gauge" _fast_gauge2!(
+            ψ, pos, direction, newA2center, alg.alg_gauge
+        )
+        t_gauge = _elapsed_ns(t0)
+        g1 = Base.gc_num()
+        gc_gauge = Float64(g1.total_time - g0.total_time)
+        alloc_gauge = Float64(g1.total_allocd - g0.total_allocd)
+
+        diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[],
+                t_expand = 0.0, t_gauge, gc_ham, gc_eig, gc_gauge,
+                alloc_ham, alloc_eig, alloc_gauge,
+                gc_mv = gc_mv[], alloc_mv = alloc_mv[],
+                gc_krylov = gc_eig - gc_mv[], alloc_krylov = alloc_eig - alloc_mv[])
+        return ψ, λ, ϵ_trunc, diag
+    finally
+        _release_hamiltonian!(Heff)
     end
-    t_eig = _elapsed_ns(t0)
-    g1 = Base.gc_num()
-    gc_eig = Float64(g1.total_time - g0.total_time)
-    alloc_eig = Float64(g1.total_allocd - g0.total_allocd)
-
-    # 2. gauge: truncated SVD split back into single-site tensors
-    g0 = Base.gc_num()
-    t0 = time_ns()
-    ψ, ϵ_trunc = @timeit timeroutput "gauge" _fast_gauge2!(
-        ψ, pos, direction, newA2center, alg.alg_gauge
-    )
-    t_gauge = _elapsed_ns(t0)
-    g1 = Base.gc_num()
-    gc_gauge = Float64(g1.total_time - g0.total_time)
-    alloc_gauge = Float64(g1.total_allocd - g0.total_allocd)
-
-    diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[],
-            t_expand = 0.0, t_gauge, gc_ham, gc_eig, gc_gauge,
-            alloc_ham, alloc_eig, alloc_gauge,
-            gc_mv = gc_mv[], alloc_mv = alloc_mv[],
-            gc_krylov = gc_eig - gc_mv[], alloc_krylov = alloc_eig - alloc_mv[])
-    return ψ, λ, ϵ_local, ϵ_trunc, diag
 end
 
 # fixedpoint with optional spectral shift; returns (λ_true, x, info). Every

@@ -81,7 +81,7 @@ function _cbe_apply_aa!(y, buffer, NL, NR, left, right_tail, leftenv, localop1, 
             localop1[2 5; 3 12] * localop2[12 10; 7 8] * rightenv[6 8; 9] *
             conj(NR[-2; 9 10])
     end
-    return y
+    return nothing
 end
 
 function _cbe_apply_ca!(y, buffer, NL, NR, left, right_tail, localop1, localop2, rightenv,
@@ -95,7 +95,7 @@ function _cbe_apply_ca!(y, buffer, NL, NR, left, right_tail, localop1, localop2,
             conj(NL[1 3; -1]) * left[1 2; 9] * right_tail[9; 4 5] * localop1[3; 2 10] *
             localop2[10 8; 5 6] * rightenv[4 6; 7] * conj(NR[-2; 7 8])
     end
-    return y
+    return nothing
 end
 
 function _cbe_apply_ab!(y, buffer, NL, NR, left, right_tail, leftenv, localop1, localop2,
@@ -109,7 +109,7 @@ function _cbe_apply_ab!(y, buffer, NL, NR, left, right_tail, leftenv, localop1, 
             conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 9] * right_tail[9; 6 7] *
             localop1[2 5; 3 10] * localop2[10 8; 7] * conj(NR[-2; 6 8])
     end
-    return y
+    return nothing
 end
 
 function _cbe_apply_cb!(y, buffer, NL, NR, left, right_tail, localop1, localop2,
@@ -123,62 +123,62 @@ function _cbe_apply_cb!(y, buffer, NL, NR, left, right_tail, localop1, localop2,
             conj(NL[1 3; -1]) * left[1 2; 7] * right_tail[7; 4 5] * localop1[3; 2 8] *
             localop2[8 6; 5] * conj(NR[-2; 4 6])
     end
-    return y
+    return nothing
 end
 
-# Directly collect every nonzero MPO path into one flat costed-task pool.
-function _cbe_tasks(GL2, W1, W2, GR2, NL, NR, left, right_tail)
-    tasks = _CostedTask[]
+# Build an independent-node graph over the same runtime used by AC/AC2.
+function _cbe_graph(GL2, W1, W2, GR2, NL, NR, left, right_tail)
+    builder = _GraphBuilder(:flat)
     T = promote_type(eltype(NL), eltype(NR), eltype(left), eltype(right_tail))
-
-    # continuing left - continuing right
     for (I1, A1b) in nonzero_pairs(W1.A), (I2, A2b) in nonzero_pairs(W2.A)
         I1[4] == I2[1] || continue
         GLb, GRb = GL2[I1[1]], GR2[I2[4]]
-        push!(tasks, _CostedTask(12, :AA,
-            (y, _, buf, first) -> _cbe_apply_aa!(
+        _add_node!(builder, :AA, 12,
+            (y, _, buf, first, state) -> _cbe_apply_aa!(
                 y, buf, NL, NR, left, right_tail, GLb, A1b, A2b, GRb, first
-            ), (; gl = I1[1], gc = 0, cache = nothing)))
+            ), meta = (; gl = I1[1], gc = 0, mid = I1[4]))
         T = promote_type(T, eltype(GLb), eltype(A1b), eltype(A2b), eltype(GRb))
     end
-    # starting left - continuing right
     for (Ic, C1b) in nonzero_pairs(W1.C), (Ia, A2b) in nonzero_pairs(W2.A)
         Ic[3] == Ia[1] || continue
         GRb = GR2[Ia[4]]
-        push!(tasks, _CostedTask(10, :CA,
-            (y, _, buf, first) -> _cbe_apply_ca!(
+        _add_node!(builder, :CA, 10,
+            (y, _, buf, first, state) -> _cbe_apply_ca!(
                 y, buf, NL, NR, left, right_tail, C1b, A2b, GRb, first
-            ), (; gl = 0, gc = Ic[3], cache = nothing)))
+            ), meta = (; gl = 0, gc = Ic[3], mid = Ia[1]))
         T = promote_type(T, eltype(C1b), eltype(A2b), eltype(GRb))
     end
-    # continuing left - ending right
     for (Ia, A1b) in nonzero_pairs(W1.A), (Ib, B2b) in nonzero_pairs(W2.B)
         Ia[4] == Ib[1] || continue
         GLb = GL2[Ia[1]]
-        push!(tasks, _CostedTask(10, :AB,
-            (y, _, buf, first) -> _cbe_apply_ab!(
+        _add_node!(builder, :AB, 10,
+            (y, _, buf, first, state) -> _cbe_apply_ab!(
                 y, buf, NL, NR, left, right_tail, GLb, A1b, B2b, first
-            ), (; gl = Ia[1], gc = 0, cache = nothing)))
+            ), meta = (; gl = Ia[1], gc = 0, mid = Ia[4]))
         T = promote_type(T, eltype(GLb), eltype(A1b), eltype(B2b))
     end
-    # starting left - ending right
     for (Ic, C1b) in nonzero_pairs(W1.C), (Ib, B2b) in nonzero_pairs(W2.B)
         Ic[3] == Ib[1] || continue
-        push!(tasks, _CostedTask(8, :CB,
-            (y, _, buf, first) -> _cbe_apply_cb!(
+        _add_node!(builder, :CB, 8,
+            (y, _, buf, first, state) -> _cbe_apply_cb!(
                 y, buf, NL, NR, left, right_tail, C1b, B2b, first
-            ), (; gl = 0, gc = Ic[3], cache = nothing)))
+            ), meta = (; gl = 0, gc = Ic[3], mid = Ib[1]))
         T = promote_type(T, eltype(C1b), eltype(B2b))
     end
-    return tasks, T
+    return _freeze_graph(builder), T
 end
 
-# Accumulate all paths into `y`; parallel execution uses one accumulator per
-# worker and merges those buffers through `_execute_tasks!`.
-function _cbe_apply_all!(y, tasks::Vector{_CostedTask})
-    isempty(tasks) && return y
-    _execute_tasks!(y, _sorted_tasks(tasks), _accumulator_workspace(), nothing)
-    return y
+function _cbe_apply_all!(y, plan::_GraphPlan)
+    isempty(plan.nodes) && return y
+    state = _MatvecState(plan)
+    workers = _WorkerResources()
+    try
+        return _apply_plan!(y, plan, state, workers,
+            _ExecutionPolicy(cap = nothing, tree = false), nothing)
+    finally
+        _release_state!(state)
+        _release_workers!(workers)
+    end
 end
 
 # ---------------------------------------------------------------------------
@@ -199,13 +199,13 @@ function _cbe_g2(
     W1, W2 = H[site], H[site + 1]
     GL2, GR2 = GL[2:(end - 1)], GR[2:(end - 1)]
     right_tail = _transpose_tail(right)
-    tasks, T = _cbe_tasks(GL2, W1, W2, GR2, NL, NR, left, right_tail)
+    plan, T = _cbe_graph(GL2, W1, W2, GR2, NL, NR, left, right_tail)
     # `TensorMap{T}(undef, space)` dualizes the first argument internally;
     # pass the dual would-be codomain so the resulting tensor has the same
     # space as the channel contractions.
     g2_space = dual(space(NL, 3)) ← space(NR, 1)
     g2 = vi_zerovector(TensorMap{T}(undef, g2_space), T)
-    return _cbe_apply_all!(g2, tasks)
+    return _cbe_apply_all!(g2, plan)
 end
 
 # generic MPO (or multi-physical-leg state) fallback: one explicit two-site

@@ -37,8 +37,8 @@ gs, envs, E0 = dmrg2(ψ0, H, truncdims;
 ```
 
 `dmrg2!` is the mutating version. Each saved sweep stores the state, energy,
-per-bond Galerkin and truncation errors, and the maximal bond dimension in the
-JLD2 file, which is useful for long runs on a cluster.
+per-bond truncation errors, and the maximal bond dimension in the JLD2 file,
+which is useful for long runs on a cluster.
 
 ## One-Site DMRG with CBE
 
@@ -73,10 +73,10 @@ dimension.
 ## Logging and Checkpoints
 
 - `verbose = 1` prints one summary line per sweep (energy, maximal bond
-  dimension, energy change, maximal Galerkin and truncation errors); a
-  `TimerOutput` summary is printed at the end.
+  dimension, energy change, and maximal truncation error); a `TimerOutput`
+  summary is printed at the end.
 - `verbose = 2` additionally prints one line per local update (sweep direction,
-  bond, current bond dimension, local errors, timestamp).
+  bond, current bond dimension, truncation error, timestamp).
 - `save` controls JLD2 checkpointing (`false` writes nothing, `true`
   stores only the final sweep, a vector of sweep indices stores those
   sweeps), together with `filename`.

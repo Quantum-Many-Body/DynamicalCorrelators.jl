@@ -28,16 +28,18 @@
 # With disk backing the two arrays are `SerializedElementArray`s (one file per
 # entry, the same mechanism as FiniteMPS.jl's `disk = true`); freeing an entry
 # deletes its file. Dependencies stay in memory (they are tiny references).
+# By default each disk array also keeps one deserialized hot entry; the cold
+# files and their capacity requirements are unchanged.
 #
 # The environment tensors remain ordinary MPSKit/BlockTensorKit objects, so the
 # manager plugs into every MPSKit building block (`AC_hamiltonian`,
-# `AC2_hamiltonian`, `calc_galerkin`, CBE `changebond!`, `expectation_value`,
+# `AC2_hamiltonian`, CBE `changebond!`, `expectation_value`,
 # ...) through the `MPSKit.leftenv`/`MPSKit.rightenv` overloads below — the MPS
 # and MPO themselves are untouched MPSKit objects.
 
 """
     HalfFiniteEnvironments(ψ::FiniteMPS, H; disk = false,
-        threaded_transfer = Threads.nthreads() > 1)
+        hot = disk !== false, threaded_transfer = Threads.nthreads() > 1)
 
 Memory-frugal environment manager for finite MPSKit calculations.
 
@@ -49,10 +51,11 @@ Memory-frugal environment manager for finite MPSKit calculations.
   missing; each array gets its own random subdirectory underneath, so
   concurrent runs never collide). Disk backing trades I/O for memory at the
   largest bond dimensions; freed entries are deleted. An explicit string must
-  point at fast node-local or burst-buffer storage, not at a shared network
-  filesystem (SerializedElementArray does many small reads/writes per file,
-  which network filesystems amplify into a latency storm — measured
-  ~1.5-3 MB/s effective on /bbfs vs page-cache speed node-locally).
+  point at fast node-local or burst-buffer storage.
+- `hot`: defaults to `disk !== false`. For disk-backed environments, cache the
+  most recently read or written environment separately on each side. Writes
+  replace the corresponding hot entry and frees invalidate it. Set `hot=false`
+  for direct deserialization on every access; cold storage is unchanged.
 - `threaded_transfer`: build each environment from the Jordan-MPO channel list
   contracted across Julia threads (per-task local accumulation + locked merge,
   the same pattern as the threaded Hamiltonian). Defaults to
@@ -86,6 +89,7 @@ end
 function HalfFiniteEnvironments(
         ψ::FiniteMPS, H;
         disk::Union{Bool, AbstractString} = false,
+        hot::Bool = disk !== false,
         threaded_transfer::Bool = Threads.nthreads() > 1
     )
     N = length(ψ)
@@ -105,8 +109,8 @@ function HalfFiniteEnvironments(
         # random subdirectory underneath it
         path = disk === true ? tempdir() : String(disk)
         @info "HalfFiniteEnvironments: serializing environments under $path"
-        GLs = serialize_disk(TL[i == 1 ? GL1 : nothing for i in 1:(N + 1)]; path)
-        GRs = serialize_disk(TR[i == N + 1 ? GRN : nothing for i in 1:(N + 1)]; path)
+        GLs = _with_hot_cache(serialize_disk(TL[i == 1 ? GL1 : nothing for i in 1:(N + 1)]; path), hot)
+        GRs = _with_hot_cache(serialize_disk(TR[i == N + 1 ? GRN : nothing for i in 1:(N + 1)]; path), hot)
     else
         GLs = TL[i == 1 ? GL1 : nothing for i in 1:(N + 1)]
         GRs = TR[i == N + 1 ? GRN : nothing for i in 1:(N + 1)]
@@ -120,9 +124,11 @@ function HalfFiniteEnvironments(
 end
 
 """
-    HalfFiniteEnvironments(below::FiniteMPS, O, above::AbstractFiniteMPS; disk = false)
+    HalfFiniteEnvironments(below::FiniteMPS, O, above::AbstractFiniteMPS;
+        disk = false, hot = disk !== false)
 
-Mixed (two-state) environment manager for variational compression
+Mixed (two-state) environment manager for variational compression. Disk-backed
+instances use the same bounded hot cache as the Hamiltonian-only constructor.
 (MPSKit's `environments(below, operator, above)`): the environments of the
 overlap ⟨above|O|below⟩, where `below` is the state being optimized (its
 tensors are replaced during the sweep and drive the === staleness tracking)
@@ -143,7 +149,8 @@ plain (width-1/2) `FiniteMPO` whose transfer is a single small contraction.
 """
 function HalfFiniteEnvironments(
         below::FiniteMPS, O, above::AbstractFiniteMPS;
-        disk::Union{Bool, AbstractString} = false
+        disk::Union{Bool, AbstractString} = false,
+        hot::Bool = disk !== false
     )
     N = length(below)
     N >= 2 || throw(ArgumentError("HalfFiniteEnvironments needs at least 2 sites"))
@@ -180,8 +187,8 @@ function HalfFiniteEnvironments(
     if disk !== false
         path = disk === true ? tempdir() : String(disk)
         @info "HalfFiniteEnvironments: serializing environments under $path"
-        GLs = serialize_disk(TL[i == 1 ? GL1 : nothing for i in 1:(N + 1)]; path)
-        GRs = serialize_disk(TR[i == N + 1 ? GRN : nothing for i in 1:(N + 1)]; path)
+        GLs = _with_hot_cache(serialize_disk(TL[i == 1 ? GL1 : nothing for i in 1:(N + 1)]; path), hot)
+        GRs = _with_hot_cache(serialize_disk(TR[i == N + 1 ? GRN : nothing for i in 1:(N + 1)]; path), hot)
     else
         GLs = TL[i == 1 ? GL1 : nothing for i in 1:(N + 1)]
         GRs = TR[i == N + 1 ? GRN : nothing for i in 1:(N + 1)]
@@ -198,8 +205,8 @@ length(env::HalfFiniteEnvironments) = length(env.GLs) - 1
     env_memory_bytes(env::HalfFiniteEnvironments) -> Int
 
 Approximate number of bytes currently held by the stored environments.
-For disk-backed managers this only counts the (tiny) in-memory structures;
-use the process RSS for the real footprint.
+For disk-backed managers this includes the bounded hot entries but not the
+cold files; use the process RSS for the real footprint.
 """
 env_memory_bytes(env::HalfFiniteEnvironments) =
     Base.summarysize(env.GLs) + Base.summarysize(env.GRs)
@@ -208,14 +215,103 @@ env_memory_bytes(env::HalfFiniteEnvironments) =
 # storage primitives (memory vs disk)
 # ---------------------------------------------------------------------------
 
+mutable struct _HotStore{V, T} <: AbstractVector{T}
+    data::V
+    cache_index::Int
+    cache_value::Any
+end
+
+function _HotStore(data::V) where {T, V <: AbstractVector{T}}
+    return _HotStore{V, T}(data, 0, nothing)
+end
+
+_with_hot_cache(data, hot::Bool) = hot ? _HotStore(data) : data
+_disk_store(data::AbstractVector) = data
+_disk_store(store::_HotStore) = store.data
+Base.parent(store::_HotStore) = store.data
+Base.size(store::_HotStore) = size(store.data)
+Base.IndexStyle(::Type{<:_HotStore}) = IndexLinear()
+pathname(store::_HotStore) = pathname(store.data)
+filename(store::_HotStore, I...) = filename(store.data, I...)
+
+function Base.getindex(store::_HotStore{V, T}, i::Int)::T where {V, T}
+    checkbounds(store, i)
+    store.cache_index == i && return store.cache_value
+    value = store.data[i]
+    if value !== nothing
+        store.cache_index = i
+        store.cache_value = value
+    end
+    return value
+end
+
+function _cache_written!(store::_HotStore, i::Int, value)
+    if value === nothing
+        if store.cache_index == i
+            store.cache_index = 0
+            store.cache_value = nothing
+        end
+    else
+        store.cache_index = i
+        store.cache_value = value
+    end
+    return nothing
+end
+
+function Base.setindex!(store::_HotStore, value, i::Int)
+    converted = convert(eltype(store), value)
+    store.data[i] = converted
+    _cache_written!(store, i, converted)
+    return store
+end
+
 _isstored(v::AbstractVector, i::Int) = v[i] !== nothing
 _isstored(v::SerializedElementArray, i::Int) =
     isfile(filename(v, i))
+_isstored(store::_HotStore, i::Int) = _isstored(store.data, i)
+
+_hot_cache_bytes(::AbstractVector) = 0
+_hot_cache_bytes(store::_HotStore) =
+    store.cache_index == 0 ? 0 : Base.summarysize(store.cache_value)
+
+"""
+    _store_entry!(v, i, value)
+
+Store one environment entry. Disk writes use a fresh single-entry array on the
+same filesystem and atomically replace the current file instead of truncating
+it. Only one live version remains. The temporary directory is always removed.
+"""
+_store_entry!(v::AbstractVector, i::Int, value) = (v[i] = value; nothing)
+function _store_entry!(v::SerializedElementArray, i::Int, value)
+    temporary = SerializedElementArray{eltype(v), 1}(
+        undef, 1; path = dirname(filename(v, i))
+    )
+    try
+        temporary[1] = value
+        mv(filename(temporary, 1), filename(v, i); force = true)
+    finally
+        rm(dirname(filename(temporary, 1)); recursive = true, force = true)
+    end
+    return nothing
+end
 
 _free_entry!(v::AbstractVector, i::Int) = (v[i] = nothing; nothing)
 function _free_entry!(v::SerializedElementArray, i::Int)
     # same mechanism as FiniteMPS.jl's `cleanup!`: remove the serialized file
     rm(filename(v, i); force = true)
+    return nothing
+end
+
+function _store_entry!(store::_HotStore, i::Int, value)
+    converted = convert(eltype(store), value)
+    _store_entry!(store.data, i, converted)
+    _cache_written!(store, i, converted)
+    return nothing
+end
+
+function _free_entry!(store::_HotStore, i::Int)
+    _free_entry!(store.data, i)
+    _cache_written!(store, i, nothing)
     return nothing
 end
 
@@ -296,7 +392,7 @@ function leftenv(env::HalfFiniteEnvironments, ind::Int, state::AbstractFiniteMPS
     a = findfirst(j -> !_isstored(GLs, j + 1) || !(state.AL[j] === env.ldependencies[j]), 1:(ind - 1))
     if !isnothing(a)
         for j in a:(ind - 1)
-            GLs[j + 1] = _pushright(env, j, state)
+            _store_entry!(GLs, j + 1, _pushright(env, j, state))
             env.ldependencies[j] = state.AL[j]
         end
     end
@@ -310,7 +406,7 @@ function rightenv(env::HalfFiniteEnvironments, ind::Int, state::AbstractFiniteMP
     if !isnothing(a)
         a = N - a + 1
         for j in a:-1:(ind + 1)
-            GRs[j] = _pushleft(env, j, state)
+            _store_entry!(GRs, j, _pushleft(env, j, state))
             env.rdependencies[j] = state.AR[j]
         end
     end
