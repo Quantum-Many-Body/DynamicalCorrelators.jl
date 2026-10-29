@@ -145,7 +145,7 @@ function _fc_graph(GL2, W1, W2, GR2, left, right_tail, left_c, right_c)
         B2_of[t[1]] = t[3]
     end
     for t in cb
-        B2_of[t[1]] = t[2]
+        B2_of[t[1]] = t[3]
     end
 
     builder = _GraphBuilder(:tree)
