@@ -294,7 +294,11 @@ function _dmrg_log_move(alg, dir::Val{D}, pos::Int, ψ, λ, ϵ_trunc, wpos::Int,
         env_str = diag.t_env > 1e6 ?
             @sprintf("env %.1fs | ", _diag_s(diag.t_env)) : ""
         expand_str = diag.t_expand > 1e7 ?
-            @sprintf(" | exp %.2fs", _diag_s(diag.t_expand)) : ""
+            @sprintf(" | exp %.2fs (can %.1f g2 %.1f svd %.1f rec %.1f | gc %.1f al %.1fG)",
+                _diag_s(diag.t_expand), _diag_s(diag.t_expand_can),
+                _diag_s(diag.t_expand_g2), _diag_s(diag.t_expand_svd),
+                _diag_s(diag.t_expand_rec), diag.gc_expand / 1e9,
+                diag.alloc_expand / 2^30) : ""
         @printf(
             "  %s: %*d%s%*d | D=%*d | E=%.6f | K=%2d | eig %.1fs (mv %.1fs) | %sham %.1fs%s | gauge %.1fs | ϵtr %.1e | %s\n",
             tag, wpos, b, arrow, wpos, b + 1, wD, Db, real(λ), diag.numops,
@@ -316,14 +320,24 @@ struct _SweepDiag
     t_ham::Float64   # effective-Hamiltonian construction (ns; envs already fresh)
     t_expand::Float64
     t_gauge::Float64
+    t_expand_can::Float64   # changebond! sub-phases (ns)
+    t_expand_g2::Float64
+    t_expand_svd::Float64
+    t_expand_rec::Float64
+    gc_expand::Float64      # expand GC time (ns)
+    alloc_expand::Float64   # expand allocations (bytes)
 end
-_SweepDiag() = _SweepDiag(0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+_SweepDiag() = _SweepDiag(0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 function _accum!(s::_SweepDiag, diag)
     diag === nothing && return s
     return _SweepDiag(
         s.n_mv + diag.numops, s.t_mv + diag.t_mv, s.t_eig + diag.t_eig,
         s.t_env + diag.t_env, s.t_ham + diag.t_ham,
-        s.t_expand + diag.t_expand, s.t_gauge + diag.t_gauge
+        s.t_expand + diag.t_expand, s.t_gauge + diag.t_gauge,
+        s.t_expand_can + diag.t_expand_can, s.t_expand_g2 + diag.t_expand_g2,
+        s.t_expand_svd + diag.t_expand_svd, s.t_expand_rec + diag.t_expand_rec,
+        s.gc_expand + diag.gc_expand, s.alloc_expand + diag.alloc_expand
     )
 end
 function _print_sweep_diag(io::IO, s::_SweepDiag, gc0, gc1, sweep_seconds::Float64)
@@ -334,7 +348,10 @@ function _print_sweep_diag(io::IO, s::_SweepDiag, gc0, gc1, sweep_seconds::Float
     env_str = s.t_env > 1e6 ?
         @sprintf("env %.1fs | ", _diag_s(s.t_env)) : ""
     expand_str = s.t_expand > 1e7 ?
-        @sprintf(" | exp %.2fs", _diag_s(s.t_expand)) : ""
+        @sprintf(" | exp %.2fs (can %.1f g2 %.1f svd %.1f rec %.1f | gc %.1f al %.1fG)",
+            _diag_s(s.t_expand), _diag_s(s.t_expand_can), _diag_s(s.t_expand_g2),
+            _diag_s(s.t_expand_svd), _diag_s(s.t_expand_rec),
+            s.gc_expand / 1e9, s.alloc_expand / 2^30) : ""
     @printf(
         io,
         "  mv %d (%.0f ms avg) | eig %.1fs (mv %.1fs, %.0f%%) | %sham %.1fs%s | gauge %.1fs | GC %.1fs + safepoint %.1fs (%.1f%% of sweep) | alloc %.2f GiB\n",
