@@ -1,4 +1,5 @@
 [deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 DynamicalCorrelators = "7abe38c7-550a-49b0-ba99-33d1b5164ede"
 ExactDiagonalization = "52dcaa32-6da7-11e9-20ef-755843cf72eb"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
