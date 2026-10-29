@@ -89,7 +89,7 @@ function _fc_graph(GL2, W1, W2, GR2, left, right_tail, left_c, right_c)
         Ic[3] == Ia[1] || continue
         m, b = Ic[3], Ia[4]
         GRb = GR2[b]
-        push!(ca, (; m, C1 = C1b, A2 = A2b, GR = GRb))
+        push!(ca, (; m, b, C1 = C1b, A2 = A2b, GR = GRb))
         Tel = promote_type(Tel, eltype(C1b), eltype(A2b), eltype(GRb))
     end
     for (Ia, A1b) in nonzero_pairs(W1.A), (Ib, B2b) in nonzero_pairs(W2.B)
