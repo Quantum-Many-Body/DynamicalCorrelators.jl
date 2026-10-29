@@ -73,79 +73,79 @@ function _fc_x2!(y, L, R, buffer, first::Bool)
 end
 
 function _fc_graph(GL2, W1, W2, GR2, left, right_tail, left_c, right_c)
-    aa = NamedTuple[]
-    ca = NamedTuple[]
-    ab = NamedTuple[]
-    cb = NamedTuple[]
+    aa = Tuple{Int,Int,Int,Any,Any,Any}[]
+    ca = Tuple{Int,Int,Any,Any,Any}[]
+    ab = Tuple{Int,Int,Int,Any,Any}[]
+    cb = Tuple{Int,Any,Any}[]
     Tel = Union{}
     for (I1, A1b) in nonzero_pairs(W1.A), (I2, A2b) in nonzero_pairs(W2.A)
         I1[4] == I2[1] || continue
         a, m, b = I1[1], I1[4], I2[4]
         GLb, GRb = GL2[a], GR2[b]
-        push!(aa, (; a, m, b, A1 = A1b, A2 = A2b, GR = GRb))
+        push!(aa, (a, m, b, A1b, A2b, GRb))
         Tel = promote_type(Tel, eltype(GLb), eltype(A1b), eltype(A2b), eltype(GRb))
     end
     for (Ic, C1b) in nonzero_pairs(W1.C), (Ia, A2b) in nonzero_pairs(W2.A)
         Ic[3] == Ia[1] || continue
         m, b = Ic[3], Ia[4]
         GRb = GR2[b]
-        push!(ca, (; m, b, C1 = C1b, A2 = A2b, GR = GRb))
+        push!(ca, (m, b, C1b, A2b, GRb))
         Tel = promote_type(Tel, eltype(C1b), eltype(A2b), eltype(GRb))
     end
     for (Ia, A1b) in nonzero_pairs(W1.A), (Ib, B2b) in nonzero_pairs(W2.B)
         Ia[4] == Ib[1] || continue
         a, m = Ia[1], Ia[4]
         GLb = GL2[a]
-        push!(ab, (; a, m, A1 = A1b, B2 = B2b))
+        push!(ab, (a, m, A1b, B2b))
         Tel = promote_type(Tel, eltype(GLb), eltype(A1b), eltype(B2b))
     end
     for (Ic, C1b) in nonzero_pairs(W1.C), (Ib, B2b) in nonzero_pairs(W2.B)
         Ic[3] == Ib[1] || continue
         m = Ic[3]
-        push!(cb, (; m, C1 = C1b, B2 = B2b))
+        push!(cb, (m, C1b, B2b))
         Tel = promote_type(Tel, eltype(C1b), eltype(B2b))
     end
     (isempty(aa) && isempty(ca) && isempty(ab) && isempty(cb)) &&
         error("no CBE channels at this bond")
 
-    rows = sort!(unique!(vcat(Int[p.a for p in aa], Int[p.a for p in ab])))
+    rows = sort!(unique!(vcat(Int[t[1] for t in aa], Int[t[1] for t in ab])))
     pairs = sort!(unique!(vcat(
-        Tuple{Int,Int}[(p.a, p.m) for p in aa],
-        Tuple{Int,Int}[(p.a, p.m) for p in ab]
+        Tuple{Int,Int}[(t[1], t[2]) for t in aa],
+        Tuple{Int,Int}[(t[1], t[2]) for t in ab]
     )))
-    lc_keys = sort!(unique!(vcat(Int[p.m for p in ca], Int[p.m for p in cb])))
+    lc_keys = sort!(unique!(vcat(Int[t[1] for t in ca], Int[t[1] for t in cb])))
     ra_keys = sort!(unique!(vcat(
-        Tuple{Int,Int}[(p.m, p.GR === nothing ? 0 : p.b) for p in aa],
-        Tuple{Int,Int}[(p.m, p.GR === nothing ? 0 : p.b) for p in ca]
+        Tuple{Int,Int}[(t[1], t[2]) for t in aa],
+        Tuple{Int,Int}[(t[1], t[2]) for t in ca]
     )))
-    rb_keys = sort!(unique!(vcat(Int[p.m for p in ab], Int[p.m for p in cb])))
+    rb_keys = sort!(unique!(vcat(Int[t[1] for t in ab], Int[t[1] for t in cb])))
     A1_of = Dict{Tuple{Int,Int},Any}()
-    for p in aa
-        A1_of[(p.a, p.m)] = p.A1
+    for t in aa
+        A1_of[(t[1], t[2])] = t[4]
     end
-    for p in ab
-        A1_of[(p.a, p.m)] = p.A1
+    for t in ab
+        A1_of[(t[1], t[2])] = t[3]
     end
     C1_of = Dict{Int,Any}()
-    for p in ca
-        C1_of[p.m] = p.C1
+    for t in ca
+        C1_of[t[1]] = t[3]
     end
-    for p in cb
-        C1_of[p.m] = p.C1
+    for t in cb
+        C1_of[t[1]] = t[2]
     end
     A2_of = Dict{Tuple{Int,Int},Any}()
-    for p in aa
-        A2_of[(p.m, p.b)] = (p.A2, p.GR)
+    for t in aa
+        A2_of[(t[1], t[2])] = (t[4], t[5])
     end
-    for p in ca
-        A2_of[(p.m, p.b)] = (p.A2, p.GR)
+    for t in ca
+        A2_of[(t[1], t[2])] = (t[4], t[5])
     end
     B2_of = Dict{Int,Any}()
-    for p in ab
-        B2_of[p.m] = p.B2
+    for t in ab
+        B2_of[t[1]] = t[3]
     end
-    for p in cb
-        B2_of[p.m] = p.B2
+    for t in cb
+        B2_of[t[1]] = t[2]
     end
 
     builder = _GraphBuilder(:tree)
@@ -208,53 +208,53 @@ function _fc_graph(GL2, W1, W2, GR2, left, right_tail, left_c, right_c)
             writes_y = false, produces = [slot])
     end
 
-    for p in aa
-        lkey, rkey = (p.a, p.m), (p.m, p.b)
+    for t in aa
+        lkey, rkey = (t[1], t[2]), (t[2], t[3])
         _add_node!(builder, :AA, 4,
             (y, _, buf, first, state) -> _fc_x2!(
                 y, state.slots[Sslots[lkey]], state.slots[RAslots[rkey]], buf, first
             );
             deps = [Snodes[lkey], RAnodes[rkey]], reads = [Sslots[lkey], RAslots[rkey]])
     end
-    for p in ca
-        rkey = (p.m, p.b)
+    for t in ca
+        rkey = (t[1], t[2])
         _add_node!(builder, :CA, 4,
             (y, _, buf, first, state) -> _fc_x2!(
-                y, state.slots[LCslots[p.m]], state.slots[RAslots[rkey]], buf, first
+                y, state.slots[LCslots[t[1]]], state.slots[RAslots[rkey]], buf, first
             );
-            deps = [LCnodes[p.m], RAnodes[rkey]], reads = [LCslots[p.m], RAslots[rkey]])
+            deps = [LCnodes[t[1]], RAnodes[rkey]], reads = [LCslots[t[1]], RAslots[rkey]])
     end
-    for p in ab
-        lkey = (p.a, p.m)
+    for t in ab
+        lkey = (t[1], t[2])
         _add_node!(builder, :AB, 4,
             (y, _, buf, first, state) -> _fc_x2!(
-                y, state.slots[Sslots[lkey]], state.slots[RBslots[p.m]], buf, first
+                y, state.slots[Sslots[lkey]], state.slots[RBslots[t[2]]], buf, first
             );
-            deps = [Snodes[lkey], RBnodes[p.m]], reads = [Sslots[lkey], RBslots[p.m]])
+            deps = [Snodes[lkey], RBnodes[t[2]]], reads = [Sslots[lkey], RBslots[t[2]]])
     end
-    for p in cb
+    for t in cb
         _add_node!(builder, :CB, 4,
             (y, _, buf, first, state) -> _fc_x2!(
-                y, state.slots[LCslots[p.m]], state.slots[RBslots[p.m]], buf, first
+                y, state.slots[LCslots[t[1]]], state.slots[RBslots[t[1]]], buf, first
             );
-            deps = [LCnodes[p.m], RBnodes[p.m]], reads = [LCslots[p.m], RBslots[p.m]])
+            deps = [LCnodes[t[1]], RBnodes[t[1]]], reads = [LCslots[t[1]], RBslots[t[1]]])
     end
     return _freeze_graph(builder), aa, ca, ab, cb
 end
 
 function _fc_example(aa, ca, ab, cb, GL2, left, right_tail)
     if !isempty(aa)
-        p = first(aa)
-        return _fc_x2(_fc_la(_fc_t(GL2[p.a], left), p.A1), _fc_ra(right_tail, p.A2, p.GR))
+        t = first(aa)
+        return _fc_x2(_fc_la(_fc_t(GL2[t[1]], left), t[4]), _fc_ra(right_tail, t[5], t[6]))
     elseif !isempty(ca)
-        p = first(ca)
-        return _fc_x2(_fc_lc(left, p.C1), _fc_ra(right_tail, p.A2, p.GR))
+        t = first(ca)
+        return _fc_x2(_fc_lc(left, t[3]), _fc_ra(right_tail, t[4], t[5]))
     elseif !isempty(ab)
-        p = first(ab)
-        return _fc_x2(_fc_la(_fc_t(GL2[p.a], left), p.A1), _fc_rb(right_tail, p.B2))
+        t = first(ab)
+        return _fc_x2(_fc_la(_fc_t(GL2[t[1]], left), t[3]), _fc_rb(right_tail, t[4]))
     else
-        p = first(cb)
-        return _fc_x2(_fc_lc(left, p.C1), _fc_rb(right_tail, p.B2))
+        t = first(cb)
+        return _fc_x2(_fc_lc(left, t[2]), _fc_rb(right_tail, t[3]))
     end
 end
 
