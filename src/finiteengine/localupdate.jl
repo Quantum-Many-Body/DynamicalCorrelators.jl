@@ -52,7 +52,12 @@ function local_update!(
     t_expand = 0.0
     gc_expand = 0.0
     alloc_expand = 0.0
+    t_expand_can = 0.0
+    t_expand_g2 = 0.0
+    t_expand_svd = 0.0
+    t_expand_rec = 0.0
     if !isnothing(alg.alg_expand)
+        sub0 = _expand_subtimes(timeroutput)
         g0 = Base.gc_num()
         t0 = time_ns()
         @timeit timeroutput "expand" changebond!(
@@ -62,6 +67,11 @@ function local_update!(
         g1 = Base.gc_num()
         gc_expand = Float64(g1.total_time - g0.total_time)
         alloc_expand = Float64(g1.total_allocd - g0.total_allocd)
+        sub1 = _expand_subtimes(timeroutput)
+        t_expand_can = sub1[1] - sub0[1]
+        t_expand_g2 = sub1[2] - sub0[2]
+        t_expand_svd = sub1[3] - sub0[3]
+        t_expand_rec = sub1[4] - sub0[4]
     end
 
     # 2. local update: the expand step replaced tensors, so the environments
@@ -105,6 +115,7 @@ function local_update!(
         diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[], t_expand,
                 t_gauge, gc_expand, gc_ham, gc_eig, gc_gauge,
                 alloc_expand, alloc_ham, alloc_eig, alloc_gauge,
+                t_expand_can, t_expand_g2, t_expand_svd, t_expand_rec,
                 gc_mv = gc_mv[], alloc_mv = alloc_mv[],
                 gc_krylov = gc_eig - gc_mv[], alloc_krylov = alloc_eig - alloc_mv[])
         return ψ, λ, ϵ_trunc, diag
@@ -162,6 +173,9 @@ function local_update!(
 
         diag = (; numops = info.numops, t_env, t_ham, t_eig, t_mv = t_mv[],
                 t_expand = 0.0, t_gauge, gc_ham, gc_eig, gc_gauge,
+                gc_expand = 0.0, alloc_expand = 0.0,
+                t_expand_can = 0.0, t_expand_g2 = 0.0,
+                t_expand_svd = 0.0, t_expand_rec = 0.0,
                 alloc_ham, alloc_eig, alloc_gauge,
                 gc_mv = gc_mv[], alloc_mv = alloc_mv[],
                 gc_krylov = gc_eig - gc_mv[], alloc_krylov = alloc_eig - alloc_mv[])
@@ -180,6 +194,19 @@ end
 # themselves carry no instrumentation. `t_mv` additionally accumulates the
 # per-update matvec wall time for the driver's per-update diagnostics.
 _elapsed_ns(t0::UInt) = Float64(time_ns() - t0)
+
+# Cumulative wall times of the changebond! sub-phases ("canonicalize"/"g2"/
+# "svd"/"reconstruct") inside the timer's "expand" section; a per-update share
+# is the difference around the call (0 when the section never ran).
+function _expand_subtimes(timeroutput::TimerOutput)
+    sec = get(timeroutput.inner_timers, "expand", nothing)
+    it = sec === nothing ? nothing : sec.inner_timers
+    t(name) = begin
+        s = it === nothing ? nothing : get(it, name, nothing)
+        s === nothing ? 0.0 : Float64(timer_time(s))
+    end
+    return (t("canonicalize"), t("g2"), t("svd"), t("reconstruct"))
+end
 
 function _fixedpoint_shifted(H_effective, x0, alg_eigsolve, energy_shift::Real, timeroutput,
         t_mv::Ref{Float64} = Ref(0.0), gc_mv::Ref{Float64} = Ref(0.0),

@@ -120,59 +120,60 @@ const ED_EIGSOLVE = DynamicalCorrelators._default_alg_eigsolve(
     left_c, _, _ = MPSKit.left_gauge(left)
     right_c = MPSKit._transpose_tail(right)
     GL, GR = MPSKit.leftenv(envs, pos, ψ), MPSKit.rightenv(envs, pos + 1, ψ)
-    plan, aa, ca, ab, cb = DynamicalCorrelators._fc_graph(
-        GL[2:(end - 1)], H[pos], H[pos + 1], GR[2:(end - 1)],
-        left, MPSKit._transpose_tail(right), left_c, right_c)
-    @test !isempty(aa)
-    @test !isempty(ca)
-    @test !isempty(ab)
-    @test !isempty(cb)
+    GR2 = GR[2:(end - 1)]
+    channels, lA, lC, rA, rB, rows = DynamicalCorrelators._fc_channels(
+        H[pos], H[pos + 1], GR2)
+    @test !isempty(channels)
+    @test !isempty(lA)
+    @test !isempty(lC)
+    @test !isempty(rA)
+    @test !isempty(rB)
+    @test sort!(unique!([a for m in channels for (a, _) in get(lA, m, [])])) == rows
+    plan = DynamicalCorrelators._fc_graph(
+        GL[2:(end - 1)], channels, lA, lC, rA, rB, rows,
+        left, MPSKit._transpose_tail(right), left_c, right_c, nothing)
 
-    maps = Dict{Symbol,Any}()
-    for node in plan.nodes
-        node.kind == :S && (maps[:A1] = getfield(node.apply, :A1_of))
-        node.kind == :LC && (maps[:C1] = getfield(node.apply, :C1_of))
-        node.kind == :RB && (maps[:B2] = getfield(node.apply, :B2_of))
-    end
-    for t in aa
-        @test maps[:A1][(t[1], t[2])] === t[4]
-    end
-    for t in ca
-        @test maps[:C1][t[1]] === t[3]
-    end
-    for t in ab
-        @test maps[:A1][(t[1], t[2])] === t[3]
-        @test maps[:B2][t[2]] === t[4]
-    end
-    for t in cb
-        @test maps[:C1][t[1]] === t[2]
-        @test maps[:B2][t[1]] === t[3]
-    end
-
-    expected = Dict{Tuple{Int,Int},Any}()
-    for t in aa
-        expected[(t[2], t[3])] = (t[5], t[6])
-    end
-    for t in ca
-        expected[(t[1], t[2])] = (t[4], t[5])
-    end
-    nodes = filter(node -> node.kind == :RA, plan.nodes)
-    @test length(nodes) == length(expected)
-    for (key, node) in zip(sort!(collect(keys(expected))), nodes)
-        @test getfield(node.apply, :A2) === expected[key][1]
-        @test getfield(node.apply, :GR) === expected[key][2]
+    # per-channel metadata: L nodes capture the inner-index-summed A1 terms
+    # and the C1 block, R nodes the (b, A2, GR) terms and the B2 block
+    np = DynamicalCorrelators.nonzero_pairs
+    A1_of = Dict((I[1], I[4]) => b for (I, b) in np(H[pos].A))
+    C1_of = Dict(I[3] => b for (I, b) in np(H[pos].C))
+    A2_of = Dict((I[1], I[4]) => b for (I, b) in np(H[pos + 1].A))
+    B2_of = Dict(I[1] => b for (I, b) in np(H[pos + 1].B))
+    lnodes = filter(node -> node.kind == :L, plan.nodes)
+    rnodes = filter(node -> node.kind == :R, plan.nodes)
+    x2nodes = filter(node -> node.kind == :X2, plan.nodes)
+    @test length(lnodes) == length(rnodes) == length(x2nodes) == length(channels)
+    for (m, lnode, rnode) in zip(channels, lnodes, rnodes)
+        for (a, A1) in getfield(lnode.apply, :aterms)
+            @test A1 === A1_of[(a, m)]
+        end
+        C1b = getfield(lnode.apply, :C1b)
+        C1b === nothing || @test C1b === C1_of[m]
+        for (b, A2, GRb) in getfield(rnode.apply, :bterms)
+            @test A2 === A2_of[(m, b)]
+            @test GRb === GR2[b]
+        end
+        B2b = getfield(rnode.apply, :B2b)
+        B2b === nothing || @test B2b === B2_of[m]
     end
 
-    alg = CBEExpand(; trunc = truncrank(2))
-    nrm = norm(ψ)
-    ψr = copy(ψ)
-    envsr = HalfFiniteEnvironments(ψr, H)
-    MPSKit.changebond!(pos, Val(:right), ψr, H, alg, envsr)
-    @test norm(ψr) ≈ nrm
-    ψl = copy(ψ)
-    envsl = HalfFiniteEnvironments(ψl, H)
-    MPSKit.changebond!(pos, Val(:left), ψl, H, alg, envsl)
-    @test norm(ψl) ≈ nrm
+    for rsvd in (false, true)
+        alg = CBEExpand(; trunc = truncrank(2), rsvd)
+        nrm = norm(ψ)
+        Dr = dim(left_virtualspace(ψ, pos + 1))
+        ψr = copy(ψ)
+        envsr = HalfFiniteEnvironments(ψr, H)
+        MPSKit.changebond!(pos, Val(:right), ψr, H, alg, envsr)
+        @test norm(ψr) ≈ nrm
+        @test dim(left_virtualspace(ψr, pos + 1)) == Dr + 2
+        Dl = dim(left_virtualspace(ψ, pos))
+        ψl = copy(ψ)
+        envsl = HalfFiniteEnvironments(ψl, H)
+        MPSKit.changebond!(pos, Val(:left), ψl, H, alg, envsl)
+        @test norm(ψl) ≈ nrm
+        @test dim(left_virtualspace(ψl, pos)) == Dl + 2
+    end
 end
 
 @testset "operators" begin
