@@ -40,7 +40,8 @@ function DC.momentum_plot(geometry::DC.MomentumGeometry;
     shifts = tiled ? vec([cell.B * [i, j] for i in -1:1, j in -1:1]) : [zeros(2)]
     palette = isnothing(sector_colors) ? [:blue, :red, :green, :orange, :purple, :brown, :pink, :olive, :cyan, :magenta, :gray, :black] : sector_colors
     fig = MK.Figure(; size)
-    ax = MK.Axis(fig[1, 1]; aspect=MK.DataAspect(), xlabel="kₓ", ylabel="kᵧ", title)
+    ax = MK.Axis(fig[1, 1]; aspect=MK.DataAspect(), xlabel="kₓ", ylabel="kᵧ", title,
+                 xgridvisible=false, ygridvisible=false)
 
     if show_bz
         for shift in shifts
