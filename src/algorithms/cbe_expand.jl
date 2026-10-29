@@ -1,30 +1,15 @@
-# Controlled Bond Expansion (CBE) as an MPSKit `changebond!` algorithm.
+# Controlled Bond Expansion (CBE) with factorized left/right complements.
 #
-# `CBEExpand` selects expansion directions from the dominant singular vectors
-# of the projected two-site update `g2 = NL†·H|ψ₂⟩·NR̄`, where `NL`/`NR` are
-# isometries onto the orthogonal complements of the current tensors — the same
-# quantity MPSKit's `OptimalExpand` uses (the "direct" selection of Gleis, Li
-# & von Delft, PRL 130, 246402 (2023)). The difference is purely
-# computational: `OptimalExpand` first applies the two-site effective
-# Hamiltonian to the full `(D, d, d, D)` two-site state and only then projects
-# onto the complement, while here every nonzero Jordan-MPO channel is
-# contracted directly into the projected matrix, so the full two-site vector
-# is never formed and the sparse channel structure is distributed over Julia
-# threads.
+# Jordan-MPO paths are split at the MPO bond. Left half tensors are built from
+# GL/left/W1, right half tensors from right_tail/W2/GR. MPSKit's complement
+# projectors act on these halves directly, so no explicit nullspace basis is
+# formed. The final x2 is assembled only from AA/CA/AB/CB channels; channels
+# acting as the identity on either physical leg vanish under the projection.
 #
-# Only the four channel classes acting non-trivially on BOTH physical legs
-# survive the nullspace projection: `AA` (continuing-continuing), `CA`
-# (starting-continuing), `AB` (continuing-ending) and `CB` (starting-ending).
-# Every other block of the two-site derivative acts as the identity on at
-# least one physical leg and is annihilated by `NL†` or `NR̄`.
-#
-# Non-Jordan MPOs fall back to one explicit two-site matvec
-# (`AC2_projection`), i.e. exactly `OptimalExpand`'s selection.
-#
-# The channel contractions are the ones validated by the pre-v0.14 CBE
-# implementation (v0.13 `hamiltonian_derivatives_multithreading.jl`), written
-# in the @plansor planar conventions of src/draft/tensorkit-plansor-conventions.md
-# — do not "fix" leg orders without a numerical check against `AC2_projection`.
+# The graph shares T[a] = GL[a] * left and S[(a,m)] = T[a] * A1 only by their
+# concrete keys, like the AC2 tree. CA/CB similarly reuse left * C1 only for
+# the same C1 and m. Complete paths and final x2 contributions are never
+# merged merely because they have the same block kind.
 
 """
     CBEExpand(; trunc, alg_svd = SafeDivideAndConquer())
@@ -34,19 +19,15 @@ bond-expansion algorithm, usable everywhere `OptimalExpand` is accepted — the
 `alg_expand` keyword of [`dmrg1!`](@ref)/[`dmrg_mix!`](@ref), MPSKit's `DMRG`
 and `TDVP` drivers, or a standalone `changebonds!` call.
 
-The expansion directions are the dominant singular vectors of the projected
-two-site update `NL† H|ψ₂⟩ NR̄`, where `NL`/`NR` are isometries onto the
-orthogonal complement of the current tensors. For Jordan-MPO Hamiltonians this
-matrix is assembled channel by channel directly in the complement — the full
-two-site effective-Hamiltonian application that makes `OptimalExpand`
-expensive is never formed. Other MPO types fall back to one explicit two-site
-matvec (identical selection to `OptimalExpand`).
+The expansion directions are dominant singular vectors of the projected
+two-site update. Jordan-MPO paths use factorized left/right complements and
+MPSKit's `project_complement!`/`project_complement_right!`, avoiding explicit
+nullspace bases and the full unprojected two-site vector. Other MPO types use
+MPSKit's `OptimalExpand`.
 
 `trunc` bounds how much is *added* to each bond, not the total bond dimension
-that is kept (same convention as `OptimalExpand`); the gauge step of the local
-update truncates the enlarged bond back to the sweep's target. The projected
-block is normalized before the SVD, so only `truncrank`/`truncspace` have a
-robust meaning here.
+that is kept. The projected block is normalized before the SVD, so only
+`truncrank`/`truncspace` have a robust meaning here.
 
 # Fields
 - `trunc::TruncationStrategy`: how many directions are *added* to each bond
@@ -57,229 +38,311 @@ robust meaning here.
     trunc::TruncationStrategy
 end
 
-# ---------------------------------------------------------------------------
-# channel-decomposed projected two-site update (Jordan MPOs)
-# ---------------------------------------------------------------------------
+function _fc_t(GL, left)
+    return @plansor T[-1 -2; -3 -4] := GL[-1 -2; 1] * left[1 -4; -3]
+end
 
-# Each kernel contracts one nonzero MPO path directly into the projected
-# matrix `g2 = NL†·H|ψ₂⟩·NR̄`: `left` is the left site tensor (`AC[site]` for
-# `Val(:right)`, `AL[site-1]` for `Val(:left)`) and `right_tail` is
-# `_transpose_tail` of the right one (`AR[site+1]`/`AC[site]`). The @plansor
-# leg orderings follow the planar conventions of the validated pre-v0.14 code.
-# Keep `conj(...)` inline: TensorKit's planar parser relies on it to determine
-# leg directions, so precomputing a conjugated tensor changes the planarity.
-function _cbe_apply_aa!(y, buffer, NL, NR, left, right_tail, leftenv, localop1, localop2,
-                        rightenv, first::Bool)
+function _fc_la(T, A1)
+    return @plansor L[-1 -2; -3 -4] := T[-1 1; -3 2] * A1[1 -2; 2 -4]
+end
+
+function _fc_lc(left, C1)
+    return @plansor L[-1 -2; -3 -4] := left[-1 2; -3] * C1[-2; 2 -4]
+end
+
+function _fc_ra(right_tail, A2, GR)
+    return @plansor R[-3 -4; -6 -5] :=
+        right_tail[-3; 2 3] * A2[-4 -5; 3 6] * GR[2 6; -6]
+end
+
+function _fc_rb(right_tail, B2)
+    return @plansor R[-3 -4; -5 -6] := right_tail[-3; -5 3] * B2[-4 -6; 3]
+end
+
+function _fc_x2(L, R)
+    return @plansor x2[-1 -2; -5 -6] := L[-1 -2; 3 4] * R[3 4; -5 -6]
+end
+
+function _fc_x2!(y, L, R, buffer, first::Bool)
     if first
-        @plansor allocator = buffer y[-1; -2] =
-            conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 11] * right_tail[11; 6 7] *
-            localop1[2 5; 3 12] * localop2[12 10; 7 8] * rightenv[6 8; 9] *
-            conj(NR[-2; 9 10])
+        @plansor allocator = buffer y[-1 -2; -5 -6] = L[-1 -2; 3 4] * R[3 4; -5 -6]
     else
-        @plansor allocator = buffer y[-1; -2] +=
-            conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 11] * right_tail[11; 6 7] *
-            localop1[2 5; 3 12] * localop2[12 10; 7 8] * rightenv[6 8; 9] *
-            conj(NR[-2; 9 10])
+        @plansor allocator = buffer y[-1 -2; -5 -6] += L[-1 -2; 3 4] * R[3 4; -5 -6]
     end
     return nothing
 end
 
-function _cbe_apply_ca!(y, buffer, NL, NR, left, right_tail, localop1, localop2, rightenv,
-                        first::Bool)
-    if first
-        @plansor allocator = buffer y[-1; -2] =
-            conj(NL[1 3; -1]) * left[1 2; 9] * right_tail[9; 4 5] * localop1[3; 2 10] *
-            localop2[10 8; 5 6] * rightenv[4 6; 7] * conj(NR[-2; 7 8])
-    else
-        @plansor allocator = buffer y[-1; -2] +=
-            conj(NL[1 3; -1]) * left[1 2; 9] * right_tail[9; 4 5] * localop1[3; 2 10] *
-            localop2[10 8; 5 6] * rightenv[4 6; 7] * conj(NR[-2; 7 8])
-    end
-    return nothing
-end
-
-function _cbe_apply_ab!(y, buffer, NL, NR, left, right_tail, leftenv, localop1, localop2,
-                        first::Bool)
-    if first
-        @plansor allocator = buffer y[-1; -2] =
-            conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 9] * right_tail[9; 6 7] *
-            localop1[2 5; 3 10] * localop2[10 8; 7] * conj(NR[-2; 6 8])
-    else
-        @plansor allocator = buffer y[-1; -2] +=
-            conj(NL[4 5; -1]) * leftenv[4 2; 1] * left[1 3; 9] * right_tail[9; 6 7] *
-            localop1[2 5; 3 10] * localop2[10 8; 7] * conj(NR[-2; 6 8])
-    end
-    return nothing
-end
-
-function _cbe_apply_cb!(y, buffer, NL, NR, left, right_tail, localop1, localop2,
-                        first::Bool)
-    if first
-        @plansor allocator = buffer y[-1; -2] =
-            conj(NL[1 3; -1]) * left[1 2; 7] * right_tail[7; 4 5] * localop1[3; 2 8] *
-            localop2[8 6; 5] * conj(NR[-2; 4 6])
-    else
-        @plansor allocator = buffer y[-1; -2] +=
-            conj(NL[1 3; -1]) * left[1 2; 7] * right_tail[7; 4 5] * localop1[3; 2 8] *
-            localop2[8 6; 5] * conj(NR[-2; 4 6])
-    end
-    return nothing
-end
-
-# Build an independent-node graph over the same runtime used by AC/AC2.
-function _cbe_graph(GL2, W1, W2, GR2, NL, NR, left, right_tail)
-    builder = _GraphBuilder(:flat)
-    T = promote_type(eltype(NL), eltype(NR), eltype(left), eltype(right_tail))
+function _fc_graph(GL2, W1, W2, GR2, left, right_tail, left_c, right_c)
+    aa = NamedTuple[]
+    ca = NamedTuple[]
+    ab = NamedTuple[]
+    cb = NamedTuple[]
+    Tel = Union{}
     for (I1, A1b) in nonzero_pairs(W1.A), (I2, A2b) in nonzero_pairs(W2.A)
         I1[4] == I2[1] || continue
-        GLb, GRb = GL2[I1[1]], GR2[I2[4]]
-        _add_node!(builder, :AA, 12,
-            (y, _, buf, first, state) -> _cbe_apply_aa!(
-                y, buf, NL, NR, left, right_tail, GLb, A1b, A2b, GRb, first
-            ), meta = (; gl = I1[1], gc = 0, mid = I1[4]))
-        T = promote_type(T, eltype(GLb), eltype(A1b), eltype(A2b), eltype(GRb))
+        a, m, b = I1[1], I1[4], I2[4]
+        GLb, GRb = GL2[a], GR2[b]
+        push!(aa, (; a, m, A1 = A1b, A2 = A2b, GR = GRb))
+        Tel = promote_type(Tel, eltype(GLb), eltype(A1b), eltype(A2b), eltype(GRb))
     end
     for (Ic, C1b) in nonzero_pairs(W1.C), (Ia, A2b) in nonzero_pairs(W2.A)
         Ic[3] == Ia[1] || continue
-        GRb = GR2[Ia[4]]
-        _add_node!(builder, :CA, 10,
-            (y, _, buf, first, state) -> _cbe_apply_ca!(
-                y, buf, NL, NR, left, right_tail, C1b, A2b, GRb, first
-            ), meta = (; gl = 0, gc = Ic[3], mid = Ia[1]))
-        T = promote_type(T, eltype(C1b), eltype(A2b), eltype(GRb))
+        m, b = Ic[3], Ia[4]
+        GRb = GR2[b]
+        push!(ca, (; m, C1 = C1b, A2 = A2b, GR = GRb))
+        Tel = promote_type(Tel, eltype(C1b), eltype(A2b), eltype(GRb))
     end
     for (Ia, A1b) in nonzero_pairs(W1.A), (Ib, B2b) in nonzero_pairs(W2.B)
         Ia[4] == Ib[1] || continue
-        GLb = GL2[Ia[1]]
-        _add_node!(builder, :AB, 10,
-            (y, _, buf, first, state) -> _cbe_apply_ab!(
-                y, buf, NL, NR, left, right_tail, GLb, A1b, B2b, first
-            ), meta = (; gl = Ia[1], gc = 0, mid = Ia[4]))
-        T = promote_type(T, eltype(GLb), eltype(A1b), eltype(B2b))
+        a, m = Ia[1], Ia[4]
+        GLb = GL2[a]
+        push!(ab, (; a, m, A1 = A1b, B2 = B2b))
+        Tel = promote_type(Tel, eltype(GLb), eltype(A1b), eltype(B2b))
     end
     for (Ic, C1b) in nonzero_pairs(W1.C), (Ib, B2b) in nonzero_pairs(W2.B)
         Ic[3] == Ib[1] || continue
-        _add_node!(builder, :CB, 8,
-            (y, _, buf, first, state) -> _cbe_apply_cb!(
-                y, buf, NL, NR, left, right_tail, C1b, B2b, first
-            ), meta = (; gl = 0, gc = Ic[3], mid = Ib[1]))
-        T = promote_type(T, eltype(C1b), eltype(B2b))
+        m = Ic[3]
+        push!(cb, (; m, C1 = C1b, B2 = B2b))
+        Tel = promote_type(Tel, eltype(C1b), eltype(B2b))
     end
-    return _freeze_graph(builder), T
+    (isempty(aa) && isempty(ca) && isempty(ab) && isempty(cb)) &&
+        error("no CBE channels at this bond")
+
+    rows = sort!(unique!(vcat(Int[p.a for p in aa], Int[p.a for p in ab])))
+    pairs = sort!(unique!(vcat(
+        Tuple{Int,Int}[(p.a, p.m) for p in aa],
+        Tuple{Int,Int}[(p.a, p.m) for p in ab]
+    )))
+    lc_keys = sort!(unique!(vcat(Int[p.m for p in ca], Int[p.m for p in cb])))
+    ra_keys = sort!(unique!(vcat(
+        Tuple{Int,Int}[(p.m, p.GR === nothing ? 0 : p.b) for p in aa],
+        Tuple{Int,Int}[(p.m, p.GR === nothing ? 0 : p.b) for p in ca]
+    )))
+    rb_keys = sort!(unique!(vcat(Int[p.m for p in ab], Int[p.m for p in cb])))
+    A1_of = Dict{Tuple{Int,Int},Any}()
+    for p in aa
+        A1_of[(p.a, p.m)] = p.A1
+    end
+    for p in ab
+        A1_of[(p.a, p.m)] = p.A1
+    end
+    C1_of = Dict{Int,Any}()
+    for p in ca
+        C1_of[p.m] = p.C1
+    end
+    for p in cb
+        C1_of[p.m] = p.C1
+    end
+    A2_of = Dict{Tuple{Int,Int},Any}()
+    for p in aa
+        A2_of[(p.m, p.b)] = (p.A2, p.GR)
+    end
+    for p in ca
+        A2_of[(p.m, p.b)] = (p.A2, p.GR)
+    end
+    B2_of = Dict{Int,Any}()
+    for p in ab
+        B2_of[p.m] = p.B2
+    end
+    for p in cb
+        B2_of[p.m] = p.B2
+    end
+
+    builder = _GraphBuilder(:tree)
+    Tslots = Dict{Int,Int}()
+    Sslots = Dict{Tuple{Int,Int},Int}()
+    LCslots = Dict{Int,Int}()
+    RAslots = Dict{Tuple{Int,Int},Int}()
+    RBslots = Dict{Int,Int}()
+    Tnodes = Dict{Int,Int}()
+    Snodes = Dict{Tuple{Int,Int},Int}()
+    LCnodes = Dict{Int,Int}()
+    RAnodes = Dict{Tuple{Int,Int},Int}()
+    RBnodes = Dict{Int,Int}()
+
+    for a in rows
+        slot = _add_slot!(builder)
+        Tslots[a] = slot
+        Tnodes[a] = _add_node!(builder, :T, 2,
+            (y, _, buf, first, state) -> _getslot!(state, slot) do
+                _fc_t(GL2[a], left)
+            end;
+            writes_y = false, produces = [slot])
+    end
+    for p in pairs
+        a, m = p
+        slot = _add_slot!(builder)
+        Sslots[p] = slot
+        Snodes[p] = _add_node!(builder, :S, 3,
+            (y, _, buf, first, state) -> _getslot!(state, slot) do
+                project_complement!(_fc_la(state.slots[Tslots[a]], A1_of[p]), left_c)
+            end;
+            writes_y = false, deps = [Tnodes[a]], reads = [Tslots[a]], produces = [slot])
+    end
+    for m in lc_keys
+        slot = _add_slot!(builder)
+        LCslots[m] = slot
+        LCnodes[m] = _add_node!(builder, :LC, 2,
+            (y, _, buf, first, state) -> _getslot!(state, slot) do
+                project_complement!(_fc_lc(left, C1_of[m]), left_c)
+            end;
+            writes_y = false, produces = [slot])
+    end
+    for key in ra_keys
+        slot = _add_slot!(builder)
+        RAslots[key] = slot
+        A2, GR = A2_of[key]
+        RAnodes[key] = _add_node!(builder, :RA, 3,
+            (y, _, buf, first, state) -> _getslot!(state, slot) do
+                project_complement_right!(_fc_ra(right_tail, A2, GR), right_c)
+            end;
+            writes_y = false, produces = [slot])
+    end
+    for m in rb_keys
+        slot = _add_slot!(builder)
+        RBslots[m] = slot
+        RBnodes[m] = _add_node!(builder, :RB, 2,
+            (y, _, buf, first, state) -> _getslot!(state, slot) do
+                project_complement_right!(_fc_rb(right_tail, B2_of[m]), right_c)
+            end;
+            writes_y = false, produces = [slot])
+    end
+
+    for p in aa
+        lkey, rkey = (p.a, p.m), (p.m, p.b)
+        _add_node!(builder, :AA, 4,
+            (y, _, buf, first, state) -> _fc_x2!(
+                y, state.slots[Sslots[lkey]], state.slots[RAslots[rkey]], buf, first
+            );
+            deps = [Snodes[lkey], RAnodes[rkey]], reads = [Sslots[lkey], RAslots[rkey]])
+    end
+    for p in ca
+        rkey = (p.m, p.b)
+        _add_node!(builder, :CA, 4,
+            (y, _, buf, first, state) -> _fc_x2!(
+                y, state.slots[LCslots[p.m]], state.slots[RAslots[rkey]], buf, first
+            );
+            deps = [LCnodes[p.m], RAnodes[rkey]], reads = [LCslots[p.m], RAslots[rkey]])
+    end
+    for p in ab
+        lkey = (p.a, p.m)
+        _add_node!(builder, :AB, 4,
+            (y, _, buf, first, state) -> _fc_x2!(
+                y, state.slots[Sslots[lkey]], state.slots[RBslots[p.m]], buf, first
+            );
+            deps = [Snodes[lkey], RBnodes[p.m]], reads = [Sslots[lkey], RBslots[p.m]])
+    end
+    for p in cb
+        _add_node!(builder, :CB, 4,
+            (y, _, buf, first, state) -> _fc_x2!(
+                y, state.slots[LCslots[p.m]], state.slots[RBslots[p.m]], buf, first
+            );
+            deps = [LCnodes[p.m], RBnodes[p.m]], reads = [LCslots[p.m], RBslots[p.m]])
+    end
+    return _freeze_graph(builder), aa, ca, ab, cb
 end
 
-function _cbe_apply_all!(y, plan::_GraphPlan)
-    isempty(plan.nodes) && return y
+function _fc_example(aa, ca, ab, cb, GL2, left, right_tail)
+    if !isempty(aa)
+        p = first(aa)
+        return _fc_x2(_fc_la(_fc_t(GL2[p.a], left), p.A1), _fc_ra(right_tail, p.A2, p.GR))
+    elseif !isempty(ca)
+        p = first(ca)
+        return _fc_x2(_fc_lc(left, p.C1), _fc_ra(right_tail, p.A2, p.GR))
+    elseif !isempty(ab)
+        p = first(ab)
+        return _fc_x2(_fc_la(_fc_t(GL2[p.a], left), p.A1), _fc_rb(right_tail, p.B2))
+    else
+        p = first(cb)
+        return _fc_x2(_fc_lc(left, p.C1), _fc_rb(right_tail, p.B2))
+    end
+end
+
+function _fc_apply_all!(y, plan::_GraphPlan)
     state = _MatvecState(plan)
     workers = _WorkerResources()
     try
         return _apply_plan!(y, plan, state, workers,
-            _ExecutionPolicy(cap = nothing, tree = false), nothing)
+            _ExecutionPolicy(cap = nothing, tree = true), y)
     finally
         _release_state!(state)
         _release_workers!(workers)
     end
 end
 
-# ---------------------------------------------------------------------------
-# projected two-site update g2 = NL†·H|ψ₂⟩·NR̄
-# ---------------------------------------------------------------------------
-
-# Jordan MPO: channel-decomposed direct contraction into the complement. The
-# channel contractions below assume one physical leg per site; states with
-# extra physical legs (e.g. `FiniteSuperMPS`, physical + ancilla) use the
-# explicit-matvec fallback instead.
-function _cbe_g2(
-        site::Int, dir::Val, ψ::AbstractFiniteMPS,
-        H::MPOHamiltonian{<:JordanMPOTensor}, envs, left, right, NL, NR
-    )
-    numout(left) == 2 || return _cbe_g2_matvec(site, dir, ψ, H, envs, NL, NR)
+function _fc_g2(site, ψ, H, envs, left, right, left_c, right_c)
     GL = leftenv(envs, site, ψ)
     GR = rightenv(envs, site + 1, ψ)
     W1, W2 = H[site], H[site + 1]
     GL2, GR2 = GL[2:(end - 1)], GR[2:(end - 1)]
     right_tail = _transpose_tail(right)
-    plan, T = _cbe_graph(GL2, W1, W2, GR2, NL, NR, left, right_tail)
-    # `TensorMap{T}(undef, space)` dualizes the first argument internally;
-    # pass the dual would-be codomain so the resulting tensor has the same
-    # space as the channel contractions.
-    g2_space = dual(space(NL, 3)) ← space(NR, 1)
-    g2 = vi_zerovector(TensorMap{T}(undef, g2_space), T)
-    return _cbe_apply_all!(g2, plan)
+    plan, aa, ca, ab, cb = _fc_graph(GL2, W1, W2, GR2, left, right_tail, left_c, right_c)
+    example = _fc_example(aa, ca, ab, cb, GL2, left, right_tail)
+    y = vi_zerovector(example)
+    return _fc_apply_all!(y, plan)
 end
 
-# generic MPO (or multi-physical-leg state) fallback: one explicit two-site
-# matvec, then project — the same selection as MPSKit's `OptimalExpand`
-function _cbe_g2_matvec(site::Int, dir::Val, ψ::AbstractFiniteMPS, H, envs, NL, NR)
-    kind = dir === Val(:right) ? :ACAR : :ALAC
-    ac2 = AC2_projection(site, ψ, H, ψ, envs; kind)
-    return adjoint(NL) * ac2 * adjoint(NR)
-end
-
-_cbe_g2(site::Int, dir::Val, ψ::AbstractFiniteMPS, H, envs, left, right, NL, NR) =
-    _cbe_g2_matvec(site, dir, ψ, H, envs, NL, NR)
-
-# ---------------------------------------------------------------------------
-# changebond! / changebonds! interface
-# ---------------------------------------------------------------------------
-
-# The state reconstruction is identical to MPSKit's `OptimalExpand`: the
-# current tensor is embedded into the enlarged space with zero weight (the
-# state is preserved), and the new directions live on the tensor across the
-# bond so that the next local update sees them.
 function changebond!(
         site::Int, ::Val{:right}, ψ::AbstractFiniteMPS, H, alg::CBEExpand, envs;
-        normalize::Bool = true, allocator = nothing
+        normalize::Bool = true, allocator = nothing,
+        timeroutput::TimerOutput = get_defaulttimer()
     )
     left = ψ.AC[site]
     right = ψ.AR[site + 1]
-    NL = left_null(left)
-    NR = right_null!(_transpose_tail(right; copy = true))
-
-    g2 = _cbe_g2(site, Val(:right), ψ, H, envs, left, right, NL, NR)
+    if !(H isa MPOHamiltonian{<:JordanMPOTensor}) || numout(left) != 2
+        return changebond!(site, Val(:right), ψ, H,
+            OptimalExpand(; alg_svd = alg.alg_svd, trunc = alg.trunc), envs;
+            normalize, allocator)
+    end
+    left_c = @timeit timeroutput "canonicalize" first(left_gauge(left))
+    right_c = _transpose_tail(right)
+    g2 = @timeit timeroutput "g2" _fc_g2(site, ψ, H, envs, left, right, left_c, right_c)
     nrm = norm(g2)
-    # nothing to expand here; normalizing a zero g2 would NaN the SVD
     nrm ≤ eps(real(scalartype(g2)))^(3 / 4) && return ψ
-    _, _, Vᴴ = svd_trunc!(scale!(g2, inv(nrm)); trunc = alg.trunc, alg = alg.alg_svd)
+    _, _, Vᴴ = @timeit timeroutput "svd" svd_trunc!(
+        scale!(g2, inv(nrm)); trunc = alg.trunc, alg = alg.alg_svd)
 
-    # optimal vectors at site+1; embed `left` with zero weight in the new
-    # directions, leaving the state unchanged
-    ar_re = Vᴴ * NR
-    nal_space = codomain(left) ← (only(domain(left)) ⊕ space(Vᴴ, 1))
-    nal, nc, _ = left_gauge(absorb!(zerovector!(similar(left, nal_space)), left))
-    nar = _transpose_front(catcodomain(_transpose_tail(right), ar_re))
-
-    normalize && normalize!(nc)
-    ψ.AC[site] = (nal, nc)
-    ψ.AC[site + 1] = (nc, nar)
+    @timeit timeroutput "reconstruct" begin
+        nal_space = codomain(left) ← (only(domain(left)) ⊕ space(Vᴴ, 1))
+        nal, nc, _ = left_gauge(absorb!(zerovector!(similar(left, nal_space)), left))
+        nar = _transpose_front(catcodomain(_transpose_tail(right), Vᴴ))
+        normalize && normalize!(nc)
+        ψ.AC[site] = (nal, nc)
+        ψ.AC[site + 1] = (nc, nar)
+    end
     return ψ
 end
 
 function changebond!(
         site::Int, ::Val{:left}, ψ::AbstractFiniteMPS, H, alg::CBEExpand, envs;
-        normalize::Bool = true, allocator = nothing
+        normalize::Bool = true, allocator = nothing,
+        timeroutput::TimerOutput = get_defaulttimer()
     )
     left = ψ.AL[site - 1]
     right = ψ.AC[site]
-    NL = left_null(left)
-    NR = right_null!(_transpose_tail(right; copy = true))
-
-    g2 = _cbe_g2(site - 1, Val(:left), ψ, H, envs, left, right, NL, NR)
+    if !(H isa MPOHamiltonian{<:JordanMPOTensor}) || numout(left) != 2
+        return changebond!(site, Val(:left), ψ, H,
+            OptimalExpand(; alg_svd = alg.alg_svd, trunc = alg.trunc), envs;
+            normalize, allocator)
+    end
+    left_c = left
+    right_c = @timeit timeroutput "canonicalize" last(right_orth!(
+        _transpose_tail(right; copy = true); trunc = notrunc()))
+    g2 = @timeit timeroutput "g2" _fc_g2(site - 1, ψ, H, envs, left, right, left_c, right_c)
     nrm = norm(g2)
     nrm ≤ eps(real(scalartype(g2)))^(3 / 4) && return ψ
-    U, _, _ = svd_trunc!(scale!(g2, inv(nrm)); trunc = alg.trunc, alg = alg.alg_svd)
+    U, _, _ = @timeit timeroutput "svd" svd_trunc!(
+        scale!(g2, inv(nrm)); trunc = alg.trunc, alg = alg.alg_svd)
 
-    # optimal vectors at site-1; embed `right` with zero weight in the new
-    # directions, leaving the state unchanged
-    Q = NL * U
-    right_tail = _transpose_tail(right)
-    nc_space = (codomain(right_tail)[1] ⊕ _lastspace(Q)') ← domain(right_tail)
-    nc, Qr = lq_compact!(absorb!(zerovector!(similar(right_tail, nc_space)), right_tail))
-    AL_exp = catdomain(left, Q)
-
-    normalize && normalize!(nc)
-    ψ.AC[site] = (nc, _transpose_front(Qr))
-    ψ.AC[site - 1] = (AL_exp, nc)
+    @timeit timeroutput "reconstruct" begin
+        right_tail = _transpose_tail(right)
+        nc_space = (codomain(right_tail)[1] ⊕ _lastspace(U)') ← domain(right_tail)
+        nc, Qr = lq_compact!(absorb!(zerovector!(similar(right_tail, nc_space)), right_tail))
+        AL_exp = catdomain(left, U)
+        normalize && normalize!(nc)
+        ψ.AC[site] = (nc, _transpose_front(Qr))
+        ψ.AC[site - 1] = (AL_exp, nc)
+    end
     return ψ
 end
 

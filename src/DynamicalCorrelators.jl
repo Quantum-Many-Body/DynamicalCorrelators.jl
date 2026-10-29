@@ -22,9 +22,8 @@ using MPSKit: JordanMPOTensor, JordanMPO_AC_Hamiltonian, JordanMPO_AC2_Hamiltoni
 using MPSKit: site_type, AC2, fixedpoint, gauge!, gauge2!, _transpose_tail, _transpose_front
 using MPSKit: left_gauge, _lastspace
 using MPSKit: AC_projection, AC2_projection, inner_alg_gauge, Zipup, approximate
-using MPSKit: C_hamiltonian
-using MPSKit: integrate as mpskit_integrate
-using KrylovKit: Lanczos, ModifiedGramSchmidt, GMRES, linsolve
+using MPSKit: C_hamiltonian, OptimalExpand, project_complement!, project_complement_right!
+using KrylovKit: Lanczos, ModifiedGramSchmidt, GMRES, linsolve, exponentiate
 using MPSKitModels: contract_onesite, contract_twosite, @mpoham, vertices, nearest_neighbours, next_nearest_neighbours
 using MPSKitModels: InfiniteChain, InfiniteCylinder, InfiniteHelix, InfiniteLadder, FiniteChain, FiniteCylinder, FiniteStrip, FiniteHelix, FiniteLadder
 using MPSKitModels: AbstractLattice as MLattice, S_x, S_y
