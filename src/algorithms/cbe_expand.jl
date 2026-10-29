@@ -75,7 +75,7 @@ end
 function _fc_graph(GL2, W1, W2, GR2, left, right_tail, left_c, right_c)
     aa = Tuple{Int,Int,Int,Any,Any,Any}[]
     ca = Tuple{Int,Int,Any,Any,Any}[]
-    ab = Tuple{Int,Int,Int,Any,Any}[]
+    ab = Tuple{Int,Int,Any,Any}[]
     cb = Tuple{Int,Any,Any}[]
     Tel = Union{}
     for (I1, A1b) in nonzero_pairs(W1.A), (I2, A2b) in nonzero_pairs(W2.A)
@@ -115,10 +115,10 @@ function _fc_graph(GL2, W1, W2, GR2, left, right_tail, left_c, right_c)
     )))
     lc_keys = sort!(unique!(vcat(Int[t[1] for t in ca], Int[t[1] for t in cb])))
     ra_keys = sort!(unique!(vcat(
-        Tuple{Int,Int}[(t[1], t[2]) for t in aa],
+        Tuple{Int,Int}[(t[2], t[3]) for t in aa],
         Tuple{Int,Int}[(t[1], t[2]) for t in ca]
     )))
-    rb_keys = sort!(unique!(vcat(Int[t[1] for t in ab], Int[t[1] for t in cb])))
+    rb_keys = sort!(unique!(vcat(Int[t[2] for t in ab], Int[t[1] for t in cb])))
     A1_of = Dict{Tuple{Int,Int},Any}()
     for t in aa
         A1_of[(t[1], t[2])] = t[4]
@@ -135,14 +135,14 @@ function _fc_graph(GL2, W1, W2, GR2, left, right_tail, left_c, right_c)
     end
     A2_of = Dict{Tuple{Int,Int},Any}()
     for t in aa
-        A2_of[(t[1], t[2])] = (t[4], t[5])
+        A2_of[(t[2], t[3])] = (t[5], t[6])
     end
     for t in ca
         A2_of[(t[1], t[2])] = (t[4], t[5])
     end
     B2_of = Dict{Int,Any}()
     for t in ab
-        B2_of[t[1]] = t[3]
+        B2_of[t[2]] = t[4]
     end
     for t in cb
         B2_of[t[1]] = t[3]
