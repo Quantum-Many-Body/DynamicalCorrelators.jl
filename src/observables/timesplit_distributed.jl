@@ -220,13 +220,16 @@ function _ts_dist_state_evolve(s, p)
 
     gc_last = _gc_stamp()
     t_last = time_ns()
+    integration_stats = Any[]
     for r in (r0 + 1):r_end
+        empty!(integration_stats)
         k_from = r == 1 ? 1 : p.record_indices[r - 1]
         k_to = p.record_indices[r]
         for k in (k_from + 1):k_to
             alg = k > p.n ? p.tdvp1 : p.tdvp2
             dτ = (p.times[k] - p.times[k - 1]) / 2
-            ψ, envs = fast_timestep!(ψ, p.H, 0, dtsign * dτ, alg, envs)
+            ψ, envs = fast_timestep!(ψ, p.H, 0, dtsign * dτ, alg, envs;
+                                     integration_stats)
         end
         p.throttle && _ts_dist_wait_throttle(p.meta_dir, r, p.backlog, s)
         _ts_dist_save_state(p.workdir, r, s, ψ)
@@ -240,6 +243,7 @@ function _ts_dist_state_evolve(s, p)
                     " | wall ", _ts_ns_str(wall),
                     " | GC ", @sprintf("%.1f%%", 100 * gc / max(wall, 1)),
                     " | RSS ", _format_gib(gc_now.rss))
+            _ts_integration_report(stdout, integration_stats)
             flush(stdout)
             gc_last = gc_now
             t_last = time_ns()

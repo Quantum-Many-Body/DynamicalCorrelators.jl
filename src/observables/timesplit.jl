@@ -140,10 +140,12 @@ With `verbose = true`, every recorded slice logs a small diagnostics block
 after the usual progress line, organized as an indented wall-clock tree:
 the serial phases (evolve / overlaps / other) add up to the slice duration;
 under `evolve`, the per-state breakdown of the TDVP sections (Krylov
-integration, Hamiltonian construction, gauge/expand, disk-backed
-environment reads, and the untimed remainder) followed by the
-compute / GC / safepoint-wait split of the phase wall. These tables are the
-first place to look when a slice is slower than expected.
+integration and nested matvec, Hamiltonian construction, gauge/expand,
+disk-backed environment reads, and the untimed remainder), preceded by
+per-kind AC/AC2/C matvec shares, actual Krylov dimensions and convergence
+counts, and followed by the compute / GC / safepoint-wait split of the phase
+wall. These tables are the first place to look when a slice is slower than
+expected.
 
 Returns `gf :: Array{ComplexF64,3}` of size
 `(length(H), length(H), length(record_indices))`. With `save = true`, each
@@ -271,6 +273,8 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         end
         timers_bra = [TimerOutput() for _ in bras]
         timers_ket = [TimerOutput() for _ in kets]
+        infos_bra = [Any[] for _ in bras]
+        infos_ket = [Any[] for _ in kets]
         # same per-phase caps for the evolution: the first n two-site steps grow
         # the bonds up to the tdvp2 cap and are workspace-heavy; the one-site
         # steps that dominate the wall time are memory-light. Both families
@@ -319,8 +323,8 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             # phase's wall into compute / GC / safepoint wait
             gc_evolve_before = _gc_stamp()
             evolve_start_ns = time_ns()
-            @timeit timer "evolve" _ts_evolve!(bras, envs_bra, timers_bra,
-                                               kets, envs_ket, timers_ket,
+            @timeit timer "evolve" _ts_evolve!(bras, envs_bra, timers_bra, infos_bra,
+                                               kets, envs_ket, timers_ket, infos_ket,
                                                H, dτ, alg, sem, step_durations)
             evolve_ns = time_ns() - evolve_start_ns
             gc_evolve_after = _gc_stamp()
@@ -341,6 +345,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                 _progress_step(k, length(times),
                                "t = $(times[k]) | maxD bra = $(_ts_max_bonddim(bras)), ket = $(_ts_max_bonddim(kets))",
                                now() - slice_start)
+                _ts_integration_report(stdout, Iterators.flatten(Iterators.flatten((infos_bra, infos_ket))))
                 _ts_step_report(stdout, step_durations, L, timers_bra, timers_ket,
                                 gc_evolve_before, gc_evolve_after, gc_overlap_after,
                                 time_ns() - slice_start_ns,
@@ -351,6 +356,8 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             # next table describes the next slice, not the whole run so far
             foreach(reset_timer!, timers_bra)
             foreach(reset_timer!, timers_ket)
+            foreach(empty!, infos_bra)
+            foreach(empty!, infos_ket)
             slice_start = now()
             slice_start_ns = time_ns()
         end
@@ -370,10 +377,12 @@ end
 
 # evolve both families one TDVP step: one merged 2L-task pool (dt < 0 for
 # the e^{+iHτ} bras, dt > 0 for the e^{-iHτ} kets), thread-parallel with at
-# most `sem` in flight, each state with its own TimerOutput. `durations[s]`
-# receives the wall time of task s (s <= L: bra s, else ket s - L),
-# measured after the semaphore is acquired, so it excludes queueing
-function _ts_evolve!(bras, envs_bra, timers_bra, kets, envs_ket, timers_ket,
+# most `sem` in flight, each state with its own TimerOutput and integration
+# statistics vector. `durations[s]` receives the wall time of task s
+# (s <= L: bra s, else ket s - L), measured after the semaphore is acquired,
+# so it excludes queueing
+function _ts_evolve!(bras, envs_bra, timers_bra, infos_bra,
+                     kets, envs_ket, timers_ket, infos_ket,
                      H, dτ, alg, sem, durations)
     L = length(bras)
     Threads.@threads :dynamic for s in 1:(2L)
@@ -383,12 +392,14 @@ function _ts_evolve!(bras, envs_bra, timers_bra, kets, envs_ket, timers_ket,
             if s <= L
                 bras[s], envs_bra[s] = fast_timestep!(bras[s], H, 0, -dτ, alg,
                                                       envs_bra[s];
-                                                      timeroutput=timers_bra[s])
+                                                      timeroutput = timers_bra[s],
+                                                      integration_stats = infos_bra[s])
             else
                 i = s - L
                 kets[i], envs_ket[i] = fast_timestep!(kets[i], H, 0, +dτ, alg,
                                                       envs_ket[i];
-                                                      timeroutput=timers_ket[i])
+                                                      timeroutput = timers_ket[i],
+                                                      integration_stats = infos_ket[i])
             end
             durations[s] = Float64(time_ns() - t0)
         finally
@@ -408,6 +419,33 @@ function _gc_stamp()
 end
 
 _ts_ns_str(ns) = _short_duration(Nanosecond(round(Int, ns)))
+
+function _ts_integration_report(io, infos)
+    groups = Dict{Symbol,Vector{Any}}()
+    for info in infos
+        push!(get!(groups, info.kind, Any[]), info)
+    end
+    isempty(groups) && return nothing
+    for kind in (:AC2, :AC, :C)
+        haskey(groups, kind) || continue
+        rows = groups[kind]
+        total = sum(info.t_total for info in rows)
+        mv = sum(info.t_mv for info in rows)
+        ks = sort!([info.krylovdim for info in rows if info.krylovdim >= 0])
+        ksummary = isempty(ks) ? "n/a" :
+                   @sprintf("%d/%.1f/%d", first(ks), sum(ks) / length(ks), last(ks))
+        maxnorm = maximum(info.normres for info in rows)
+        failed = count(info -> info.converged == 0, rows)
+        println(io, "        integrate ", rpad(kind, 3),
+                " calls ", lpad(length(rows), 5),
+                " | total ", _ts_ns_str(total),
+                " | mv ", @sprintf("%.1f%%", 100 * mv / max(total, 1)),
+                " | K min/mean/max ", ksummary,
+                " | max normres ", @sprintf("%.2e", maxnorm),
+                " | failed ", failed)
+    end
+    return nothing
+end
 
 # aggregate the timed sections of every per-state TDVP timer by name,
 # summed over all states; returns name => (ncalls, ns). The two sweep

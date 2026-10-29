@@ -405,6 +405,33 @@ end
         @test  df < 1e-4
     end
 
+    @testset "fast TDVP integration diagnostics" begin
+        N = 4
+        H = hubbard(ComplexF64, SU2Irrep, U1Irrep, FiniteChain(N);
+                    t = -1.0, U = 8.0, filling = (1, 1))
+        st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, N; filling = (1, 1))
+        for alg in (myTDVP1(; krylovdim = 12),
+                    myTDVP2(; trunc = truncrank(64), krylovdim = 12))
+            ψref = complex(copy(st))
+            ψfast = complex(copy(st))
+            envref = MPSKit.environments(ψref, H, ψref)
+            envfast = HalfFiniteEnvironments(ψfast, H)
+            ψref, envref, _ = MPSKit.timestep!(ψref, H, 0.0, 0.02, alg, envref)
+            infos = Any[]
+            ψfast, envfast = fast_timestep!(ψfast, H, 0.0, 0.02, alg, envfast;
+                                            integration_stats = infos)
+            @test abs(dot(ψfast, ψref)) ≈ norm(ψfast) * norm(ψref) atol = 1e-9
+            @test length(infos) == (alg isa TDVP ? 4N - 2 : 4N - 6)
+            @test count(info -> info.kind == :AC2, infos) ==
+                  (alg isa TDVP ? 0 : 2N - 2)
+            @test count(info -> info.kind == :C, infos) ==
+                  (alg isa TDVP ? 2N - 2 : 0)
+            @test all(info -> info.converged == 1, infos)
+            @test all(info -> info.krylovdim >= 0, infos)
+            @test all(info -> info.numops >= 1 && 0 <= info.t_mv <= info.t_total, infos)
+        end
+    end
+
     @testset "Finite temperature" begin
         lattice = Lattice(unitcell, (4, ), ('o',))
         hilbert = Hilbert(site=>Fock{:f}(1, 2) for site=1:length(lattice))

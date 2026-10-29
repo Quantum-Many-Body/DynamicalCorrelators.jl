@@ -56,7 +56,7 @@ function local_update!(
         g0 = Base.gc_num()
         t0 = time_ns()
         @timeit timeroutput "expand" changebond!(
-            site, direction, ψ, O, alg.alg_expand, env; allocator
+            site, direction, ψ, O, alg.alg_expand, env; allocator, timeroutput
         )
         t_expand = _elapsed_ns(t0)
         g1 = Base.gc_num()
