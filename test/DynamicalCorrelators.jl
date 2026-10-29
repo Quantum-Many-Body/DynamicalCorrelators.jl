@@ -102,6 +102,79 @@ const ED_EIGSOLVE = DynamicalCorrelators._default_alg_eigsolve(
     24; tol=1e-12, eager=false
 )
 
+@testset "factorized CBE metadata and bidirectional update" begin
+    Ly, Lx = 3, 4
+    filling = (1, 1)
+    coords = snake_2D([[0.0, 1.0], [sqrt(3) / 2, 1 / 2]],
+        [o for j in 0:(Lx - 1) for o in (j < Lx - 1 ?
+            [fill(iseven(j) ? 1 : -1, Ly - 1); 2] :
+            fill(iseven(j) ? 1 : -1, Ly - 1))])
+    lattice = Lattice(coords...; vectors = [[0.0, Float64(Ly)]])
+    N = length(lattice)
+    hilbert = Hilbert(site => Fock{:f}(1, 2) for site = 1:N)
+    H = hamiltonian((Hopping(:t, -1.0, 1), Hubbard(:U, 8.0)), lattice, hilbert; filling)
+    ψ = complex(randFiniteMPS(ComplexF64, U1Irrep, U1Irrep, N; filling))
+    envs = HalfFiniteEnvironments(ψ, H)
+    pos = N ÷ 2
+    left, right = ψ.AC[pos], ψ.AR[pos + 1]
+    left_c, _, _ = MPSKit.left_gauge(left)
+    right_c = MPSKit._transpose_tail(right)
+    GL, GR = MPSKit.leftenv(envs, pos, ψ), MPSKit.rightenv(envs, pos + 1, ψ)
+    plan, aa, ca, ab, cb = DynamicalCorrelators._fc_graph(
+        GL[2:(end - 1)], H[pos], H[pos + 1], GR[2:(end - 1)],
+        left, MPSKit._transpose_tail(right), left_c, right_c)
+    @test !isempty(aa)
+    @test !isempty(ca)
+    @test !isempty(ab)
+    @test !isempty(cb)
+
+    maps = Dict{Symbol,Any}()
+    for node in plan.nodes
+        node.kind == :S && (maps[:A1] = getfield(node.apply, :A1_of))
+        node.kind == :LC && (maps[:C1] = getfield(node.apply, :C1_of))
+        node.kind == :RB && (maps[:B2] = getfield(node.apply, :B2_of))
+    end
+    for t in aa
+        @test maps[:A1][(t[1], t[2])] === t[4]
+    end
+    for t in ca
+        @test maps[:C1][t[1]] === t[3]
+    end
+    for t in ab
+        @test maps[:A1][(t[1], t[2])] === t[3]
+        @test maps[:B2][t[2]] === t[4]
+    end
+    for t in cb
+        @test maps[:C1][t[1]] === t[2]
+        @test maps[:B2][t[1]] === t[3]
+    end
+
+    expected = Dict{Tuple{Int,Int},Any}()
+    for t in aa
+        expected[(t[2], t[3])] = (t[5], t[6])
+    end
+    for t in ca
+        expected[(t[1], t[2])] = (t[4], t[5])
+    end
+    nodes = filter(node -> node.kind == :RA, plan.nodes)
+    @test length(nodes) == length(expected)
+    for (key, node) in zip(sort!(collect(keys(expected))), nodes)
+        @test getfield(node.apply, :A2) === expected[key][1]
+        @test getfield(node.apply, :GR) === expected[key][2]
+    end
+
+    alg = CBEExpand(; trunc = truncrank(2))
+    nrm = norm(ψ)
+    ψr = copy(ψ)
+    envsr = HalfFiniteEnvironments(ψr, H)
+    MPSKit.changebond!(pos, Val(:right), ψr, H, alg, envsr)
+    @test norm(ψr) ≈ nrm
+    ψl = copy(ψ)
+    envsl = HalfFiniteEnvironments(ψl, H)
+    MPSKit.changebond!(pos, Val(:left), ψl, H, alg, envsl)
+    @test norm(ψl) ≈ nrm
+end
+
 @testset "operators" begin
     elt = Float64
     for filling in [(1,2), (1,1), (3,2)]
