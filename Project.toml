@@ -24,7 +24,14 @@ TensorOperations = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
 TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 VectorInterface = "409d34a3-91d5-4945-b6ec-7529ddf182d8"
 
+[weakdeps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+
+[extensions]
+DynamicalCorrelatorsMakieExt = "CairoMakie"
+
 [compat]
+CairoMakie = "0.12, 0.13, 0.14, 0.15"
 BlockTensorKit = "0.3.16"
 Dates = "1.11"
 JLD2 = "0.6"

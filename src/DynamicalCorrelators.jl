@@ -1,6 +1,6 @@
 module DynamicalCorrelators
 
-using LinearAlgebra: inv, mul!, I, tr, dot, BLAS, logabsdet
+using LinearAlgebra: inv, mul!, I, tr, dot, det, BLAS, logabsdet
 using QuantumLattices: Hilbert, Term, Lattice, Neighbors, azimuth, rcoordinate, bonds, Bond, OperatorGenerator, Operator, CompositeIndex, CoordinatedIndex, FockIndex, Index, OperatorSet
 using QuantumLattices: AbstractLattice as QLattice, Table, isintracell, OperatorIndexToTuple, icoordinate, ReciprocalSpace, issubordinate
 using TensorOperations: promote_contract, AbstractBackend, DefaultBackend, DefaultAllocator, BufferAllocator
@@ -53,6 +53,7 @@ import MPSKitModels: S_plus, S_min, S_z
 
 # ── includes ──
 include("models/lattices.jl")
+include("models/momentum_space.jl")
 include("models/hamiltonians.jl")
 
 include("operators/fermions.jl")
@@ -94,6 +95,8 @@ include("observables/timesplit_distributed.jl")
 
 # ── exports ──
 export CustomLattice, BilayerSquare, Square, Custom, twosite_bonds, onesite_bonds, find_position, snake_2D, regroup_by_basis, kitaev_bonds
+export BravaisCell2D, Supercell2D, TwistedTranslation, MomentumGeometry, MomentumCut, MomentumSegment, MomentumPoint
+export brillouin_zone, allowed_cuts, bz_segments, allowed_points, is_allowed, nearest_cut, momentum_plot
 export hubbard, extended_hubbard, hubbard_bilayer_2band, kitaev_hubbard, heisenberg_model, JKGGp_model
 
 export fZ, e_plus, e_min, hopping, cdagc, ccdag, σz_hopping, number, onsiteCoulomb, S_plus, S_min, S_z, S_square, neiborCoulomb, heisenberg, spinflip, pairhopping
