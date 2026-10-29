@@ -196,15 +196,23 @@ end
 _elapsed_ns(t0::UInt) = Float64(time_ns() - t0)
 
 # Cumulative wall times of the changebond! sub-phases ("canonicalize"/"g2"/
-# "svd"/"reconstruct") inside the timer's "expand" section; a per-update share
-# is the difference around the call (0 when the section never ran).
-function _expand_subtimes(timeroutput::TimerOutput)
-    sec = get(timeroutput.inner_timers, "expand", nothing)
-    it = sec === nothing ? nothing : sec.inner_timers
-    t(name) = begin
-        s = it === nothing ? nothing : get(it, name, nothing)
-        s === nothing ? 0.0 : Float64(timer_time(s))
+# "svd"/"reconstruct"). The "expand" section is nested under the driver's
+# sweep sections, so the names are summed over the whole timer tree rather
+# than looked up at a fixed depth; the names are unique to changebond!.
+# A per-update share is the difference around the call (0 when never ran).
+# `node` is a TimerOutput or a Section (newer TimerOutputs); both support the
+# `inner_timers` compat view and `timer_time`.
+function _accumulate_subtimes!(acc::Dict{String,Float64}, node)
+    for (name, sec) in node.inner_timers
+        acc[name] = get(acc, name, 0.0) + Float64(timer_time(sec))
+        _accumulate_subtimes!(acc, sec)
     end
+    return acc
+end
+
+function _expand_subtimes(timeroutput::TimerOutput)
+    acc = _accumulate_subtimes!(Dict{String,Float64}(), timeroutput)
+    t(name) = get(acc, name, 0.0)
     return (t("canonicalize"), t("g2"), t("svd"), t("reconstruct"))
 end
 
