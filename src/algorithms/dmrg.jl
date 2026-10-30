@@ -54,11 +54,12 @@ extra sweeps; a warning is issued if the tolerance is not reached).
   `ϵ`, `ϵtrunc`, `D`, `sweep`), so a killed run always leaves the newest
   completed sweep on disk; in addition, after every local update the touched
   site/bond tensors and the sweep bookkeeping are written atomically to an
-  update-level checkpoint directory — `joinpath(disk, basename(filename) * ".updates.d")`
-  when `disk` is a path (the transient scratch side, next to the
-  environments), `filename * ".updates.d"` otherwise — so rerunning the
-  same call after a kill resumes the interrupted sweep at the last
-  completed update instead of restarting it, reusing the surviving
+  update-level checkpoint directory — `basename(filename) * ".updates.d"`
+  under the environment manager's storage root when environments are
+  disk-backed (the transient scratch side, next to the serialized
+  environments), `filename * ".updates.d"` when they live in RAM — so
+  rerunning the same call after a kill resumes the interrupted sweep at the
+  last completed update instead of restarting it, reusing the surviving
   disk-backed environments (in-RAM environments are simply rebuilt). The
   update-level checkpoint belongs to a specific
   `(filename, truncdims)` schedule; a mismatching call discards it and
@@ -77,9 +78,10 @@ extra sweeps; a warning is issued if the tolerance is not reached).
 - `disk`: environment disk backing when the driver builds the cache — `false`
   (default) keeps environments in RAM, `true` serializes them to a node-local
   temporary directory (`tempdir()`, the same scheme as FiniteMPS.jl's
-  `disk = true`), and a directory string uses that directory instead. When
-  `envs` is supplied the cache is not rebuilt and `disk` only relocates the
-  update-level checkpoint directory next to the environments (see `save`)
+  `disk = true`), and a directory string uses that directory instead; the
+  update-level checkpoint (see `save`) then lives next to the serialized
+  environments. Ignored when `envs` is supplied — the supplied manager's own
+  storage decides everything
 - `manual_gc`: `HalfFiniteEnvironments` only (default: `false`): a full
   `GC.gc(true)` collection and memory report after every sweep. GC is
   deliberately not triggered per local update — with many states evolving
@@ -110,7 +112,7 @@ function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
     return _dmrg_run!(
         "DMRG1", ψ, H, algs, envs;
         etol = Float64(etol), max_tailsweeps = Int(max_tailsweeps),
-        filename, save, verbose, manual_gc, disk,
+        filename, save, verbose, manual_gc,
         _schedule_id = hash(Int.(truncdims)), _interrupt_after
     )
 end
@@ -157,7 +159,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
     return _dmrg_run!(
         "DMRG2", ψ, H, algs, envs;
         etol = Float64(etol), max_tailsweeps = Int(max_tailsweeps),
-        filename, save, verbose, manual_gc, disk,
+        filename, save, verbose, manual_gc,
         _schedule_id = hash(Int.(truncdims)), _interrupt_after
     )
 end
@@ -222,7 +224,7 @@ function dmrg_mix!(
     return _dmrg_run!(
         "DMRG-mix", ψ, H, algs, envs;
         etol = Float64(etol), max_tailsweeps = Int(max_tailsweeps),
-        filename, save, verbose, manual_gc, disk,
+        filename, save, verbose, manual_gc,
         _schedule_id = hash((Int.(truncdims_2site), Int.(truncdims_1site))),
         _interrupt_after
     )
@@ -390,7 +392,7 @@ function _dmrg_run!(
         envs::Union{FiniteEnvironments, HalfFiniteEnvironments};
         filename::String, save::Union{Bool, AbstractVector{<:Integer}}, verbose,
         etol::Float64, max_tailsweeps::Int,
-        manual_gc::Bool = false, disk::Union{Bool, AbstractString} = false,
+        manual_gc::Bool = false,
         _schedule_id::UInt = UInt(0), _interrupt_after::Int = 0
     )
     N = length(ψ)
@@ -413,16 +415,16 @@ function _dmrg_run!(
     # update-level checkpoint: resume in place when a compatible mid-sweep
     # checkpoint exists (see algorithms/dmrg_checkpoint.jl); tied to the
     # rolling checkpoint (its base state), hence active iff save === true.
-    # The directory lives under `disk` when that is a path (scratch side),
-    # next to `filename` otherwise
+    # The directory follows the environments' storage root (scratch side)
+    # when they are disk-backed, `filename` otherwise
     ckpt_active = save === true
     resumed = ckpt_active ?
-        _resume_update_checkpoint(filename, ψ, algs, envs, _schedule_id, verbose, disk) :
+        _resume_update_checkpoint(filename, ψ, algs, envs, _schedule_id, verbose) :
         nothing
     resume_point = nothing
     iter = 0
     if resumed === nothing
-        ckpt_active && rm(_updates_dir(filename, disk); recursive = true, force = true)
+        ckpt_active && rm(_updates_dir(filename, envs); recursive = true, force = true)
         # reference path needs a real energy for the first ΔE; the half
         # engine's per-sweep energy is the last update's λ, so its first ΔE is
         # NaN
@@ -437,7 +439,7 @@ function _dmrg_run!(
         iter = resumed.done_sweep ? resumed.iter : resumed.iter - 1
     end
     ckpt = ckpt_active ?
-        _update_ckpt_context(filename, nscheduled, envs, _schedule_id, disk) : nothing
+        _update_ckpt_context(filename, nscheduled, envs, _schedule_id) : nothing
     λ = 0.0   # assigned inside the sweep loops; pre-declare so it is
               # visible after them (loop bodies are their own scope)
     nupdates = 0
