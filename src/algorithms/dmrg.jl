@@ -52,17 +52,17 @@ extra sweeps; a warning is issued if the tolerance is not reached).
   `true` writes a rolling checkpoint after every sweep: the latest state
   atomically replaces the previous one in `filename` (keys `ψ`, `E`, `ΔE`,
   `ϵ`, `ϵtrunc`, `D`, `sweep`), so a killed run always leaves the newest
-  completed sweep on disk; a vector of sweep indices (e.g. `save = [2, 4, 6]`)
-  switches to history mode, appending those sweeps as `sweep_<i>_ψ`/… entries
-- `save_updates`: mid-sweep checkpointing (default: `true`, requires
-  `save = true`) — after every local update the touched site/bond tensors and
-  the sweep bookkeeping are written atomically under `filename * ".updates.d"`,
-  so rerunning the same call after a kill resumes the interrupted sweep at the
-  last completed update instead of restarting it, reusing the surviving
-  disk-backed environments (in-RAM environments are simply rebuilt). The
-  checkpoint belongs to a specific `(filename, truncdims)` schedule; a
-  mismatching call discards it and starts fresh. The directory is removed when
-  the run finishes
+  completed sweep on disk; in addition, after every local update the touched
+  site/bond tensors and the sweep bookkeeping are written atomically under
+  `filename * ".updates.d"`, so rerunning the same call after a kill resumes
+  the interrupted sweep at the last completed update instead of restarting
+  it, reusing the surviving disk-backed environments (in-RAM environments
+  are simply rebuilt). The update-level checkpoint belongs to a specific
+  `(filename, truncdims)` schedule; a mismatching call discards it and
+  starts fresh. The directory is removed when the run finishes. A vector of
+  sweep indices (e.g. `save = [2, 4, 6]`) switches to history mode,
+  appending those sweeps as `sweep_<i>_ψ`/… entries (no update-level
+  checkpointing in this mode)
 - `filename`: JLD2 checkpoint file (default: `"default_dmrg1.jld2"`)
 - `verbose`: `0` silent, `1` per-sweep summary, `>1` also per-move lines
   (default: `true`)
@@ -91,7 +91,6 @@ function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         max_tailsweeps::Integer = 20,
         filename::String = "default_dmrg1.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
-        save_updates::Bool = true,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
         manual_gc::Bool = false,
@@ -107,7 +106,7 @@ function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
     return _dmrg_run!(
         "DMRG1", ψ, H, algs, envs;
         etol = Float64(etol), max_tailsweeps = Int(max_tailsweeps),
-        filename, save, verbose, manual_gc, save_updates,
+        filename, save, verbose, manual_gc,
         _schedule_id = hash(Int.(truncdims)), _interrupt_after
     )
 end
@@ -142,7 +141,6 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         max_tailsweeps::Integer = 20,
         filename::String = "default_dmrg2.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
-        save_updates::Bool = true,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
         manual_gc::Bool = false,
@@ -155,7 +153,7 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
     return _dmrg_run!(
         "DMRG2", ψ, H, algs, envs;
         etol = Float64(etol), max_tailsweeps = Int(max_tailsweeps),
-        filename, save, verbose, manual_gc, save_updates,
+        filename, save, verbose, manual_gc,
         _schedule_id = hash(Int.(truncdims)), _interrupt_after
     )
 end
@@ -205,7 +203,6 @@ function dmrg_mix!(
         max_tailsweeps::Integer = 20,
         filename::String = "default_dmrg_mix.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
-        save_updates::Bool = true,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
         manual_gc::Bool = false,
@@ -221,7 +218,7 @@ function dmrg_mix!(
     return _dmrg_run!(
         "DMRG-mix", ψ, H, algs, envs;
         etol = Float64(etol), max_tailsweeps = Int(max_tailsweeps),
-        filename, save, verbose, manual_gc, save_updates,
+        filename, save, verbose, manual_gc,
         _schedule_id = hash((Int.(truncdims_2site), Int.(truncdims_1site))),
         _interrupt_after
     )
@@ -389,7 +386,7 @@ function _dmrg_run!(
         envs::Union{FiniteEnvironments, HalfFiniteEnvironments};
         filename::String, save::Union{Bool, AbstractVector{<:Integer}}, verbose,
         etol::Float64, max_tailsweeps::Int,
-        manual_gc::Bool = false, save_updates::Bool = true,
+        manual_gc::Bool = false,
         _schedule_id::UInt = UInt(0), _interrupt_after::Int = 0
     )
     N = length(ψ)
@@ -410,9 +407,9 @@ function _dmrg_run!(
     wD = 4                 # log column width: bond dimension (grows with D)
 
     # update-level checkpoint: resume in place when a compatible mid-sweep
-    # checkpoint exists (see algorithms/dmrg_checkpoint.jl); requires the
-    # rolling checkpoint as the base state, hence save === true
-    ckpt_active = save === true && save_updates
+    # checkpoint exists (see algorithms/dmrg_checkpoint.jl); tied to the
+    # rolling checkpoint (its base state), hence active iff save === true
+    ckpt_active = save === true
     resumed = ckpt_active ?
         _resume_update_checkpoint(filename, ψ, algs, envs, _schedule_id, verbose) :
         nothing
