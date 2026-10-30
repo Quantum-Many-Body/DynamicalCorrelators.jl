@@ -77,8 +77,8 @@ extra sweeps; a warning is issued if the tolerance is not reached).
 - `disk`: environment disk backing when the driver builds the cache — `false`
   (default) keeps environments in RAM, `true` serializes them to a node-local
   temporary directory (`tempdir()`, the same scheme as FiniteMPS.jl's
-  `disk = true`), and a directory string uses that directory instead. Must be
-  `false` when `envs` is supplied. A path string also relocates the
+  `disk = true`), and a directory string uses that directory instead. When
+  `envs` is supplied the cache is not rebuilt and `disk` only relocates the
   update-level checkpoint directory next to the environments (see `save`)
 - `manual_gc`: `HalfFiniteEnvironments` only (default: `false`): a full
   `GC.gc(true)` collection and memory report after every sweep. GC is
