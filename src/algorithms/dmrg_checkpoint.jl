@@ -12,10 +12,11 @@
 #     bookkeeping and WHICH environment entries are consistent with the saved
 #     tensors (computed from the in-memory dependency pointers, so it can
 #     never mark a stale entry as valid);
-#   * the directory lives next to the environments when `disk` is a path
-#     (`joinpath(disk, basename(filename) * ".updates.d")` — transient
-#     scratch, e.g. bbfs scratch, where it avoids the writeback traffic of
-#     the persistent side), and next to `filename` otherwise;
+#   * the updates directory follows the environments: next to their
+#     serialized storage when disk-backed (transient scratch — on bbfs this
+#     avoids the writeback traffic of the persistent side for files that are
+#     rewritten every sweep and deleted at sweep end), next to `filename`
+#     when environments live in RAM;
 #   * on entry, `_dmrg_run!` looks for that directory and, if the schedule
 #     matches, resumes: the state is the rolling checkpoint (sweep start)
 #     overlaid with the per-update files, and surviving environment files are
@@ -42,10 +43,18 @@ mutable struct _UpdateCkptContext
     base_fingerprint::Any   # refreshed at every sweep start
 end
 
-_updates_dir(filename::AbstractString, disk = false) =
-    disk isa AbstractString ?
-        joinpath(disk, basename(filename) * ".updates.d") :
-        filename * ".updates.d"
+# the updates directory follows the environment manager's storage root
+# (GLs/GRs each get a random subdirectory directly under it), i.e. transient
+# scratch next to the serialized environments when they are disk-backed —
+# on bbfs this avoids the writeback traffic of the persistent side for files
+# that are rewritten every sweep and deleted at sweep end. With in-RAM
+# environments there is no scratch root and it stays next to `filename`.
+function _updates_dir(filename::AbstractString, envs)
+    gls_path, _ = _env_paths(envs)
+    parent = isempty(gls_path) ? "" : dirname(gls_path)
+    return isempty(parent) ? filename * ".updates.d" :
+        joinpath(parent, basename(filename) * ".updates.d")
+end
 
 _maybe(x) = ismissing(x) ? nothing : x
 _unmaybe(x) = x === nothing ? missing : x
@@ -279,9 +288,9 @@ and `nothing` is returned, i.e. a fresh start.
 """
 function _resume_update_checkpoint(
         filename::String, ψ::AbstractFiniteMPS, algs, envs,
-        schedule_id::Unsigned, verbose, disk = false
+        schedule_id::Unsigned, verbose
     )
-    dirpath = _updates_dir(filename, disk)
+    dirpath = _updates_dir(filename, envs)
     meta = _load_update_meta(dirpath)
     meta === nothing && return nothing
     N = length(ψ)
@@ -347,11 +356,11 @@ function _discard_update_checkpoint(dirpath::AbstractString, reason::String)
 end
 
 function _update_ckpt_context(
-        filename::String, nscheduled::Int, envs, schedule_id::Unsigned, disk = false
+        filename::String, nscheduled::Int, envs, schedule_id::Unsigned
     )
     gls_path, grs_path = _env_paths(envs)
     return _UpdateCkptContext(
-        _updates_dir(filename, disk), schedule_id, nscheduled,
+        _updates_dir(filename, envs), schedule_id, nscheduled,
         gls_path, grs_path, nothing
     )
 end
