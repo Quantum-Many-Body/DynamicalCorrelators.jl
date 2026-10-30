@@ -17,6 +17,7 @@ makedocs(;
         "Home" => "index.md",
         "Tutorials" => [
             "Getting Started" => "tutorials/getting_started.md",
+            "Momentum Cuts on Cylinders" => "tutorials/momentum_space.md",
             "Ground State with DMRG" => "tutorials/dmrg.md",
             "Dynamical Correlations" => "tutorials/dynamical_correlations.md",
             "Spectral Functions" => "tutorials/spectral_functions.md",
