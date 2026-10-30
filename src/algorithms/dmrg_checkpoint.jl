@@ -7,11 +7,15 @@
 # here closes that gap:
 #
 #   * after every local update, the touched site/bond tensors are appended to
-#     `$(filename).updates.d/` (one file per site/bond, atomic tmp+rename),
+#     the updates directory (one file per site/bond, atomic tmp+rename),
 #     followed by a tiny `meta.bin` (also atomic) recording the sweep
 #     bookkeeping and WHICH environment entries are consistent with the saved
 #     tensors (computed from the in-memory dependency pointers, so it can
 #     never mark a stale entry as valid);
+#   * the directory lives next to the environments when `disk` is a path
+#     (`joinpath(disk, basename(filename) * ".updates.d")` — transient
+#     scratch, e.g. bbfs scratch, where it avoids the writeback traffic of
+#     the persistent side), and next to `filename` otherwise;
 #   * on entry, `_dmrg_run!` looks for that directory and, if the schedule
 #     matches, resumes: the state is the rolling checkpoint (sweep start)
 #     overlaid with the per-update files, and surviving environment files are
@@ -38,7 +42,10 @@ mutable struct _UpdateCkptContext
     base_fingerprint::Any   # refreshed at every sweep start
 end
 
-_updates_dir(filename::AbstractString) = filename * ".updates.d"
+_updates_dir(filename::AbstractString, disk = false) =
+    disk isa AbstractString ?
+        joinpath(disk, basename(filename) * ".updates.d") :
+        filename * ".updates.d"
 
 _maybe(x) = ismissing(x) ? nothing : x
 _unmaybe(x) = x === nothing ? missing : x
@@ -272,9 +279,9 @@ and `nothing` is returned, i.e. a fresh start.
 """
 function _resume_update_checkpoint(
         filename::String, ψ::AbstractFiniteMPS, algs, envs,
-        schedule_id::Unsigned, verbose
+        schedule_id::Unsigned, verbose, disk = false
     )
-    dirpath = _updates_dir(filename)
+    dirpath = _updates_dir(filename, disk)
     meta = _load_update_meta(dirpath)
     meta === nothing && return nothing
     N = length(ψ)
@@ -340,10 +347,11 @@ function _discard_update_checkpoint(dirpath::AbstractString, reason::String)
 end
 
 function _update_ckpt_context(
-        filename::String, nscheduled::Int, envs, schedule_id::Unsigned
+        filename::String, nscheduled::Int, envs, schedule_id::Unsigned, disk = false
     )
     gls_path, grs_path = _env_paths(envs)
     return _UpdateCkptContext(
-        _updates_dir(filename), schedule_id, nscheduled, gls_path, grs_path, nothing
+        _updates_dir(filename, disk), schedule_id, nscheduled,
+        gls_path, grs_path, nothing
     )
 end
