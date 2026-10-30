@@ -523,3 +523,113 @@ end
     end
 
 end
+
+@testset "DMRG update-level checkpoint and resume" begin
+    Ly, Lx = 2, 4
+    filling = (1, 1)
+    coords = snake_2D([[0.0, 1.0], [sqrt(3) / 2, 1 / 2]],
+        [o for j in 0:(Lx - 1) for o in (j < Lx - 1 ?
+            [fill(iseven(j) ? 1 : -1, Ly - 1); 2] :
+            fill(iseven(j) ? 1 : -1, Ly - 1))])
+    lattice = Lattice(coords...; vectors = [[0.0, Float64(Ly)]])
+    N = length(lattice)
+    hilbert = Hilbert(site => Fock{:f}(1, 2) for site = 1:N)
+    H = hamiltonian((Hopping(:t, -1.0, 1), Hubbard(:U, 8.0)), lattice, hilbert; filling)
+    ψ0 = complex(randFiniteMPS(ComplexF64, U1Irrep, U1Irrep, N; filling))
+    Ds = [16, 32]
+
+    function run_captured(f)
+        oldout = stdout
+        rd, wr = redirect_stdout()
+        local out
+        try
+            f()
+            redirect_stdout(oldout)
+            close(wr)
+            out = read(rd, String)
+        finally
+            redirect_stdout(oldout)
+        end
+        return out
+    end
+
+    mktempdir() do root
+        # uninterrupted reference (in-RAM environments)
+        ψref = copy(ψ0)
+        _, _, Eref = dmrg2!(ψref, H, Ds; filename = joinpath(root, "ref.jld2"),
+            etol = 1e-12, max_tailsweeps = 2, verbose = 0)
+
+        # (a) kill mid-L2R of sweep 1, then resume from a fresh copy of the
+        # initial state with disk-backed environments (a process rerun)
+        dir1 = joinpath(root, "a")
+        ckpt1 = joinpath(dir1, "run.jld2")
+        mkpath(dir1)
+        ψi = copy(ψ0)
+        @test_throws InterruptException dmrg2!(ψi, H, Ds;
+            filename = ckpt1, disk = joinpath(dir1, "envs"),
+            etol = 1e-12, max_tailsweeps = 2, verbose = 0, _interrupt_after = 5)
+        @test isdir(ckpt1 * ".updates.d")
+        ψr = copy(ψ0)
+        out = run_captured() do
+            dmrg2!(ψr, H, Ds; filename = ckpt1, disk = joinpath(dir1, "envs"),
+                etol = 1e-12, max_tailsweeps = 2, verbose = 1)
+        end
+        @test occursin("resuming sweep 1 from right position 5", out)
+        @test occursin(r"environments reused: [1-9]", out)
+        @test abs(dot(ψr, ψref)) ≈ norm(ψr) * norm(ψref) atol = 1e-8
+        @test !isdir(ckpt1 * ".updates.d")
+
+        # (b) kill exactly at the sweep boundary (sweep 1 complete), resume
+        # continues at sweep 2
+        dir2 = joinpath(root, "b")
+        ckpt2 = joinpath(dir2, "run.jld2")
+        mkpath(dir2)
+        ψb = copy(ψ0)
+        @test_throws InterruptException dmrg2!(ψb, H, Ds;
+            filename = ckpt2, disk = joinpath(dir2, "envs"),
+            etol = 1e-12, max_tailsweeps = 2, verbose = 0, _interrupt_after = 13)
+        ψb2 = copy(ψ0)
+        out = run_captured() do
+            dmrg2!(ψb2, H, Ds; filename = ckpt2, disk = joinpath(dir2, "envs"),
+                etol = 1e-12, max_tailsweeps = 2, verbose = 1)
+        end
+        @test occursin("resuming sweep 1 (sweep complete)", out)
+        @test abs(dot(ψb2, ψref)) ≈ norm(ψb2) * norm(ψref) atol = 1e-8
+
+        # (c) DMRG1 + CBE (deterministic rsvd=false), killed in the R2L half
+        alg_expand = CBEExpand(; trunc = truncrank(2), rsvd = false)
+        ψref1 = copy(ψ0)
+        _, _, Eref1 = dmrg1!(ψref1, H, Ds; alg_expand,
+            filename = joinpath(root, "ref1.jld2"),
+            etol = 1e-12, max_tailsweeps = 2, verbose = 0)
+        dir3 = joinpath(root, "c")
+        ckpt3 = joinpath(dir3, "run.jld2")
+        mkpath(dir3)
+        ψc = copy(ψ0)
+        @test_throws InterruptException dmrg1!(ψc, H, Ds; alg_expand,
+            filename = ckpt3, disk = joinpath(dir3, "envs"),
+            etol = 1e-12, max_tailsweeps = 2, verbose = 0, _interrupt_after = 10)
+        ψc2 = copy(ψ0)
+        _, _, Ec = dmrg1!(ψc2, H, Ds; alg_expand,
+            filename = ckpt3, disk = joinpath(dir3, "envs"),
+            etol = 1e-12, max_tailsweeps = 2, verbose = 0)
+        @test Ec ≈ Eref1 atol = 1e-8
+        @test abs(dot(ψc2, ψref1)) ≈ norm(ψc2) * norm(ψref1) atol = 1e-8
+
+        # (d) a mismatching schedule discards the checkpoint directory and
+        # starts fresh
+        dir4 = joinpath(root, "d")
+        ckpt4 = joinpath(dir4, "run.jld2")
+        mkpath(dir4)
+        ψd = copy(ψ0)
+        @test_throws InterruptException dmrg2!(ψd, H, Ds;
+            filename = ckpt4, etol = 1e-12, max_tailsweeps = 2, verbose = 0,
+            _interrupt_after = 3)
+        ψd2 = copy(ψ0)
+        @test_logs (:info, r"update-level checkpoint discarded") match_mode = :any begin
+            dmrg2!(ψd2, H, [16, 64]; filename = ckpt4,
+                etol = 1e-12, max_tailsweeps = 2, verbose = 0)
+        end
+        @test !isdir(ckpt4 * ".updates.d")
+    end
+end
