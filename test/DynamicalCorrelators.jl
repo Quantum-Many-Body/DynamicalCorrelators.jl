@@ -568,7 +568,7 @@ end
         @test_throws InterruptException dmrg2!(ψi, H, Ds;
             filename = ckpt1, disk = joinpath(dir1, "envs"),
             etol = 1e-12, max_tailsweeps = 2, verbose = 0, _interrupt_after = 5)
-        @test isdir(ckpt1 * ".updates.d")
+        @test isdir(joinpath(dir1, "envs", "run.jld2.updates.d"))
         ψr = copy(ψ0)
         out = run_captured() do
             dmrg2!(ψr, H, Ds; filename = ckpt1, disk = joinpath(dir1, "envs"),
@@ -577,7 +577,7 @@ end
         @test occursin("resuming sweep 1 from right position 5", out)
         @test occursin(r"environments reused: [1-9]", out)
         @test abs(dot(ψr, ψref)) ≈ norm(ψr) * norm(ψref) atol = 1e-8
-        @test !isdir(ckpt1 * ".updates.d")
+        @test !isdir(joinpath(dir1, "envs", "run.jld2.updates.d"))
 
         # (b) kill exactly at the sweep boundary (sweep 1 complete), resume
         # continues at sweep 2
