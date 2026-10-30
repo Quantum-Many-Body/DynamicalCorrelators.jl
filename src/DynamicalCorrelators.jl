@@ -34,6 +34,7 @@ using JLD2: save, load, jldopen, write, close, keys
 using Printf: @printf, @sprintf
 using Dates: canonicalize, format, now, CompoundPeriod, Day, Hour, Millisecond, Minute, Nanosecond, Period, Second, Week, value
 using TimerOutputs: TimerOutput, @timeit, reset_timer!
+using Serialization: serialize, deserialize
 
 import SerializedElementArrays: filename, pathname
 import LinearAlgebra: norm
@@ -76,6 +77,7 @@ include("finiteengine/localupdate.jl")
 include("finiteengine/timeevolution.jl")
 include("finiteengine/approximate.jl")
 
+include("algorithms/dmrg_checkpoint.jl")
 include("algorithms/dmrg.jl")
 include("algorithms/hamiltonian_threaded.jl")
 include("algorithms/cbe_expand.jl")

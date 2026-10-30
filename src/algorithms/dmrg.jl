@@ -54,6 +54,15 @@ extra sweeps; a warning is issued if the tolerance is not reached).
   `ϵ`, `ϵtrunc`, `D`, `sweep`), so a killed run always leaves the newest
   completed sweep on disk; a vector of sweep indices (e.g. `save = [2, 4, 6]`)
   switches to history mode, appending those sweeps as `sweep_<i>_ψ`/… entries
+- `save_updates`: mid-sweep checkpointing (default: `true`, requires
+  `save = true`) — after every local update the touched site/bond tensors and
+  the sweep bookkeeping are written atomically under `filename * ".updates.d"`,
+  so rerunning the same call after a kill resumes the interrupted sweep at the
+  last completed update instead of restarting it, reusing the surviving
+  disk-backed environments (in-RAM environments are simply rebuilt). The
+  checkpoint belongs to a specific `(filename, truncdims)` schedule; a
+  mismatching call discards it and starts fresh. The directory is removed when
+  the run finishes
 - `filename`: JLD2 checkpoint file (default: `"default_dmrg1.jld2"`)
 - `verbose`: `0` silent, `1` per-sweep summary, `>1` also per-move lines
   (default: `true`)
@@ -82,10 +91,12 @@ function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         max_tailsweeps::Integer = 20,
         filename::String = "default_dmrg1.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
+        save_updates::Bool = true,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
         manual_gc::Bool = false,
-        envs::Union{Nothing,FiniteEnvironments,HalfFiniteEnvironments} = nothing)
+        envs::Union{Nothing,FiniteEnvironments,HalfFiniteEnvironments} = nothing,
+        _interrupt_after::Int = 0)
     algs = map(truncdims) do D
         DMRG(;
             alg_eigsolve, alg_svd, trunc = truncrank(Int(D)),
@@ -96,7 +107,8 @@ function dmrg1!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
     return _dmrg_run!(
         "DMRG1", ψ, H, algs, envs;
         etol = Float64(etol), max_tailsweeps = Int(max_tailsweeps),
-        filename, save, verbose, manual_gc
+        filename, save, verbose, manual_gc, save_updates,
+        _schedule_id = hash(Int.(truncdims)), _interrupt_after
     )
 end
 
@@ -130,10 +142,12 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
         max_tailsweeps::Integer = 20,
         filename::String = "default_dmrg2.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
+        save_updates::Bool = true,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
         manual_gc::Bool = false,
-        envs::Union{Nothing,FiniteEnvironments,HalfFiniteEnvironments} = nothing)
+        envs::Union{Nothing,FiniteEnvironments,HalfFiniteEnvironments} = nothing,
+        _interrupt_after::Int = 0)
     algs = map(truncdims) do D
         DMRG2(; alg_eigsolve, alg_svd, trunc = truncrank(Int(D)))
     end
@@ -141,7 +155,8 @@ function dmrg2!(ψ::AbstractFiniteMPS, H, truncdims::AbstractVector{<:Integer};
     return _dmrg_run!(
         "DMRG2", ψ, H, algs, envs;
         etol = Float64(etol), max_tailsweeps = Int(max_tailsweeps),
-        filename, save, verbose, manual_gc
+        filename, save, verbose, manual_gc, save_updates,
+        _schedule_id = hash(Int.(truncdims)), _interrupt_after
     )
 end
 
@@ -190,10 +205,12 @@ function dmrg_mix!(
         max_tailsweeps::Integer = 20,
         filename::String = "default_dmrg_mix.jld2",
         save::Union{Bool, AbstractVector{<:Integer}} = true,
+        save_updates::Bool = true,
         verbose::Union{Bool, Integer} = true,
         disk::Union{Bool, AbstractString} = false,
         manual_gc::Bool = false,
-        envs::Union{Nothing,FiniteEnvironments,HalfFiniteEnvironments} = nothing)
+        envs::Union{Nothing,FiniteEnvironments,HalfFiniteEnvironments} = nothing,
+        _interrupt_after::Int = 0)
     algs = Union{DMRG, DMRG2}[
         (DMRG2(; alg_eigsolve, alg_svd, trunc = truncrank(Int(D))) for D in truncdims_2site)...,
         (DMRG(; alg_eigsolve, alg_svd, trunc = truncrank(Int(D)),
@@ -204,7 +221,9 @@ function dmrg_mix!(
     return _dmrg_run!(
         "DMRG-mix", ψ, H, algs, envs;
         etol = Float64(etol), max_tailsweeps = Int(max_tailsweeps),
-        filename, save, verbose, manual_gc
+        filename, save, verbose, manual_gc, save_updates,
+        _schedule_id = hash((Int.(truncdims_2site), Int.(truncdims_1site))),
+        _interrupt_after
     )
 end
 
@@ -370,7 +389,8 @@ function _dmrg_run!(
         envs::Union{FiniteEnvironments, HalfFiniteEnvironments};
         filename::String, save::Union{Bool, AbstractVector{<:Integer}}, verbose,
         etol::Float64, max_tailsweeps::Int,
-        manual_gc::Bool = false
+        manual_gc::Bool = false, save_updates::Bool = true,
+        _schedule_id::UInt = UInt(0), _interrupt_after::Int = 0
     )
     N = length(ψ)
     isempty(algs) && throw(ArgumentError("truncdims cannot be empty"))
@@ -389,13 +409,35 @@ function _dmrg_run!(
     witer = ndigits(nscheduled)  # log column width: sweep counter
     wD = 4                 # log column width: bond dimension (grows with D)
 
-    # reference path needs a real energy for the first ΔE; the half engine's
-    # per-sweep energy is the last update's λ, so its first ΔE is NaN
-    E_prev = envs isa HalfFiniteEnvironments ? NaN : real(expectation_value(ψ, H, envs))
+    # update-level checkpoint: resume in place when a compatible mid-sweep
+    # checkpoint exists (see algorithms/dmrg_checkpoint.jl); requires the
+    # rolling checkpoint as the base state, hence save === true
+    ckpt_active = save === true && save_updates
+    resumed = ckpt_active ?
+        _resume_update_checkpoint(filename, ψ, algs, envs, _schedule_id, verbose) :
+        nothing
+    resume_point = nothing
+    iter = 0
+    if resumed === nothing
+        ckpt_active && rm(_updates_dir(filename); recursive = true, force = true)
+        # reference path needs a real energy for the first ΔE; the half
+        # engine's per-sweep energy is the last update's λ, so its first ΔE is
+        # NaN
+        E_prev = envs isa HalfFiniteEnvironments ? NaN : real(expectation_value(ψ, H, envs))
+        E₀, ΔE = NaN, NaN
+    else
+        ψ = resumed.ψ
+        ϵ_truncs = resumed.ϵ_truncs
+        E_prev = resumed.E_prev
+        E₀, ΔE = resumed.E₀, resumed.ΔE
+        resume_point = resumed.resume_point
+        iter = resumed.done_sweep ? resumed.iter : resumed.iter - 1
+    end
+    ckpt = ckpt_active ?
+        _update_ckpt_context(filename, nscheduled, envs, _schedule_id) : nothing
     λ = 0.0   # assigned inside the sweep loops; pre-declare so it is
               # visible after them (loop bodies are their own scope)
-    E₀, ΔE = NaN, NaN   # per-sweep energy and its change; pre-declared for the
-                        # post-loop convergence warning
+    nupdates = 0
     start_time, record_start = now(), now()
     Int(verbose) > 0 && println(
         "$label Sweep Started (",
@@ -403,14 +445,28 @@ function _dmrg_run!(
         "): ", format(start_time, "d.u yyyy HH:MM")
     )
     Int(verbose) > 0 && flush(stdout)
-
-    iter = 0
     while iter < length(algs)
         iter += 1
         alg = algs[iter]
         # sweep ranges: DMRG sweeps sites 1:N-1 then N:-1:2, DMRG2 sweeps bonds
         # 1:N-1 then N-2:-1:1 (the last L2R bond was just updated)
         fwd, bwd = alg isa DMRG ? (1:(N - 1), N:-1:2) : (1:(N - 1), (N - 2):-1:1)
+        # a resumed sweep re-enters at the recorded position; the fingerprint
+        # of its (already past) sweep start is restored rather than recomputed
+        if ckpt !== nothing
+            ctx_fingerprint = resume_point !== nothing ?
+                resumed.base_fingerprint : _state_fingerprint(ψ)
+            ckpt.base_fingerprint = ctx_fingerprint
+        end
+        if resume_point !== nothing
+            if resume_point.dir == :right
+                fwd = (resume_point.pos + 1):last(fwd)
+            else
+                fwd = 1:0
+                bwd = (resume_point.pos - 1):-1:last(bwd)
+            end
+            resume_point = nothing
+        end
         # positions updated this sweep; statistics are masked to these, since
         # mixed drivers alternate between site-based (DMRG) and bond-based
         # (DMRG2) indexing
@@ -423,6 +479,11 @@ function _dmrg_run!(
         sweepdiag = _SweepDiag()
         @timeit timer "L2R sweep" begin
             for pos in fwd
+                nupdates += 1
+                _interrupt_after > 0 && nupdates > _interrupt_after &&
+                    throw(InterruptException())
+                pre = ckpt === nothing ? nothing :
+                    (copy(ψ.ALs), copy(ψ.ARs), copy(ψ.ACs), copy(ψ.Cs))
                 ψ, λ, ϵ_truncs[pos], diag =
                     _dmrg_update!(
                         pos, Val(:right), ψ, H, alg, envs,
@@ -430,6 +491,14 @@ function _dmrg_run!(
                     )
                 sweepdiag = _accum!(sweepdiag, diag)
                 envs isa HalfFiniteEnvironments && _free_after_move!(envs, alg, Val(:right), pos)
+                if ckpt !== nothing
+                    _update_ckpt_state!(
+                        ckpt, ψ, envs, pre;
+                        engine = nameof(typeof(alg)), iter, dir = :right, pos,
+                        done_sweep = false, E₀ = NaN, ΔE = NaN,
+                        E_prev, ϵ_truncs, nalgs = length(algs)
+                    )
+                end
                 if Int(verbose) > 1
                     _dmrg_log_move(alg, Val(:right), pos, ψ, λ, ϵ_truncs[pos], wpos, wD, diag)
                     flush(stdout)
@@ -438,6 +507,11 @@ function _dmrg_run!(
         end
         @timeit timer "R2L sweep" begin
             for pos in bwd
+                nupdates += 1
+                _interrupt_after > 0 && nupdates > _interrupt_after &&
+                    throw(InterruptException())
+                pre = ckpt === nothing ? nothing :
+                    (copy(ψ.ALs), copy(ψ.ARs), copy(ψ.ACs), copy(ψ.Cs))
                 ψ, λ, ϵ_truncs[pos], diag =
                     _dmrg_update!(
                         pos, Val(:left), ψ, H, alg, envs,
@@ -445,6 +519,14 @@ function _dmrg_run!(
                     )
                 sweepdiag = _accum!(sweepdiag, diag)
                 envs isa HalfFiniteEnvironments && _free_after_move!(envs, alg, Val(:left), pos)
+                if ckpt !== nothing
+                    _update_ckpt_state!(
+                        ckpt, ψ, envs, pre;
+                        engine = nameof(typeof(alg)), iter, dir = :left, pos,
+                        done_sweep = false, E₀ = NaN, ΔE = NaN,
+                        E_prev, ϵ_truncs, nalgs = length(algs)
+                    )
+                end
                 if Int(verbose) > 1
                     _dmrg_log_move(alg, Val(:left), pos, ψ, λ, ϵ_truncs[pos], wpos, wD, diag)
                     flush(stdout)
@@ -508,6 +590,17 @@ function _dmrg_run!(
                 f["sweep"] = iter
             end
             mv(tmp, filename; force = true)
+            if ckpt !== nothing
+                # mark the sweep complete, then drop the per-update tensors —
+                # the rolling checkpoint is the authoritative state now
+                _update_ckpt_state!(
+                    ckpt, ψ, envs, nothing;
+                    engine = nameof(typeof(alg)), iter, dir = :right, pos = 0,
+                    done_sweep = true, E₀, ΔE, E_prev, ϵ_truncs,
+                    nalgs = length(algs)
+                )
+                _clear_update_tensors(ckpt.dir)
+            end
         elseif iter in save_iters
             mode = wrote ? "a" : "w"
             jldopen(filename, mode) do f
@@ -522,6 +615,7 @@ function _dmrg_run!(
         start_time = current_time
     end
 
+    ckpt !== nothing && rm(ckpt.dir; recursive = true, force = true)
     record_end = now()
     if !(ΔE <= etol) && max_tailsweeps > 0 && iter - nscheduled >= max_tailsweeps
         @warn "$label did not reach |ΔE| ≤ etol = $etol after $max_tailsweeps tail sweep(s) (ΔE = $ΔE)"
