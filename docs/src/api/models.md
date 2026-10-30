@@ -19,6 +19,22 @@ snake_2D
 kitaev_bonds
 ```
 
+## Momentum-Space Geometry
+
+```@docs
+BravaisCell2D
+Supercell2D
+TwistedTranslation
+MomentumGeometry
+brillouin_zone
+allowed_cuts
+bz_segments
+allowed_points
+is_allowed
+nearest_cut
+momentum_plot
+```
+
 ## Hamiltonians
 
 ```@docs
