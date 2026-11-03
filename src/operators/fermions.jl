@@ -306,6 +306,12 @@ function cdagc(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::
     return contract_twosite(c⁺l,cr)
 end
 
+"""
+    ccdag(elt::Type{<:Number}, ...)
+
+Return the Hermitian-conjugate hopping term. For distinct sites `i` and `j`, this
+convention represents `c†_j c_i = -c_i c†_j`, not the directly ordered `c_i c†_j`.
+"""
 function ccdag(elt::Type{<:Number}, ::Type{SU2Irrep}, ::Type{U1Irrep}; filling::NTuple{2, Integer}=(1,1))
     cl = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
     c⁺r = e_plus(elt, SU2Irrep, U1Irrep; side=:R, filling=filling)
@@ -595,6 +601,12 @@ function cdagc(elt::Type{<:Number}, ::Type{SU2Irrep})
     return contract_twosite(c⁺l, cr)
 end
 
+"""
+    ccdag(elt::Type{<:Number}, ...)
+
+Return the Hermitian-conjugate hopping term. For distinct sites `i` and `j`, this
+convention represents `c†_j c_i = -c_i c†_j`, not the directly ordered `c_i c†_j`.
+"""
 function ccdag(elt::Type{<:Number}, ::Type{SU2Irrep})
     cl = e_min(elt, SU2Irrep; side=:L)
     c⁺r = e_plus(elt, SU2Irrep; side=:R)
@@ -626,7 +638,7 @@ function S_plus(elt::Type{<:Number}, ::Type{SU2Irrep}; side=:L)
     vspace = Vect[(FermionParity ⊠ SU2Irrep)]((0, 1) => 1)
     pspace = Vect[(FermionParity ⊠ SU2Irrep)]((0, 0) => 2, (1, 1/2) => 1)
     if side == :L
-        Sₑ⁺ = zeros(Float64, pspace ← pspace ⊗ vspace)
+        Sₑ⁺ = zeros(elt, pspace ← pspace ⊗ vspace)
         block(Sₑ⁺, (FermionParity(1) ⊠ SU2Irrep(1/2))) .= sqrt(3)/2
     elseif side == :R
         S = S_plus(elt, SU2Irrep; side=:L)

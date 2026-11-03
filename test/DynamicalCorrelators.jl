@@ -238,57 +238,209 @@ end
     H₃ = hamiltonian((t, U), lattice₂, hilbert; neighbors=1)
     H₄ = hubbard(Float64, U1Irrep, U1Irrep, FiniteCylinder(2, 4); t=1.0, U=8.0, mu=0.0, filling=(1,1))
     @test H₃ ≈ H₄
-end
 
-function G_ed_SU2(gs, F, L, hilbert)
-    G = zeros(ComplexF64, L, L)
-    for i in 1:L, j in 1:L
-        opt = Operator(1, 𝕔(j, 1, -1//2))+Operator(1, 𝕔(j, 1, 1//2))
-        opm = matrix(opt,(BinaryBases(2*L, ℕ(F-1)),BinaryBases(2*L,ℕ(F))),Table(hilbert, Metric(EDKind(hilbert), hilbert)))
-        psi1 = opm*gs
+    @testset "singlet pairing normalization" begin
+        Δ = Pairing(:Δ, 0.16, 1, 𝕔𝕔(:, :, real(1im*σʸ));
+            amplitude=bond -> real(exp(2im * azimuth(rcoordinate(bond)))))
+        μ = Onsite(:μ, -1.2)
+        ed = ED(lattice₁, hilbert, (t, μ, U, Δ), 𝕊ᶻ(0))
+        eigensystem = eigen(ed; nev=1)
+        E_ed = eigensystem.values[1]
 
-        opt = Operator(1, 𝕔(i, 1, -1//2))+Operator(1, 𝕔(i, 1, 1//2))
-        opm = matrix(opt,(BinaryBases(2*L, ℕ(F-1)),BinaryBases(2*L,ℕ(F))),Table(hilbert, Metric(EDKind(hilbert), hilbert)))
-        psi2 = opm*gs
-        G[i, j] = dot(psi2, psi1)
+        H = hubbard(ComplexF64, SU2Irrep, Custom(lattice₁);
+            t=-1.0, U=8, mu=1.2, dw=0.16*sqrt(2))
+        vs = repeat([Vect[(FermionParity ⊠ SU2Irrep)](
+            (Int(!isinteger(i)), i) => 1 for i in 0:1//2:1),], length(H) - 1)
+        st = FiniteMPS(rand, ComplexF64, physicalspace(H), vs)
+        gs, env, E0 = dmrg2!(st, H, [64, 64, 128, 128];
+            save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
+        @test isapprox(E0, E_ed; atol=ED_TOL_ENERGY)
     end
-    return G
 end
 
-function pairing_N(gs, F, L, (i,j,k,l), hilbert)
-    opt = (1/sqrt(2))*(Operator(1, 𝕔(i, 1, -1//2))*Operator(1, 𝕔(j, 1, 1//2))-Operator(1, 𝕔(i, 1, 1//2))*Operator(1, 𝕔(j, 1, -1//2)))
-    opm = matrix(opt,(BinaryBases(2*L, ℕ(F-2)),BinaryBases(2*L,ℕ(F))),Table(hilbert, Metric(EDKind(hilbert), hilbert)))
-    psi1 = opm*gs
-    opt = (1/sqrt(2))*(Operator(1, 𝕔(k, 1, -1//2))*Operator(1, 𝕔(l, 1, 1//2))-Operator(1, 𝕔(k, 1, 1//2))*Operator(1, 𝕔(l, 1, -1//2)))
-    opm = matrix(opt,(BinaryBases(2*L, ℕ(F-2)),BinaryBases(2*L,ℕ(F))),Table(hilbert, Metric(EDKind(hilbert), hilbert)))
-    psi2 = opm*gs
-    dot(psi1, psi2)
-end
+ed_c(i, σ) = Operator(1, 𝕔(i, 1, σ))
+ed_cd(i, σ) = Operator(1, 𝕔⁺(i, 1, σ))
+ed_sp(i) = ed_cd(i, 1//2) * ed_c(i, -1//2)
+ed_sm(i) = ed_cd(i, -1//2) * ed_c(i, 1//2)
+ed_sz(i) = (ed_cd(i, 1//2) * ed_c(i, 1//2) - ed_cd(i, -1//2) * ed_c(i, -1//2)) / 2
 
-function G_ed_Sz(gs, F, L, hilbert; sw=1:8, su=9:16)
-    G = zeros(ComplexF64, L, L)
+function ed_bond_singlet(i, j)
+    return (ed_c(i, -1//2) * ed_c(j, 1//2) - ed_c(i, 1//2) * ed_c(j, -1//2)) / sqrt(2)
+end
+ed_onsite_singlet(i) = ed_bond_singlet(i, i)
+
+function ed_spin_benchmark(ψ, sector, table, L)
+    Czz = zeros(ComplexF64, L, L)
+    Cpm = zeros(ComplexF64, L, L)
+    Cmp = zeros(ComplexF64, L, L)
     for i in 1:L, j in 1:L
-        oi1 = Operator(1, 𝕔(i, 1, 1//2))
-        oi2 = Operator(1, 𝕔(i, 1, -1//2))
-        oj1 = Operator(1, 𝕔(j, 1, 1//2))
-        oj2 = Operator(1, 𝕔(j, 1, -1//2))
-        pj1 = matrix(oj1,(BinaryBases(sw, su, 𝕊ᶻ(F-1/2)), BinaryBases(sw, su, 𝕊ᶻ(F))),Table(hilbert, Metric(EDKind(hilbert), hilbert)))*gs
-        pj2 = matrix(oj2,(BinaryBases(sw, su, 𝕊ᶻ(F+1/2)), BinaryBases(sw, su, 𝕊ᶻ(F))),Table(hilbert, Metric(EDKind(hilbert), hilbert)))*gs
-        pi1 = matrix(oi1,(BinaryBases(sw, su, 𝕊ᶻ(F-1/2)), BinaryBases(sw, su, 𝕊ᶻ(F))),Table(hilbert, Metric(EDKind(hilbert), hilbert)))*gs
-        pi2 = matrix(oi2,(BinaryBases(sw, su, 𝕊ᶻ(F+1/2)), BinaryBases(sw, su, 𝕊ᶻ(F))),Table(hilbert, Metric(EDKind(hilbert), hilbert)))*gs
-        G[i, j] = dot(pi1, pj1) + dot(pi2, pj2)
+        Czz[i,j] = dot(ψ, matrix(ed_sz(i) * ed_sz(j), (sector, sector), table), ψ)
+        Cpm[i,j] = dot(ψ, matrix(ed_sp(i) * ed_sm(j), (sector, sector), table), ψ)
+        Cmp[i,j] = dot(ψ, matrix(ed_sm(i) * ed_sp(j), (sector, sector), table), ψ)
     end
-    return G
+    return Czz, Cpm, Cmp
 end
 
-function pairing_Sz(gs, F, (i,j,k,l), hilbert; sw=1:8, su=9:16)
-    opt = (1/sqrt(2))*(Operator(1, 𝕔(i, 1, -1//2))*Operator(1, 𝕔(j, 1, 1//2))-Operator(1, 𝕔(i, 1, 1//2))*Operator(1, 𝕔(j, 1, -1//2)))
-    opm = matrix(opt,(BinaryBases(sw, su, 𝕊ᶻ(F)), BinaryBases(sw, su, 𝕊ᶻ(F))),Table(hilbert, Metric(EDKind(hilbert), hilbert)))
-    psi1 = opm*gs
-    opt = (1/sqrt(2))*(Operator(1, 𝕔(k, 1, -1//2))*Operator(1, 𝕔(l, 1, 1//2))-Operator(1, 𝕔(k, 1, 1//2))*Operator(1, 𝕔(l, 1, -1//2)))
-    opm = matrix(opt,(BinaryBases(sw, su, 𝕊ᶻ(F)), BinaryBases(sw, su, 𝕊ᶻ(F))),Table(hilbert, Metric(EDKind(hilbert), hilbert)))
-    psi2 = opm*gs
-    dot(psi1, psi2)
+function ed_single_particle_benchmark(ψ, sectors, table, L, σ=nothing)
+    G = zeros(ComplexF64, L, L)
+    A = zeros(ComplexF64, L, L)
+    spins = isnothing(σ) ? (1//2, -1//2) : (σ,)
+    for spin in spins
+        cstates = [matrix(ed_c(i, spin), (sectors.annihilate[spin], sectors.zero), table) * ψ for i in 1:L]
+        cdstates = [matrix(ed_cd(i, spin), (sectors.create[spin], sectors.zero), table) * ψ for i in 1:L]
+        for i in 1:L, j in 1:L
+            G[i,j] += dot(cstates[i], cstates[j])
+            A[i,j] += dot(cdstates[i], cdstates[j])
+        end
+    end
+    return G, A
+end
+
+function ed_pairing_benchmark(ψ, sectors, table, L, onsite)
+    if onsite
+        pairs = [(i,) for i in 1:L]
+        ops = [ed_onsite_singlet(i) for (i,) in pairs]
+    else
+        pairs = [(i,j) for i in 1:(L - 1) for j in (i + 1):L]
+        ops = [ed_bond_singlet(i,j) for (i,j) in pairs]
+    end
+    states = [matrix(op, (sectors.minus2, sectors.zero), table) * ψ for op in ops]
+    P = [dot(states[a], states[b]) for a in eachindex(pairs), b in eachindex(pairs)]
+    return pairs, P
+end
+
+function u1_pair_states(gs, L, filling, onsite)
+    emu_l = e_min(ComplexF64, U1Irrep, U1Irrep; side=:L, spin=:up, filling=filling)
+    emd_l = e_min(ComplexF64, U1Irrep, U1Irrep; side=:L, spin=:down, filling=filling)
+    if onsite
+        pairs = [(i,) for i in 1:L]
+        states = [
+            chargedMPS(emd_l, chargedMPS(emu_l, gs, i), i) -
+            chargedMPS(emu_l, chargedMPS(emd_l, gs, i), i)
+            for (i,) in pairs
+        ]
+    else
+        pairs = [(i,j) for i in 1:(L - 1) for j in (i + 1):L]
+        states = [
+            chargedMPS(emd_l, chargedMPS(emu_l, gs, j), i) -
+            chargedMPS(emu_l, chargedMPS(emd_l, gs, j), i)
+            for (i,j) in pairs
+        ]
+    end
+    return pairs, states
+end
+
+const BOND_ORDER_PREDICATES = [
+    (i,j,k,l) -> i < j < k < l,
+    (i,j,k,l) -> i < j == k < l,
+    (i,j,k,l) -> i < k < j < l,
+    (i,j,k,l) -> i < k < j == l,
+    (i,j,k,l) -> i == k < j < l,
+    (i,j,k,l) -> i == k < j == l,
+    (i,j,k,l) -> i < k < l < j,
+    (i,j,k,l) -> i == k < l < j,
+    (i,j,k,l) -> k < i < j < l,
+    (i,j,k,l) -> k < i < j == l,
+    (i,j,k,l) -> k < i < l < j,
+    (i,j,k,l) -> k < i == l < j,
+    (i,j,k,l) -> k < l < i < j,
+]
+
+function random_bond_case(L, predicate)
+    while true
+        i, j, k, l = rand(1:L, 4)
+        if i < j && k < l && predicate(i,j,k,l)
+            return (i,j), (k,l)
+        end
+    end
+end
+
+function test_u1_pairing_benchmark(gs, ψed, sectors, table, L, filling)
+    errors = Float64[]
+    for onsite in (false, true)
+        pairs, P = ed_pairing_benchmark(ψed, sectors, table, L, onsite)
+        _, states = u1_pair_states(gs, L, filling, onsite)
+        if onsite
+            P_mps = [dot(states[a], states[b]) for a in eachindex(states), b in eachindex(states)] ./ 2
+            @test isapprox(P_mps, P; atol=ED_TOL_OBS)
+            push!(errors, maximum(abs.(P_mps - P)))
+        else
+            bond_errors = Float64[]
+            for predicate in BOND_ORDER_PREDICATES
+                ij, kl = random_bond_case(L, predicate)
+                a, b = findfirst(==(ij), pairs), findfirst(==(kl), pairs)
+                value = dot(states[a], states[b]) / 2
+                @test isapprox(value, P[a,b]; atol=ED_TOL_OBS)
+                push!(bond_errors, abs(value - P[a,b]))
+            end
+            push!(errors, maximum(bond_errors))
+        end
+    end
+    return errors
+end
+
+function test_spin_benchmark(gs, ψed, sectors, table, ops, L)
+    Czz, Cpm, Cmp = ed_spin_benchmark(ψed, sectors.zero, table, L)
+    Cpm_mps = [correlator(gs, ops.sp_l, ops.sm_r, (i,), (j,)) for i in 1:L, j in 1:L]
+    Cmp_mps = [correlator(gs, ops.sm_l, ops.sp_r, (i,), (j,)) for i in 1:L, j in 1:L]
+    Cpm_ref = isnothing(ops.sz) ? Czz + (Cpm + Cmp) / 2 : Cpm
+    Cmp_ref = isnothing(ops.sz) ? Czz + (Cpm + Cmp) / 2 : Cmp
+    @test isapprox(Cpm_mps, Cpm_ref; atol=ED_TOL_OBS)
+    @test isapprox(Cmp_mps, Cmp_ref; atol=ED_TOL_OBS)
+    if !isnothing(ops.sz)
+        Czz_mps = [correlator(gs, ops.sz, ops.sz, (i,), (j,)) for i in 1:L, j in 1:L]
+        @test isapprox(Czz_mps, Czz; atol=ED_TOL_OBS)
+    end
+    return maximum(abs.(Cpm_mps - Cpm_ref)), maximum(abs.(Cmp_mps - Cmp_ref))
+end
+
+function test_single_particle_benchmark(gs, ψed, sectors, table, ops, L, σ=nothing)
+    G, A = ed_single_particle_benchmark(ψed, sectors, table, L, σ)
+    G_mps = [correlator(gs, ops.cp_l, ops.cm_r, (i,), (j,)) for i in 1:L, j in 1:L]
+    A_mps = [correlator(gs, ops.cm_l, ops.cp_r, (i,), (j,)) for i in 1:L, j in 1:L]
+    @test isapprox(G_mps, G; atol=ED_TOL_OBS)
+    @test isapprox(A_mps, -A; atol=ED_TOL_OBS)
+    return maximum(abs.(G_mps - G)), maximum(abs.(A_mps + A))
+end
+
+function test_pairing_benchmark(gs, ψed, sectors, table, ops, L)
+    errors = Float64[]
+    for onsite in (false, true)
+        pairs, P = ed_pairing_benchmark(ψed, sectors, table, L, onsite)
+        sd, sl = onsite ? (ops.sd_onsite, ops.sl_onsite) : (ops.sd, ops.sl)
+        if onsite
+            P_mps = [correlator(gs, sd, sl, pairs[a], pairs[b]) for a in eachindex(pairs), b in eachindex(pairs)]
+            @test isapprox(P_mps, P; atol=ED_TOL_OBS)
+            push!(errors, maximum(abs.(P_mps - P)))
+        else
+            bond_errors = Float64[]
+            for predicate in BOND_ORDER_PREDICATES
+                ij, kl = random_bond_case(L, predicate)
+                a, b = findfirst(==(ij), pairs), findfirst(==(kl), pairs)
+                value = correlator(gs, sd, sl, ij, kl)
+                @test isapprox(value, P[a,b]; atol=ED_TOL_OBS)
+                push!(bond_errors, abs(value - P[a,b]))
+            end
+            push!(errors, maximum(bond_errors))
+        end
+    end
+    return errors
+end
+
+function number_sectors(L, F)
+    zero = BinaryBases(2L, ℕ(F))
+    annihilate = Dict(1//2 => BinaryBases(2L, ℕ(F - 1)), -1//2 => BinaryBases(2L, ℕ(F - 1)))
+    create = Dict(1//2 => BinaryBases(2L, ℕ(F + 1)), -1//2 => BinaryBases(2L, ℕ(F + 1)))
+    return (zero=zero, annihilate=annihilate, create=create, minus2=BinaryBases(2L, ℕ(F - 2)))
+end
+
+function sz_sectors(L, F)
+    sw, su = 1:L, (L + 1):(2L)
+    sector(S) = BinaryBases(sw, su, 𝕊ᶻ(S))
+    zero = sector(F)
+    annihilate = Dict(1//2 => sector(F - 1//2), -1//2 => sector(F + 1//2))
+    create = Dict(1//2 => sector(F + 1//2), -1//2 => sector(F - 1//2))
+    return (zero=zero, annihilate=annihilate, create=create, minus2=zero)
 end
 
 function dcorrelator_ed(t, lattice, hilbert, term)
@@ -334,89 +486,219 @@ end
     N = 8
     L = 8
     unitcell = Lattice([0.0, 0.0]; vectors=[[1.0, 0.0]])
-    lattice = Lattice(unitcell, (8, ), ('o',))
+    lattice = Lattice(unitcell, (L,), ('o',))
     hilbert = Hilbert(site=>Fock{:f}(1, 2) for site=1:length(lattice))
+    table = Table(hilbert, Metric(EDKind(hilbert), hilbert))
     t = Hopping(:t, ComplexF64(-1.0), 1; amplitude = b->b.points[1].site < b.points[2].site ? 1+0.5im : 1-0.5im)
     U = Hubbard(:U, 8.0)
+    truncdims = [64, 64, 128, 256, 256, 256]
 
     @testset "spin-SU2 x particle-U1" begin
         filling = (1, 2)
-
-        # DMRG side (test_gs.jl)
-        st = randFiniteMPS(elt, SU2Irrep, U1Irrep, N; filling=filling)
-        truncdims = [64, 64, 128, 128, 128, 128]
+        F = L ÷ 2
+        st = randFiniteMPS(elt, SU2Irrep, U1Irrep, L; filling=filling)
         H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t=-1-0.5im, U=8, filling=filling)
-        gs, env, E0 = dmrg2!(
-            st, H, truncdims; save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE
-        )
+        gs, env, E0 = dmrg2!(st, H, truncdims; save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
 
-        cm = e_min(elt, SU2Irrep, U1Irrep; filling=filling)
-        gf = zeros(ComplexF64, 8, 8)
-        for j in 1:8
-                gf[:, j] = sweep_dot(gs, cm, chargedMPS(cm, gs, j))
-        end
-
-        sd = singlet_dagger(elt, SU2Irrep, U1Irrep; filling=filling)
-        sl  = singlet(elt, SU2Irrep, U1Irrep; filling=filling, side=:R)
-        i = 1
-        j = 2
-        k = 2
-        l = 4
-        pc = correlator(gs, sd, sl, (i,j), (k,l))
-
-        quantumnumber = ℕ(4)
-        ed = ED(lattice, hilbert, (t, U), quantumnumber)
+        ed = ED(lattice, hilbert, (t, U), ℕ(F))
         eigensystem = eigen(ed; nev=1)
-        gs_ed = eigensystem.vectors[1]
+        ψed = eigensystem.vectors[1]
         E_ed = eigensystem.values[1]
-        G = G_ed_SU2(gs_ed, 4, 8, hilbert)
-        pc_ed = pairing_N(gs_ed, 4, 8, (i,j,k,l), hilbert)
+        sectors = number_sectors(L, F)
+        @test isapprox(E0, E_ed; atol=ED_TOL_ENERGY)
 
-        @printf("SU2xU1: E_dmrg = %.12f, E_ed = %.12f, |ΔE| = %.2e\n", real(E0), real(E_ed), abs(E0 - E_ed))
-        @printf("        max|ΔG| = %.2e, |Δpc| = %.2e\n", maximum(abs.(gf - G)), abs(pc - pc_ed))
-        @test isapprox(E0, E_ed; atol = ED_TOL_ENERGY)
-        @test isapprox(gf, G; atol = ED_TOL_OBS)
-        @test isapprox(pc, pc_ed; atol = ED_TOL_OBS)
+        spin_ops = (
+            sp_l=S_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling),
+            sp_r=S_plus(elt, SU2Irrep, U1Irrep; side=:R, filling=filling),
+            sm_l=S_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling),
+            sm_r=S_min(elt, SU2Irrep, U1Irrep; side=:R, filling=filling),
+            sz=nothing,
+        )
+        spin_errors = test_spin_benchmark(gs, ψed, sectors, table, spin_ops, L)
+
+        single_ops = (
+            cp_l=e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling),
+            cp_r=e_plus(elt, SU2Irrep, U1Irrep; side=:R, filling=filling),
+            cm_l=e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling),
+            cm_r=e_min(elt, SU2Irrep, U1Irrep; side=:R, filling=filling),
+        )
+        single_errors = test_single_particle_benchmark(gs, ψed, sectors, table, single_ops, L)
+
+        pair_ops = (
+            sd=singlet_dagger(elt, SU2Irrep, U1Irrep; filling=filling),
+            sl=singlet(elt, SU2Irrep, U1Irrep; filling=filling, side=:R),
+            sd_onsite=singlet_dagger(elt, SU2Irrep, U1Irrep; onsite=true, filling=filling),
+            sl_onsite=singlet(elt, SU2Irrep, U1Irrep; onsite=true, filling=filling, side=:R),
+        )
+        pair_errors = test_pairing_benchmark(gs, ψed, sectors, table, pair_ops, L)
+
+        pc = PairCorrelation((pair_ops.sd, pair_ops.sl), Custom(lattice), Neighbors(1=>1), 1, 1)
+        wrapped = [correlator(pc, gs; parallel=mode, is=[1], js=[3]) for mode in (1, 2, "np")]
+        @test all(x -> eltype(x) === ComplexF64, wrapped)
+        @test isapprox(wrapped[1], wrapped[2]; atol=ED_TOL_OBS)
+        @test isapprox(wrapped[1], wrapped[3]; atol=ED_TOL_OBS)
+        @printf("SU2xU1: |ΔE|=%.2e, spin=%.2e/%.2e, single=%.2e/%.2e, pair=%.2e/%.2e\n",
+            abs(E0-E_ed), spin_errors..., single_errors..., pair_errors...)
     end
 
     @testset "spin-SU2 only, Sz = 1/2 sector" begin
         H = hubbard(elt, SU2Irrep, Custom(lattice); t=-1.0-0.5im, U=8.0)
-        vs = repeat([Vect[(FermionParity ⊠ SU2Irrep)]((Int(!isinteger(i)), i) => 1  for i in 0:1//2:1),], L - 1)
+        vs = repeat([Vect[(FermionParity ⊠ SU2Irrep)]((Int(!isinteger(i)), i) => 1 for i in 0:1//2:1),], L - 1)
         st = FiniteMPS(rand, elt, physicalspace(H), vs; right=Vect[(FermionParity ⊠ SU2Irrep)]((1, 1/2) => 1))
-        truncs = [64, 64, 128, 128, 128, 128]
-        gs, env, E0 = dmrg2!(
-            st, H, truncs; save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE
-        )
+        gs, env, E0 = dmrg2!(st, H, truncdims; save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
 
-        cm = e_min(elt, SU2Irrep)
-        gf = zeros(ComplexF64, 8, 8)
-        for j in 1:8
-                gf[:, j] = sweep_dot(gs, cm, chargedMPS(cm, gs, j))
+        ed = ED(lattice, hilbert, (t, U), 𝕊ᶻ(1//2))
+        eigensystem = eigen(ed; nev=1)
+        ψed = eigensystem.vectors[1]
+        E_ed = eigensystem.values[1]
+        sectors = sz_sectors(L, 1//2)
+        @test isapprox(E0, E_ed; atol=ED_TOL_ENERGY)
+
+        spin_ops = (
+            sp_l=S_plus(elt, SU2Irrep; side=:L),
+            sp_r=S_plus(elt, SU2Irrep; side=:R),
+            sm_l=S_min(elt, SU2Irrep; side=:L),
+            sm_r=S_min(elt, SU2Irrep; side=:R),
+            sz=nothing,
+        )
+        spin_errors = test_spin_benchmark(gs, ψed, sectors, table, spin_ops, L)
+
+        single_ops = (
+            cp_l=e_plus(elt, SU2Irrep; side=:L),
+            cp_r=e_plus(elt, SU2Irrep; side=:R),
+            cm_l=e_min(elt, SU2Irrep; side=:L),
+            cm_r=e_min(elt, SU2Irrep; side=:R),
+        )
+        single_errors = test_single_particle_benchmark(gs, ψed, sectors, table, single_ops, L)
+
+        pair_ops = (
+            sd=singlet_dagger(elt, SU2Irrep),
+            sl=singlet(elt, SU2Irrep; side=:R),
+            sd_onsite=singlet_dagger(elt, SU2Irrep; onsite=true),
+            sl_onsite=singlet(elt, SU2Irrep; onsite=true, side=:R),
+        )
+        pair_errors = test_pairing_benchmark(gs, ψed, sectors, table, pair_ops, L)
+        @printf("SU2:    |ΔE|=%.2e, spin=%.2e/%.2e, single=%.2e/%.2e, pair=%.2e/%.2e\n",
+            abs(E0-E_ed), spin_errors..., single_errors..., pair_errors...)
+    end
+
+    @testset "spin-U1 x particle-U1" begin
+        filling = (1, 1)
+        F = L
+        st = randFiniteMPS(elt, U1Irrep, U1Irrep, L; filling=filling)
+        H = hamiltonian((t, U), lattice, hilbert; filling=filling)
+        gs, env, E0 = dmrg2!(st, H, truncdims; save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
+
+        ed = ED(lattice, hilbert, (t, U), ℕ(F))
+        eigensystem = eigen(ed; nev=1)
+        ψed = eigensystem.vectors[1]
+        E_ed = eigensystem.values[1]
+        sectors = number_sectors(L, F)
+        @test isapprox(E0, E_ed; atol=ED_TOL_ENERGY)
+
+        spin_ops = (
+            sp_l=S_plus(elt, U1Irrep, U1Irrep; side=:L, filling=filling),
+            sp_r=S_plus(elt, U1Irrep, U1Irrep; side=:R, filling=filling),
+            sm_l=S_min(elt, U1Irrep, U1Irrep; side=:L, filling=filling),
+            sm_r=S_min(elt, U1Irrep, U1Irrep; side=:R, filling=filling),
+            sz=S_z(elt, U1Irrep, U1Irrep; filling=filling),
+        )
+        spin_errors = test_spin_benchmark(gs, ψed, sectors, table, spin_ops, L)
+
+        single_errors = zeros(Float64, 2, 2)
+        for (row, (σ, spin)) in enumerate(((1//2, :up), (-1//2, :down)))
+            single_ops = (
+                cp_l=e_plus(elt, U1Irrep, U1Irrep; side=:L, spin=spin, filling=filling),
+                cp_r=e_plus(elt, U1Irrep, U1Irrep; side=:R, spin=spin, filling=filling),
+                cm_l=e_min(elt, U1Irrep, U1Irrep; side=:L, spin=spin, filling=filling),
+                cm_r=e_min(elt, U1Irrep, U1Irrep; side=:R, spin=spin, filling=filling),
+            )
+            single_errors[row,:] .= test_single_particle_benchmark(gs, ψed, sectors, table, single_ops, L, σ)
         end
 
-        sd = singlet_dagger(elt, SU2Irrep)
-        sl  = singlet(elt, SU2Irrep; side=:R)
-        i = 3
-        j = 6
-        k = 3
-        l = 5
-        pc = correlator(gs, sd, sl, (i,j), (k,l))
-
-        quantumnumber = 𝕊ᶻ(1//2)
-        ed = ED(lattice, hilbert, (t, U), quantumnumber)
-        eigensystem = eigen(ed; nev=1)
-        gs_ed = eigensystem.vectors[1]
-        E_ed = eigensystem.values[1]
-        G = G_ed_Sz(gs_ed, 1//2, 8, hilbert)
-        pc_ed = pairing_Sz(gs_ed, 1//2, (i,j,k,l), hilbert)
-
-        @printf("SU2:    E_dmrg = %.12f, E_ed = %.12f, |ΔE| = %.2e\n", real(E0), real(E_ed), abs(E0 - E_ed))
-        @printf("        max|ΔG| = %.2e, |Δpc| = %.2e\n", maximum(abs.(gf - G)), abs(pc - pc_ed))
-        @test isapprox(E0, E_ed; atol = ED_TOL_ENERGY)
-        @test isapprox(gf, G; atol = ED_TOL_OBS)
-        @test isapprox(pc, pc_ed; atol = ED_TOL_OBS)
+        pair_errors = test_u1_pairing_benchmark(gs, ψed, sectors, table, L, filling)
+        @printf("U1xU1:  |ΔE|=%.2e, spin=%.2e/%.2e, single=%.2e, pair=%.2e/%.2e\n",
+            abs(E0-E_ed), spin_errors..., maximum(single_errors), pair_errors...)
     end
     
+    @testset "triangular-lattice form factors and 120-degree spin" begin
+        filling = (1, 1)
+        Ntri = 8
+        tri_unitcell = Lattice([0.0, 0.0]; vectors=[[1.0, 0.0], [0.5, sqrt(3)/2]])
+        tri_lattice = Lattice(tri_unitcell, (2, 4), ('p', 'p'))
+        tri_hilbert = Hilbert(site=>Fock{:f}(1, 2) for site=1:length(tri_lattice))
+        tri_table = Table(tri_hilbert, Metric(EDKind(tri_hilbert), tri_hilbert))
+        H = hubbard(elt, SU2Irrep, U1Irrep, Custom(tri_lattice);
+            t=-1-0.5im, U=8, filling=filling)
+        st = randFiniteMPS(elt, SU2Irrep, U1Irrep, Ntri; filling=filling)
+        gs, env, E0 = dmrg2!(st, H, truncdims;
+            save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
+
+        ed = ED(tri_lattice, tri_hilbert, (t, U), ℕ(Ntri))
+        eigensystem = eigen(ed; nev=1)
+        ψed = eigensystem.vectors[1]
+        E_ed = eigensystem.values[1]
+        sectors = number_sectors(Ntri, Ntri)
+        @test isapprox(E0, E_ed; atol=ED_TOL_ENERGY)
+
+        sld = singlet_dagger(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+        sl = singlet(elt, SU2Irrep, U1Irrep; side=:R, filling=filling)
+        tri_bonds = bonds(tri_lattice, Neighbors(1=>1))
+        center_bonds = [filter(b -> any(p -> p.site == i, b.points), tri_bonds) for i in 1:Ntri]
+        channels = (
+            extended_s = b -> 1.0,
+            d1 = b -> cos(2 * azimuth(rcoordinate(b))),
+            d2 = b -> sin(2 * azimuth(rcoordinate(b))),
+            chiral = b -> cis(2 * azimuth(rcoordinate(b))),
+        )
+        bond_indices(b) = Tuple(sort([p.site for p in b.points]))
+        for f in channels, b in tri_bonds
+            @test isapprox(f(reverse(b)), f(b); atol=1e-12)
+        end
+
+        center_pairs = [(1, 1), (1, 2), (1, 8), (2, 7), (4, 5)]
+        for name in propertynames(channels)
+            f = getproperty(channels, name)
+            states = map(1:Ntri) do r
+                op = sum(f(b) * ed_bond_singlet(bond_indices(b)...) for b in center_bonds[r])
+                return matrix(op, (sectors.minus2, sectors.zero), tri_table) * ψed
+            end
+            for (r, s) in center_pairs
+                expected = dot(states[r], states[s])
+                pc = PairCorrelation((sld, sl), Custom(tri_lattice), Neighbors(1=>1), 1, 1;
+                    amplitude=f, intralayer=nothing)
+                value = correlator(pc, gs; parallel=1, is=[r], js=[s])[1]
+                @test isapprox(value, expected; atol=ED_TOL_OBS)
+            end
+        end
+
+        pc = PairCorrelation((sld, sl), Custom(tri_lattice), Neighbors(1=>1), 1, 1;
+            amplitude=channels.chiral, intralayer=nothing)
+        serial = correlator(pc, gs; parallel=1, is=[1], js=[8])
+        threaded = correlator(pc, gs; parallel=2, is=[1], js=[8])
+        @test isapprox(serial, threaded; atol=ED_TOL_OBS)
+
+        spin_ops = (
+            sp_l=S_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling),
+            sp_r=S_plus(elt, SU2Irrep, U1Irrep; side=:R, filling=filling),
+            sm_l=S_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling),
+            sm_r=S_min(elt, SU2Irrep, U1Irrep; side=:R, filling=filling),
+            sz=nothing,
+        )
+        test_spin_benchmark(gs, ψed, sectors, tri_table, spin_ops, Ntri)
+        Czz, Cpm, Cmp = ed_spin_benchmark(ψed, sectors.zero, tri_table, Ntri)
+        C_ed = Czz + (Cpm + Cmp) / 2
+        C_mps = [correlator(gs, spin_ops.sp_l, spin_ops.sm_r, (i,), (j,))
+            for i in 1:Ntri, j in 1:Ntri]
+        rs = [tri_lattice[i] for i in 1:Ntri]
+        ks = [[4π/3, 0.0], [-4π/3, 0.0]]
+        sf_ed = static_structure_factor(C_ed, rs, ks)
+        sf_mps = static_structure_factor(C_mps, rs, ks)
+        @test isapprox(sf_mps, sf_ed; atol=ED_TOL_OBS)
+        @printf("triangular: |ΔE|=%.2e, S(K) error=%.2e\n", abs(E0-E_ed),
+            maximum(abs.(sf_mps-sf_ed)))
+    end
+
     @testset "fast chargedMPS compression" begin
         filling = (1, 2)
         st = randFiniteMPS(elt, SU2Irrep, U1Irrep, N; filling=filling)
