@@ -1,14 +1,13 @@
 # Observables
 
-## Correlation Types
+## Correlation Plans
 
 ```@docs
-AbstractCorrelation
-PairCorrelation
-TwoSiteCorrelation
-OneSiteCorrelation
-site_indices
-pair_amplitude_indices
+CorrelationPlan
+add_one_site!
+add_two_site!
+add_pairing!
+raw_call_counts
 ```
 
 ## Static Correlators

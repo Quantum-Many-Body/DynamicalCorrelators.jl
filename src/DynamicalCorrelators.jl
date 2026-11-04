@@ -119,7 +119,7 @@ export HalfFiniteEnvironments, free_left!, free_right!, env_memory_bytes, config
 export fast_timestep!, fast_approximate!
 export Perioder, CPT, singleParticleGreenFunction, spectrum, densityofstates, GrandPotential, OrderParameters
 
-export AbstractCorrelation, PairCorrelation, pair_amplitude_indices, TwoSiteCorrelation, OneSiteCorrelation, site_indices, correlator
+export CorrelationPlan, add_one_site!, add_two_site!, add_pairing!, raw_call_counts, correlator
 export evolve_mps, dcorrelator, prepare_dcorrelator, sweep_dot
 export conductivity
 export fourier_kw, fourier_rw, fourier_rz, fourier_riw, static_structure_factor

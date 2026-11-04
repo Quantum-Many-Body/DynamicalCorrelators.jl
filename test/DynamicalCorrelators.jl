@@ -360,10 +360,15 @@ function test_u1_pairing_benchmark(gs, ψed, sectors, table, L, filling)
     for onsite in (false, true)
         pairs, P = ed_pairing_benchmark(ψed, sectors, table, L, onsite)
         _, states = u1_pair_states(gs, L, filling, onsite)
+        sd = singlet_dagger(ComplexF64, U1Irrep, U1Irrep; onsite, filling)
+        sl = singlet(ComplexF64, U1Irrep, U1Irrep; onsite, side=:R, filling)
         if onsite
             P_mps = [dot(states[a], states[b]) for a in eachindex(states), b in eachindex(states)] ./ 2
             @test isapprox(P_mps, P; atol=ED_TOL_OBS)
             push!(errors, maximum(abs.(P_mps - P)))
+            P_kernel = [correlator(gs, sd, sl, pairs[a], pairs[b]) for a in eachindex(pairs), b in eachindex(pairs)]
+            @test isapprox(P_kernel, P; atol=ED_TOL_OBS)
+            push!(errors, maximum(abs.(P_kernel - P)))
         else
             bond_errors = Float64[]
             for predicate in BOND_ORDER_PREDICATES
@@ -372,6 +377,9 @@ function test_u1_pairing_benchmark(gs, ψed, sectors, table, L, filling)
                 value = dot(states[a], states[b]) / 2
                 @test isapprox(value, P[a,b]; atol=ED_TOL_OBS)
                 push!(bond_errors, abs(value - P[a,b]))
+                value_kernel = correlator(gs, sd, sl, ij, kl)
+                @test isapprox(value_kernel, P[a,b]; atol=ED_TOL_OBS)
+                push!(bond_errors, abs(value_kernel - P[a,b]))
             end
             push!(errors, maximum(bond_errors))
         end
@@ -532,11 +540,13 @@ end
         )
         pair_errors = test_pairing_benchmark(gs, ψed, sectors, table, pair_ops, L)
 
-        pc = PairCorrelation((pair_ops.sd, pair_ops.sl), Custom(lattice), Neighbors(1=>1), 1, 1)
-        wrapped = [correlator(pc, gs; parallel=mode, is=[1], js=[3]) for mode in (1, 2, "np")]
+        plan = CorrelationPlan(gs)
+        add_pairing!(plan, :pair; operators=(pair_ops.sd, pair_ops.sl),
+            lattice=Custom(lattice), neighbors=Neighbors(1=>1), orbitals=(1, 1),
+            is=[1], js=[3])
+        wrapped = [correlator(plan; parallel=mode).pair for mode in (1, 2)]
         @test all(x -> eltype(x) === ComplexF64, wrapped)
         @test isapprox(wrapped[1], wrapped[2]; atol=ED_TOL_OBS)
-        @test isapprox(wrapped[1], wrapped[3]; atol=ED_TOL_OBS)
         @printf("SU2xU1: |ΔE|=%.2e, spin=%.2e/%.2e, single=%.2e/%.2e, pair=%.2e/%.2e\n",
             abs(E0-E_ed), spin_errors..., single_errors..., pair_errors...)
     end
@@ -657,26 +667,65 @@ end
         end
 
         center_pairs = [(1, 1), (1, 2), (1, 8), (2, 7), (4, 5)]
+        center_is = unique(first.(center_pairs))
+        center_js = unique(last.(center_pairs))
+        tri = Custom(tri_lattice)
+        plan = CorrelationPlan(gs)
+        for name in propertynames(channels)
+            add_pairing!(plan, name; operators=(sld, sl), lattice=tri,
+                neighbors=Neighbors(1=>1), orbitals=(1, 1),
+                amplitude=getproperty(channels, name), intralayer=nothing,
+                is=center_is, js=center_js)
+        end
+        results = correlator(plan; parallel=1)
         for name in propertynames(channels)
             f = getproperty(channels, name)
             states = map(1:Ntri) do r
                 op = sum(f(b) * ed_bond_singlet(bond_indices(b)...) for b in center_bonds[r])
                 return matrix(op, (sectors.minus2, sectors.zero), tri_table) * ψed
             end
+            got = results[name]
             for (r, s) in center_pairs
                 expected = dot(states[r], states[s])
-                pc = PairCorrelation((sld, sl), Custom(tri_lattice), Neighbors(1=>1), 1, 1;
-                    amplitude=f, intralayer=nothing)
-                value = correlator(pc, gs; parallel=1, is=[r], js=[s])[1]
+                value = got[findfirst(==(r), center_is), findfirst(==(s), center_js)]
                 @test isapprox(value, expected; atol=ED_TOL_OBS)
             end
         end
 
-        pc = PairCorrelation((sld, sl), Custom(tri_lattice), Neighbors(1=>1), 1, 1;
-            amplitude=channels.chiral, intralayer=nothing)
-        serial = correlator(pc, gs; parallel=1, is=[1], js=[8])
-        threaded = correlator(pc, gs; parallel=2, is=[1], js=[8])
-        @test isapprox(serial, threaded; atol=ED_TOL_OBS)
+        # the four form factors share the same raw values: the joint plan needs no
+        # more raw kernel calls than a single-channel plan
+        plan_one = CorrelationPlan(gs)
+        add_pairing!(plan_one, :extended_s; operators=(sld, sl), lattice=tri,
+            neighbors=Neighbors(1=>1), orbitals=(1, 1), amplitude=channels.extended_s,
+            intralayer=nothing, is=center_is, js=center_js)
+        correlator(plan_one; parallel=1)
+        @test raw_call_counts(plan).pair == raw_call_counts(plan_one).pair
+
+        # repeated evaluation recomputes nothing, and a new channel that differs only
+        # in its amplitudes reuses the cached raw values
+        counts = raw_call_counts(plan)
+        results_again = correlator(plan; parallel=1)
+        @test raw_call_counts(plan) == counts
+        @test results_again.chiral == results.chiral
+        add_pairing!(plan, :extended_s_x2; operators=(sld, sl), lattice=tri,
+            neighbors=Neighbors(1=>1), orbitals=(1, 1),
+            amplitude=b -> 2 * channels.extended_s(b), intralayer=nothing,
+            is=center_is, js=center_js)
+        results_x2 = correlator(plan; parallel=1)
+        @test raw_call_counts(plan) == counts
+        # the form factor enters on both centers, so doubling it scales the result by 4
+        @test isapprox(results_x2.extended_s_x2, 4 .* results.extended_s; atol=ED_TOL_OBS)
+
+        # threaded and serial evaluation agree
+        plan_s = CorrelationPlan(gs)
+        plan_t = CorrelationPlan(gs)
+        for p in (plan_s, plan_t)
+            add_pairing!(p, :chiral; operators=(sld, sl), lattice=tri,
+                neighbors=Neighbors(1=>1), orbitals=(1, 1), amplitude=channels.chiral,
+                intralayer=nothing, is=center_is, js=center_js)
+        end
+        @test isapprox(correlator(plan_t; parallel=2).chiral,
+            correlator(plan_s; parallel=1).chiral; atol=ED_TOL_OBS)
 
         spin_ops = (
             sp_l=S_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling),
@@ -688,6 +737,25 @@ end
         test_spin_benchmark(gs, ψed, sectors, tri_table, spin_ops, Ntri)
         Czz, Cpm, Cmp = ed_spin_benchmark(ψed, sectors.zero, tri_table, Ntri)
         C_ed = Czz + (Cpm + Cmp) / 2
+
+        # one-site and two-site channels on the same plan: only their own raw work
+        # is computed, the pairing raw values are reused from the cache
+        counts_before = raw_call_counts(plan)
+        add_one_site!(plan, :density; operator=number(elt, SU2Irrep, U1Irrep; filling=filling),
+            lattice=tri, orbital=1)
+        add_two_site!(plan, :spin; operators=(spin_ops.sp_l, spin_ops.sm_r),
+            lattice=tri, orbital=1)
+        results_full = correlator(plan; parallel=1)
+        counts_after = raw_call_counts(plan)
+        @test counts_after.pair == counts_before.pair
+        @test counts_after.onesite == counts_before.onesite + Ntri
+        @test counts_after.twosite == counts_before.twosite + Ntri^2
+        ed_density = [dot(ψed, matrix(ed_cd(i, 1//2) * ed_c(i, 1//2) +
+                ed_cd(i, -1//2) * ed_c(i, -1//2), (sectors.zero, sectors.zero), tri_table), ψed)
+            for i in 1:Ntri]
+        @test isapprox(results_full.density, ed_density; atol=ED_TOL_OBS)
+        @test isapprox(results_full.spin, C_ed; atol=ED_TOL_OBS)
+
         C_mps = [correlator(gs, spin_ops.sp_l, spin_ops.sm_r, (i,), (j,))
             for i in 1:Ntri, j in 1:Ntri]
         rs = [tri_lattice[i] for i in 1:Ntri]
