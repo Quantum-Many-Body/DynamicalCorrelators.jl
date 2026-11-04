@@ -370,18 +370,19 @@ function test_u1_pairing_benchmark(gs, ψed, sectors, table, L, filling)
             @test isapprox(P_kernel, P; atol=ED_TOL_OBS)
             push!(errors, maximum(abs.(P_kernel - P)))
         else
-            bond_errors = Float64[]
+            state_errors = Float64[]
+            kernel_errors = Float64[]
             for predicate in BOND_ORDER_PREDICATES
                 ij, kl = random_bond_case(L, predicate)
                 a, b = findfirst(==(ij), pairs), findfirst(==(kl), pairs)
                 value = dot(states[a], states[b]) / 2
                 @test isapprox(value, P[a,b]; atol=ED_TOL_OBS)
-                push!(bond_errors, abs(value - P[a,b]))
+                push!(state_errors, abs(value - P[a,b]))
                 value_kernel = correlator(gs, sd, sl, ij, kl)
                 @test isapprox(value_kernel, P[a,b]; atol=ED_TOL_OBS)
-                push!(bond_errors, abs(value_kernel - P[a,b]))
+                push!(kernel_errors, abs(value_kernel - P[a,b]))
             end
-            push!(errors, maximum(bond_errors))
+            push!(errors, maximum(state_errors), maximum(kernel_errors))
         end
     end
     return errors
@@ -627,7 +628,7 @@ end
         end
 
         pair_errors = test_u1_pairing_benchmark(gs, ψed, sectors, table, L, filling)
-        @printf("U1xU1:  |ΔE|=%.2e, spin=%.2e/%.2e, single=%.2e, pair=%.2e/%.2e\n",
+        @printf("U1xU1:  |ΔE|=%.2e, spin=%.2e/%.2e, single=%.2e, pair(bond state/kernel, onsite state/kernel)=%.2e/%.2e/%.2e/%.2e\n",
             abs(E0-E_ed), spin_errors..., maximum(single_errors), pair_errors...)
     end
     
