@@ -1,30 +1,139 @@
 """
-    abstract type AbstractCorrelation end
+    abstract type AbstractPlanChannel end
+
+Internal supertype for the channels that can be registered in a [`CorrelationPlan`](@ref).
 """
-abstract type AbstractCorrelation end
+abstract type AbstractPlanChannel end
 
 """
-    PairCorrelation <: AbstractCorrelation
+    OneSiteChannel(operator, indices)
+
+One-site channel of a [`CorrelationPlan`](@ref): the local expectation of `operator`
+at each lattice site, summed over the MPS indices of the site. The result is a
+`Vector{ComplexF64}` over the lattice sites. See [`add_one_site!`](@ref).
 """
-struct PairCorrelation <: AbstractCorrelation
-    operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}
-    lattice::CustomLattice
-    amplitudes::AbstractArray
-    indices::AbstractArray
+struct OneSiteChannel{O<:AbstractTensorMap} <: AbstractPlanChannel
+    operator::O
+    indices::Vector{Vector{Int}}
 end
 
 """
-    PairCorrelation(ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing) 
+    TwoSiteChannel(operators, indices, is, js)
+
+Two-site channel of a [`CorrelationPlan`](@ref):
+`⟨operators[1](i) operators[2](j)⟩` for `i in is` and `j in js`, summed over the MPS
+indices of each lattice site. The result is a `Matrix{ComplexF64}` of size
+`(length(is), length(js))`. See [`add_two_site!`](@ref).
 """
-function PairCorrelation(ops::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing)
-    amplitudes, indices = pair_amplitude_indices(latt, neighbors, a, b; amplitude=amplitude, intralayer=intralayer)
-    return PairCorrelation(ops, latt, amplitudes, indices)
+struct TwoSiteChannel{A<:AbstractTensorMap, B<:AbstractTensorMap} <: AbstractPlanChannel
+    operators::Tuple{A, B}
+    indices::Vector{Vector{Int}}
+    is::Vector{Int}
+    js::Vector{Int}
 end
 
 """
-    pair_amplitude_indices(latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing)
+    PairChannel(operators, amplitudes, indices, is, js)
+
+Pair–pair channel of a [`CorrelationPlan`](@ref):
+`result[a, b] = Σ_{p,q} conj(amplitude_p) * amplitude_q * ⟨operators[1](p) operators[2](q)⟩`,
+where `p` and `q` run over the index tuples (bonds or on-site tuples) attached to
+lattice sites `is[a]` and `js[b]`. See [`add_pairing!`](@ref).
 """
-function pair_amplitude_indices(latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing)
+struct PairChannel{A<:AbstractTensorMap, B<:AbstractTensorMap} <: AbstractPlanChannel
+    operators::Tuple{A, B}
+    amplitudes::Vector{Vector{ComplexF64}}
+    indices::Vector{Vector{Vector{Int}}}
+    is::Vector{Int}
+    js::Vector{Int}
+end
+
+"""
+    CorrelationPlan(gs::AbstractFiniteMPS)
+
+Lazy plan for static correlation functions of a finite-MPS ground state `gs`.
+
+Channels are registered with [`add_one_site!`](@ref), [`add_two_site!`](@ref) and
+[`add_pairing!`](@ref). Registration only records the operators and the geometry; no
+tensor contraction happens at this point. [`correlator(plan)`](@ref) then computes the
+raw expectation values required by the registered channels, caches them by operator
+identity and MPS site indices (amplitudes are not part of the cache key, so channels
+that differ only in their form factors share the same raw values), and returns the
+channel results as a `NamedTuple` keyed by channel name.
+
+```julia
+plan = CorrelationPlan(gs)
+add_one_site!(plan, :density; operator=n, lattice=bl, orbital=1)
+add_two_site!(plan, :spin; operators=(sp, sm), lattice=bl, orbital=1)
+add_pairing!(plan, :d_plus_id; operators=(sld, sl), lattice=bl,
+    neighbors=Neighbors(1=>1), orbitals=(1, 1), amplitude=f)
+results = correlator(plan)
+```
+
+Calling `correlator(plan)` again reuses the cached raw values; registering another
+channel afterwards only triggers the raw work that is still missing. The number of raw
+kernel evaluations can be inspected with [`raw_call_counts`](@ref).
+"""
+mutable struct CorrelationPlan{M<:AbstractFiniteMPS}
+    gs::M
+    names::Vector{Symbol}
+    channels::Dict{Symbol, AbstractPlanChannel}
+    operators::Vector{Any}
+    opids::IdDict{Any, Int}
+    cache1::Dict{Tuple{Int, Int}, ComplexF64}
+    cache2::Dict{NTuple{4, Int}, ComplexF64}
+    cache4::Dict{Tuple{Int, Int, NTuple{2, Int}, NTuple{2, Int}}, ComplexF64}
+    counters::NamedTuple{(:onesite, :twosite, :pair), NTuple{3, Base.RefValue{Int}}}
+end
+
+function CorrelationPlan(gs::AbstractFiniteMPS)
+    return CorrelationPlan(gs, Symbol[], Dict{Symbol, AbstractPlanChannel}(), Any[],
+        IdDict{Any, Int}(), Dict{Tuple{Int, Int}, ComplexF64}(),
+        Dict{NTuple{4, Int}, ComplexF64}(),
+        Dict{Tuple{Int, Int, NTuple{2, Int}, NTuple{2, Int}}, ComplexF64}(),
+        (onesite=Ref(0), twosite=Ref(0), pair=Ref(0)))
+end
+
+"""
+    raw_call_counts(plan::CorrelationPlan)
+
+Return the number of raw kernel evaluations performed so far, per channel kind
+(`(onesite=…, twosite=…, pair=…)`). Useful for tests and diagnostics.
+"""
+raw_call_counts(plan::CorrelationPlan) = map(getindex, plan.counters)
+
+function _opid!(plan::CorrelationPlan, op)
+    return get!(plan.opids, op) do
+        push!(plan.operators, op)
+        length(plan.operators)
+    end
+end
+
+function _register!(plan::CorrelationPlan, name::Symbol, channel::AbstractPlanChannel)
+    haskey(plan.channels, name) && throw(ArgumentError("channel :$name is already registered"))
+    plan.channels[name] = channel
+    push!(plan.names, name)
+    return plan
+end
+
+function _check_sites(is, js, N)
+    all(i -> 1 <= i <= N, is) || throw(ArgumentError("is contains sites outside 1:$N"))
+    all(j -> 1 <= j <= N, js) || throw(ArgumentError("js contains sites outside 1:$N"))
+    return nothing
+end
+
+"""
+    _site_indices(latt::CustomLattice; a::Union{Nothing, Integer})
+"""
+function _site_indices(latt::CustomLattice; a::Union{Nothing, Integer})
+    indices = isnothing(a) ? latt.indices : [[latt.indices[i][a],] for i in 1:length(latt.lattice)]
+    return indices
+end
+
+"""
+    _pair_amplitude_indices(latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing)
+"""
+function _pair_amplitude_indices(latt::CustomLattice, neighbors::Neighbors, a::Integer, b::Integer; amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing)
     bs = isnothing(intralayer) ? bonds(latt.lattice, neighbors) : intralayer ? filter(bond->bond.points[1].rcoordinate[3] == bond.points[2].rcoordinate[3], bonds(latt.lattice, neighbors)) : filter(bond->bond.points[1].rcoordinate[3] !== bond.points[2].rcoordinate[3], bonds(latt.lattice, neighbors))
     amp = Vector{Vector}(undef, length(latt.lattice))
     indices = Vector{Vector{Vector{Int}}}(undef, length(latt.lattice))
@@ -42,147 +151,205 @@ function pair_amplitude_indices(latt::CustomLattice, neighbors::Neighbors, a::In
 end
 
 """
-    correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
+    add_one_site!(plan::CorrelationPlan, name::Symbol; operator, lattice, orbital=nothing)
+
+Register a one-site channel: the local expectation of `operator` at each lattice site,
+summed over the site's MPS indices. `orbital` selects one orbital; `nothing` sums over
+all orbitals of each site. No tensor contraction happens until `correlator(plan)`.
+The result is a `Vector{ComplexF64}` over the lattice sites.
 """
-function correlator(correlation::PairCorrelation, gs::AbstractFiniteMPS; 
-                    parallel::Union{String, Integer}=Threads.nthreads(), 
-                    is=Vector((length(correlation.lattice.lattice)÷2):-1:1), 
-                    js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
-    @assert length(is) == length(js) "Length of is and js must be the same"
-    ops, amplitudes, indices = correlation.operators, correlation.amplitudes, correlation.indices
-    if parallel == "np"
-        Fr = SharedArray{ComplexF64, 1}(length(is))
-        @sync @distributed for i in eachindex(is) 
-            Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+function add_one_site!(plan::CorrelationPlan, name::Symbol; operator::AbstractTensorMap,
+        lattice::CustomLattice, orbital::Union{Nothing, Integer}=nothing)
+    return _register!(plan, name, OneSiteChannel(operator, _site_indices(lattice; a=orbital)))
+end
+
+"""
+    add_two_site!(plan::CorrelationPlan, name::Symbol; operators, lattice, orbital=nothing, is=1:L, js=1:L)
+
+Register a two-site channel:
+`result[a, b] = Σ ⟨operators[1](i) operators[2](j)⟩` with `i = is[a]`, `j = js[b]`,
+summed over the MPS indices of each lattice site. `orbital` selects one orbital;
+`nothing` sums over all orbitals. No tensor contraction happens until
+`correlator(plan)`. The result is a `Matrix{ComplexF64}` of size
+`(length(is), length(js))`.
+"""
+function add_two_site!(plan::CorrelationPlan, name::Symbol;
+        operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, lattice::CustomLattice,
+        orbital::Union{Nothing, Integer}=nothing,
+        is::AbstractVector{<:Integer}=1:length(lattice.lattice),
+        js::AbstractVector{<:Integer}=1:length(lattice.lattice))
+    is, js = collect(is), collect(js)
+    _check_sites(is, js, length(lattice.lattice))
+    return _register!(plan, name,
+        TwoSiteChannel(Tuple(operators), _site_indices(lattice; a=orbital), is, js))
+end
+
+"""
+    add_pairing!(plan::CorrelationPlan, name::Symbol; operators, lattice, neighbors, orbitals=(1, 1), amplitude=nothing, intralayer=nothing, is=1:L, js=1:L)
+
+Register a pair–pair channel:
+`result[a, b] = Σ_{p,q} conj(amplitude_p) * amplitude_q * ⟨operators[1](p) operators[2](q)⟩`,
+where `p` and `q` run over the index tuples of `neighbors` bonds attached to lattice
+sites `is[a]` and `js[b]`, and `orbitals` selects the orbital of each leg of a bond.
+`amplitude` is a function of the bond (the form factor); `intralayer` filters bonds by
+layer. On-site pairing uses `neighbors=Neighbors(0=>0)` with on-site pair operators.
+No tensor contraction happens until `correlator(plan)`. The result is a
+`Matrix{ComplexF64}` of size `(length(is), length(js))`.
+"""
+function add_pairing!(plan::CorrelationPlan, name::Symbol;
+        operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, lattice::CustomLattice,
+        neighbors::Neighbors, orbitals::Tuple{<:Integer, <:Integer}=(1, 1),
+        amplitude::Union{Nothing, Function}=nothing, intralayer::Union{Nothing, Bool}=nothing,
+        is::AbstractVector{<:Integer}=1:length(lattice.lattice),
+        js::AbstractVector{<:Integer}=1:length(lattice.lattice))
+    is, js = collect(is), collect(js)
+    _check_sites(is, js, length(lattice.lattice))
+    amplitudes, indices = _pair_amplitude_indices(lattice, neighbors, orbitals[1], orbitals[2];
+        amplitude=amplitude, intralayer=intralayer)
+    return _register!(plan, name, PairChannel(Tuple(operators),
+        [ComplexF64.(a) for a in amplitudes], indices, is, js))
+end
+
+"""
+    correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads())
+
+Compute all registered channels and return a `NamedTuple` keyed by channel name. Raw
+expectation values are shared between channels through the plan caches: each raw value
+is computed only once, and only the values that are still missing are evaluated, using
+`parallel` threads on shared memory.
+"""
+function correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads())
+    req1 = Set{Tuple{Int, Int}}()
+    req2 = Set{NTuple{4, Int}}()
+    req4 = Set{Tuple{Int, Int, NTuple{2, Int}, NTuple{2, Int}}}()
+    for name in plan.names
+        _collect_requirements!(req1, req2, req4, plan, plan.channels[name])
+    end
+    _fill_cache1!(plan, req1, parallel)
+    _fill_cache2!(plan, req2, parallel)
+    _fill_cache4!(plan, req4, parallel)
+    return NamedTuple{Tuple(plan.names)}(Tuple(
+        _channel_result(plan, plan.channels[name]) for name in plan.names))
+end
+
+function _collect_requirements!(req1, req2, req4, plan::CorrelationPlan, ch::OneSiteChannel)
+    opid = _opid!(plan, ch.operator)
+    for idxs in ch.indices, i in idxs
+        push!(req1, (opid, i))
+    end
+    return nothing
+end
+
+function _collect_requirements!(req1, req2, req4, plan::CorrelationPlan, ch::TwoSiteChannel)
+    id1, id2 = _opid!(plan, ch.operators[1]), _opid!(plan, ch.operators[2])
+    for ii in ch.is, jj in ch.js, i in ch.indices[ii], j in ch.indices[jj]
+        push!(req2, (id1, id2, i, j))
+    end
+    return nothing
+end
+
+function _collect_requirements!(req1, req2, req4, plan::CorrelationPlan, ch::PairChannel)
+    id1, id2 = _opid!(plan, ch.operators[1]), _opid!(plan, ch.operators[2])
+    for ii in ch.is, jj in ch.js, p in ch.indices[ii], q in ch.indices[jj]
+        if length(p) == 1
+            push!(req2, (id1, id2, p[1], q[1]))
+        else
+            push!(req4, (id1, id2, Tuple(p), Tuple(q)))
         end
-    elseif parallel == 1
-        Fr = zeros(ComplexF64, length(is))
-        for i in eachindex(is) 
-            Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+    end
+    return nothing
+end
+
+function _parallel_eval(f, n::Integer, parallel::Integer)
+    out = Vector{ComplexF64}(undef, n)
+    if parallel == 1
+        for t in 1:n
+            out[t] = f(t)
         end
     else
-        Fr = zeros(ComplexF64, length(is))
-        idx = Threads.Atomic{Int}(1)
-        n = length(is)
+        pos = Threads.Atomic{Int}(1)
         Threads.@sync for _ in 1:parallel
             Threads.@spawn while true
-                i = Threads.atomic_add!(idx, 1) 
-                i > n && break  
-                Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) * dot(amplitudes[is[i]][a], amplitudes[js[i]][b]) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
+                t = Threads.atomic_add!(pos, 1)
+                t > n && break
+                out[t] = f(t)
             end
         end
     end
-    return Fr
+    return out
 end
 
-"""
-    TwoSiteCorrelation <: AbstractCorrelation
-"""
-struct TwoSiteCorrelation <: AbstractCorrelation
-    operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}
-    lattice::CustomLattice
-    indices::AbstractArray{<:AbstractArray{<:Integer, 1}, 1}
-end
-
-"""
-    OneSiteCorrelation <: AbstractCorrelation
-"""
-struct OneSiteCorrelation <: AbstractCorrelation
-    operator::AbstractTensorMap
-    lattice::CustomLattice
-    indices::AbstractArray{<:AbstractArray{<:Integer, 1}, 1}
-end
-
-"""
-    site_indices(latt::CustomLattice; a::Union{Nothing, Integer})
-"""
-function site_indices(latt::CustomLattice; a::Union{Nothing, Integer})
-    indices = isnothing(a) ? latt.indices : [[latt.indices[i][a],] for i in 1:length(latt.lattice)]
-    return indices
-end
-
-"""
-    TwoSiteCorrelation(operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, latt::CustomLattice, orbital::Integer)
-"""
-function TwoSiteCorrelation(operators::Tuple{<:AbstractTensorMap, <:AbstractTensorMap}, latt::CustomLattice, orbital::Integer)
-    indices = site_indices(latt; a=orbital)
-    return TwoSiteCorrelation(operators, latt, indices)
-end
-
-"""
-    OneSiteCorrelation{K}(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer)
-"""
-function OneSiteCorrelation(operator::AbstractTensorMap, latt::CustomLattice, orbital::Integer)
-    indices = site_indices(latt; a=orbital)
-    return OneSiteCorrelation(operator, latt, indices)
-end
-
-"""
-    correlator(correlation::TwoSiteCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
-"""
-function correlator(correlation::TwoSiteCorrelation, gs::AbstractFiniteMPS; 
-                    parallel::Union{String, Integer}=Threads.nthreads(), 
-                    is=Vector((length(correlation.lattice.lattice)÷2):-1:1), 
-                    js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
-    @assert length(is) == length(js) "Length of is and js must be the same"
-    ops, indices = correlation.operators, correlation.indices
-    if parallel == "np"
-        Fr = SharedArray{ComplexF64, 1}(length(is))
-        @sync @distributed for i in eachindex(is) 
-            Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
-        end
-    elseif parallel == 1
-        Fr = zeros(ComplexF64, length(is))
-        for i in eachindex(is) 
-            Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
-        end
-    else
-        Fr = zeros(ComplexF64, length(is))
-        idx = Threads.Atomic{Int}(1)
-        n = length(is)
-        Threads.@sync for _ in 1:parallel
-            Threads.@spawn while true
-                i = Threads.atomic_add!(idx, 1) 
-                i > n && break  
-                Fr[i] = sum(correlator(gs, ops[1], ops[2], Tuple(indices[is[i]][a]), Tuple(indices[js[i]][b])) for a in 1:length(indices[is[i]]), b in 1:length(indices[js[i]]))
-            end
-        end
+function _fill_cache1!(plan::CorrelationPlan, req, parallel::Integer)
+    missing = sort!(collect(setdiff(req, keys(plan.cache1))))
+    isempty(missing) && return nothing
+    ψ, ops = plan.gs, plan.operators
+    vals = _parallel_eval(length(missing), parallel) do t
+        key = missing[t]
+        ComplexF64(correlator(ψ, ops[key[1]], key[2]))
     end
-    return Fr
+    for t in eachindex(missing)
+        plan.cache1[missing[t]] = vals[t]
+    end
+    plan.counters.onesite[] += length(missing)
+    return nothing
 end
 
-"""
-    correlator(correlation::OneSiteCorrelation, gs::AbstractFiniteMPS; is=Vector((length(correlation.lattice.lattice)÷2):-1:1), js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
-"""
-function correlator(correlation::OneSiteCorrelation, gs::AbstractFiniteMPS; 
-                    parallel::Union{String, Integer}=Threads.nthreads(), 
-                    is=Vector((length(correlation.lattice.lattice)÷2):-1:1), 
-                    js=Vector((length(correlation.lattice.lattice)÷2+1):1:length(correlation.lattice.lattice)))
-    @assert length(is) == length(js) "Length of is and js must be the same"
-    O, indices = correlation.operator, correlation.indices
-    if parallel == "np"
-        Fr = SharedArray{ComplexF64, 1}(length(is))
-        @sync @distributed for i in eachindex(is) 
-            Fr[i] = sum(correlator(gs, O, indices[is[i]][a]) for a in 1:length(indices[is[i]]))
-        end
-    elseif parallel == 1
-        Fr = zeros(ComplexF64, length(is))
-        for i in eachindex(is) 
-            Fr[i] = sum(correlator(gs, O, indices[is[i]][a]) for a in 1:length(indices[is[i]]))
-        end
-    else
-        Fr = zeros(ComplexF64, length(is))
-        idx = Threads.Atomic{Int}(1)
-        n = length(is)
-        Threads.@sync for _ in 1:parallel
-            Threads.@spawn while true
-                i = Threads.atomic_add!(idx, 1) 
-                i > n && break  
-                Fr[i] = sum(correlator(gs, O, indices[is[i]][a]) for a in 1:length(indices[is[i]]))
-            end
-        end
+function _fill_cache2!(plan::CorrelationPlan, req, parallel::Integer)
+    missing = sort!(collect(setdiff(req, keys(plan.cache2))))
+    isempty(missing) && return nothing
+    ψ, ops = plan.gs, plan.operators
+    vals = _parallel_eval(length(missing), parallel) do t
+        key = missing[t]
+        ComplexF64(correlator(ψ, ops[key[1]], ops[key[2]], (key[3],), (key[4],)))
     end
-    return Fr
+    for t in eachindex(missing)
+        plan.cache2[missing[t]] = vals[t]
+    end
+    plan.counters.twosite[] += length(missing)
+    return nothing
+end
+
+function _fill_cache4!(plan::CorrelationPlan, req, parallel::Integer)
+    missing = sort!(collect(setdiff(req, keys(plan.cache4))))
+    isempty(missing) && return nothing
+    ψ, ops = plan.gs, plan.operators
+    vals = _parallel_eval(length(missing), parallel) do t
+        key = missing[t]
+        ComplexF64(correlator(ψ, ops[key[1]], ops[key[2]], key[3], key[4]))
+    end
+    for t in eachindex(missing)
+        plan.cache4[missing[t]] = vals[t]
+    end
+    plan.counters.pair[] += length(missing)
+    return nothing
+end
+
+function _channel_result(plan::CorrelationPlan, ch::OneSiteChannel)
+    opid = plan.opids[ch.operator]
+    return [sum((plan.cache1[(opid, i)] for i in idxs); init=0.0im) for idxs in ch.indices]
+end
+
+function _channel_result(plan::CorrelationPlan, ch::TwoSiteChannel)
+    id1, id2 = plan.opids[ch.operators[1]], plan.opids[ch.operators[2]]
+    return [sum((plan.cache2[(id1, id2, i, j)] for i in ch.indices[ii], j in ch.indices[jj]);
+                init=0.0im)
+            for ii in ch.is, jj in ch.js]
+end
+
+function _channel_result(plan::CorrelationPlan, ch::PairChannel)
+    id1, id2 = plan.opids[ch.operators[1]], plan.opids[ch.operators[2]]
+    return [sum((_pair_raw(plan, id1, id2, p, q) * conj(a) * b
+                for (p, a) in zip(ch.indices[ii], ch.amplitudes[ii]),
+                    (q, b) in zip(ch.indices[jj], ch.amplitudes[jj])); init=0.0im)
+            for ii in ch.is, jj in ch.js]
+end
+
+function _pair_raw(plan::CorrelationPlan, id1, id2, p, q)
+    if length(p) == 1
+        return plan.cache2[(id1, id2, p[1], q[1])]
+    else
+        return plan.cache4[(id1, id2, Tuple(p), Tuple(q))]
+    end
 end
 
 function correlator(gs::AbstractFiniteMPS, O₁::AbstractTensorMap, O₂::AbstractTensorMap; is=1:length(gs), js=1:length(gs), parallel=Threads.nthreads())
