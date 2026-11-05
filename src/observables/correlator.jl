@@ -211,25 +211,63 @@ function add_pairing!(plan::CorrelationPlan, name::Symbol;
 end
 
 """
-    correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads())
+    correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads(), verbose::Union{Bool, Integer}=true)
 
 Compute all registered channels and return a `NamedTuple` keyed by channel name. Raw
 expectation values are shared between channels through the plan caches: each raw value
 is computed only once, and only the values that are still missing are evaluated, using
 `parallel` threads on shared memory.
+
+`verbose` follows the DMRG drivers: `0`/`false` is silent; `1`/`true` prints a plan
+summary, one line per raw-evaluation stage and a closing `TimerOutput` table; `2`
+additionally prints progress (done/total, elapsed, ETA) inside each stage.
 """
-function correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads())
+function correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads(), verbose::Union{Bool, Integer}=true)
+    timer = TimerOutput()
+    record_start = now()
     req1 = Set{Tuple{Int, Int}}()
     req2 = Set{NTuple{4, Int}}()
     req4 = Set{Tuple{Int, Int, NTuple{2, Int}, NTuple{2, Int}}}()
     for name in plan.names
         _collect_requirements!(req1, req2, req4, plan, plan.channels[name])
     end
-    _fill_cache1!(plan, req1, parallel)
-    _fill_cache2!(plan, req2, parallel)
-    _fill_cache4!(plan, req4, parallel)
-    return NamedTuple{Tuple(plan.names)}(Tuple(
-        _channel_result(plan, plan.channels[name]) for name in plan.names))
+    v = Int(verbose)
+    if v > 0
+        kinds = (count(ch -> ch isa OneSiteChannel, values(plan.channels)),
+            count(ch -> ch isa TwoSiteChannel, values(plan.channels)),
+            count(ch -> ch isa PairChannel, values(plan.channels)))
+        cached = (count(k -> haskey(plan.cache1, k), req1),
+            count(k -> haskey(plan.cache2, k), req2),
+            count(k -> haskey(plan.cache4, k), req4))
+        println("CorrelationPlan Started: ", format(record_start, "d.u yyyy HH:MM"))
+        @printf(
+            "  channels: %d (one-site %d | two-site %d | pair %d)\n",
+            length(plan.names), kinds...
+        )
+        @printf(
+            "  raw values: one-site %d (%d cached) | two-site %d (%d cached) | pair %d (%d cached) | parallel = %d\n",
+            length(req1), cached[1], length(req2), cached[2], length(req4), cached[3], parallel
+        )
+        flush(stdout)
+    end
+    _fill_cache1!(plan, req1, parallel, timer, v)
+    _fill_cache2!(plan, req2, parallel, timer, v)
+    _fill_cache4!(plan, req4, parallel, timer, v)
+    t0 = time()
+    results = map(plan.names) do name
+        @timeit timer "assemble $(name)" _channel_result(plan, plan.channels[name])
+    end
+    out = NamedTuple{Tuple(plan.names)}(Tuple(results))
+    if v > 0
+        @printf("  assembled %d channel(s) in %s\n", length(plan.names), _dur_str(time() - t0))
+        println(
+            "Ended: ", format(now(), "d.u yyyy HH:MM"),
+            " | total duration: ", canonicalize(now() - record_start)
+        )
+        println(timer)
+        flush(stdout)
+    end
+    return out
 end
 
 function _collect_requirements!(req1, req2, req4, plan::CorrelationPlan, ch::OneSiteChannel)
@@ -260,11 +298,40 @@ function _collect_requirements!(req1, req2, req4, plan::CorrelationPlan, ch::Pai
     return nothing
 end
 
-function _parallel_eval(f, n::Integer, parallel::Integer)
+function _dur_str(seconds::Real)
+    ms = round(Int, 1000 * seconds)
+    return ms <= 0 ? "0 ms" : string(canonicalize(Millisecond(ms)))
+end
+
+# Parallel map over a work queue. With verbose > 1, whichever worker crosses
+# each ~5% completion threshold prints a progress line (done/total, elapsed,
+# ETA); the atomic_cas! on `next` makes sure each line is printed exactly once.
+function _parallel_eval(f, n::Integer, parallel::Integer; label::AbstractString="", verbose::Integer=0)
     out = Vector{ComplexF64}(undef, n)
+    step = max(1, n ÷ 20)
+    progress = verbose > 1 ?
+        (done=Threads.Atomic{Int}(0), next=Threads.Atomic{Int}(step), t0=time()) : nothing
+    function work(t)
+        r = f(t)
+        if progress !== nothing
+            d = Threads.atomic_add!(progress.done, 1)
+            nxt = progress.next[]
+            if d >= nxt && Threads.atomic_cas!(progress.next, nxt, nxt + step) == nxt
+                elapsed = time() - progress.t0
+                eta = elapsed * (n - d) / d
+                @printf(
+                    "  %s: %d/%d (%d%%) | elapsed %s | ETA %s | %s\n",
+                    label, d, n, round(Int, 100 * d / n),
+                    _dur_str(elapsed), _dur_str(eta), format(now(), "HH:MM:SS")
+                )
+                flush(stdout)
+            end
+        end
+        return r
+    end
     if parallel == 1
         for t in 1:n
-            out[t] = f(t)
+            out[t] = work(t)
         end
     else
         pos = Threads.Atomic{Int}(1)
@@ -272,18 +339,24 @@ function _parallel_eval(f, n::Integer, parallel::Integer)
             Threads.@spawn while true
                 t = Threads.atomic_add!(pos, 1)
                 t > n && break
-                out[t] = f(t)
+                out[t] = work(t)
             end
         end
     end
     return out
 end
 
-function _fill_cache1!(plan::CorrelationPlan, req, parallel::Integer)
+function _fill_cache1!(plan::CorrelationPlan, req, parallel::Integer, timer::TimerOutput, verbose::Integer)
     missing = sort!(collect(setdiff(req, keys(plan.cache1))))
-    isempty(missing) && return nothing
+    if isempty(missing)
+        verbose > 0 && !isempty(req) &&
+            @printf("  one-site raw: %d requested, all cached\n", length(req))
+        return nothing
+    end
     ψ, ops = plan.gs, plan.operators
-    vals = _parallel_eval(length(missing), parallel) do t
+    t0 = time()
+    vals = @timeit timer "one-site raw" _parallel_eval(length(missing), parallel;
+        label="one-site raw", verbose) do t
         key = missing[t]
         ComplexF64(correlator(ψ, ops[key[1]], key[2]))
     end
@@ -291,14 +364,21 @@ function _fill_cache1!(plan::CorrelationPlan, req, parallel::Integer)
         plan.cache1[missing[t]] = vals[t]
     end
     plan.counters.onesite[] += length(missing)
+    _log_stage("one-site raw", length(missing), time() - t0, verbose)
     return nothing
 end
 
-function _fill_cache2!(plan::CorrelationPlan, req, parallel::Integer)
+function _fill_cache2!(plan::CorrelationPlan, req, parallel::Integer, timer::TimerOutput, verbose::Integer)
     missing = sort!(collect(setdiff(req, keys(plan.cache2))))
-    isempty(missing) && return nothing
+    if isempty(missing)
+        verbose > 0 && !isempty(req) &&
+            @printf("  two-site raw: %d requested, all cached\n", length(req))
+        return nothing
+    end
     ψ, ops = plan.gs, plan.operators
-    vals = _parallel_eval(length(missing), parallel) do t
+    t0 = time()
+    vals = @timeit timer "two-site raw" _parallel_eval(length(missing), parallel;
+        label="two-site raw", verbose) do t
         key = missing[t]
         ComplexF64(correlator(ψ, ops[key[1]], ops[key[2]], (key[3],), (key[4],)))
     end
@@ -306,14 +386,21 @@ function _fill_cache2!(plan::CorrelationPlan, req, parallel::Integer)
         plan.cache2[missing[t]] = vals[t]
     end
     plan.counters.twosite[] += length(missing)
+    _log_stage("two-site raw", length(missing), time() - t0, verbose)
     return nothing
 end
 
-function _fill_cache4!(plan::CorrelationPlan, req, parallel::Integer)
+function _fill_cache4!(plan::CorrelationPlan, req, parallel::Integer, timer::TimerOutput, verbose::Integer)
     missing = sort!(collect(setdiff(req, keys(plan.cache4))))
-    isempty(missing) && return nothing
+    if isempty(missing)
+        verbose > 0 && !isempty(req) &&
+            @printf("  pair raw: %d requested, all cached\n", length(req))
+        return nothing
+    end
     ψ, ops = plan.gs, plan.operators
-    vals = _parallel_eval(length(missing), parallel) do t
+    t0 = time()
+    vals = @timeit timer "pair raw" _parallel_eval(length(missing), parallel;
+        label="pair raw", verbose) do t
         key = missing[t]
         ComplexF64(correlator(ψ, ops[key[1]], ops[key[2]], key[3], key[4]))
     end
@@ -321,7 +408,17 @@ function _fill_cache4!(plan::CorrelationPlan, req, parallel::Integer)
         plan.cache4[missing[t]] = vals[t]
     end
     plan.counters.pair[] += length(missing)
+    _log_stage("pair raw", length(missing), time() - t0, verbose)
     return nothing
+end
+
+function _log_stage(label::AbstractString, n::Integer, dt::Real, verbose::Integer)
+    verbose > 0 || return nothing
+    @printf(
+        "  %s: %d done in %s (%.1f/s) | %s\n",
+        label, n, _dur_str(dt), n / max(dt, eps()), format(now(), "HH:MM:SS")
+    )
+    return flush(stdout)
 end
 
 function _channel_result(plan::CorrelationPlan, ch::OneSiteChannel)
