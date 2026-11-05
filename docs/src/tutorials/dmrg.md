@@ -36,9 +36,10 @@ gs, envs, E0 = dmrg2(ψ0, H, truncdims;
 )
 ```
 
-`dmrg2!` is the mutating version. Each saved sweep stores the state, energy,
-per-bond truncation errors, and the maximal bond dimension in the JLD2 file,
-which is useful for long runs on a cluster.
+`dmrg2!` is the mutating version. After the `truncdims` schedule is
+exhausted, tail sweeps at the final bond dimension continue until the
+per-sweep energy change satisfies `|ΔE| ≤ etol` (default `1e-8`), at most
+`max_tailsweeps` extra sweeps (default `20`; `0` disables them).
 
 ## One-Site DMRG with CBE
 
@@ -77,9 +78,16 @@ dimension.
   summary is printed at the end.
 - `verbose = 2` additionally prints one line per local update (sweep direction,
   bond, current bond dimension, truncation error, timestamp).
-- `save` controls JLD2 checkpointing (`false` writes nothing, `true`
-  stores only the final sweep, a vector of sweep indices stores those
-  sweeps), together with `filename`.
+- `save` controls JLD2 checkpointing (`true` by default): with `true`, the
+  latest state atomically replaces the previous one in `filename` after every
+  sweep (keys `ψ`, `E`, `ΔE`, `ϵ`, `ϵtrunc`, `D`, `sweep`), so a killed run
+  always leaves the newest completed sweep on disk; in addition, every local
+  update is checkpointed to an update-level directory (`<filename>.updates.d`,
+  or under the disk root when environments are disk-backed), so rerunning the
+  same call resumes the interrupted sweep at the last completed update.
+  `false` writes nothing, and a vector of sweep indices (e.g.
+  `save = [2, 4, 6]`) switches to history mode, appending those sweeps as
+  `sweep_<i>_ψ`/… entries (no update-level checkpointing in this mode).
 
 ## Environment Memory and Disk Backing
 

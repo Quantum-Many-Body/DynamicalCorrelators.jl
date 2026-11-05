@@ -17,6 +17,7 @@ onesite_bonds
 find_position
 snake_2D
 kitaev_bonds
+regroup_by_basis
 ```
 
 ## Momentum-Space Geometry
@@ -26,6 +27,9 @@ BravaisCell2D
 Supercell2D
 TwistedTranslation
 MomentumGeometry
+MomentumCut
+MomentumSegment
+MomentumPoint
 brillouin_zone
 allowed_cuts
 bz_segments

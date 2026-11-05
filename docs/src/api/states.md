@@ -11,7 +11,17 @@ FiniteSuperMPS
 
 ```@docs
 chargedMPS
+chargedMPS!
 identityMPS
+```
+
+## Momentum-Window MPS
+
+```@docs
+MomentumMPS
+qmps
+translation_phase
+check_momentum_mps
 ```
 
 ## Random MPS

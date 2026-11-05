@@ -314,6 +314,47 @@ environments follow the lazy `N+O(1)` memory model and can be offloaded to
 disk with `disk = true` (or a directory path) at large bond dimensions; see
 [The Finite Engine](finite_engine.md).
 
+## Time-Split Scheme and Production Runs
+
+All methods above evolve one charged ket through the full time grid — the
+direct scheme. For production-size runs, `dcorrelator(gs, H, op; block, ...)`
+(a three-positional-argument call with the required `block` keyword) selects
+the time-split (meet-in-the-middle) scheme instead: both sides of the
+operator sandwich are evolved to `t/2`, so every state is only evolved up to
+`tmax/2`, halving the peak entanglement and the accumulated truncation error:
+
+```julia
+gf_greater = dcorrelator(gs, H, cp; block = :greater, times, ...)
+gf_lesser  = dcorrelator(gs, H, cm; block = :lesser,  times, ...)
+gfxt = gf_greater .+ gf_lesser
+```
+
+The phase/conjugation conventions match the direct method exactly, so the
+retarded combination is assembled as before. Each call computes one block and
+the full `length(H) × length(H)` matrix of site pairs at every recorded
+slice; the two blocks are fully independent and can run as separate jobs.
+
+Two execution modes:
+
+- `mode = :threaded` (default): everything runs in this process, with
+  per-phase thread caps `parallel_charged`/`parallel_tdvp2`/`parallel_tdvp1`
+  for the memory-hungry phases (charged-state compression and the first `n`
+  two-site TDVP steps) versus the cheap one-site tail.
+- `mode = :distributed`: the `2L` states become independent checkpointed
+  tasks over `Distributed.workers()` (one state per worker, communicating
+  through `workdir` on fast shared storage), which removes the shared-heap
+  GC coupling at high thread counts and resumes from the last complete slice
+  after a kill.
+
+For production runs, split the work by memory profile with
+[`prepare_dcorrelator`](@ref): a short, generously provisioned preparation
+job computes the charged states and evolves them through the two-site TDVP
+window (the memory high-water mark), then a lean follow-up job calling
+`dcorrelator(...; mode = :distributed, workdir = <same>)` resumes every
+state and runs the long one-site TDVP tail. See the worked example with
+SLURM scripts in the
+[Basic Workflow on HPC](../index.md#Basic-Workflow-on-HPC) section.
+
 ## Checkpointing
 
 Each source channel is saved to a JLD2 file under `gf_path`. Re-running the same

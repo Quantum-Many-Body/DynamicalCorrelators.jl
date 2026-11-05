@@ -175,9 +175,9 @@ dmrg2(ψ, H, truncdims; kwargs...) = dmrg2!(copy(ψ), H, truncdims; kwargs...)
     dmrg_mix!(ψ::AbstractFiniteMPS, H, truncdims_2site, truncdims_1site; kwargs...)
     dmrg_mix!(ψ, H, truncdims; switch_D, kwargs...)
 
-Hybrid finite DMRG driver: two-site sweeps ([`DMRG2`](@ref) engine) for the
+Hybrid finite DMRG driver: two-site sweeps (`DMRG2` engine) for the
 small-D stages of the schedule, one-site sweeps with bond expansion
-([`DMRG`](@ref) engine with `alg_expand`, i.e. CBE) for the large-D stages.
+(`DMRG` engine with `alg_expand`, i.e. CBE) for the large-D stages.
 Two-site updates grow the bond fast where sweeps are cheap; one-site updates
 are much cheaper per sweep at large D, where the CBE expansion only has to
 refresh a small fraction of D per sweep.
