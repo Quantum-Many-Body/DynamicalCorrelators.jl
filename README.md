@@ -19,113 +19,257 @@ using DynamicalCorrelators
 using QuantumLattices
 using JLD2: save, load
 
-configure_finite_engine!(; blas_threads = 1,
-                         transformer_threads = nothing,
-                         manipulation_threads = nothing,
-                         verbose = true)
+# the engine parallelizes above BLAS (Hamiltonian channels, SVD blocks),
+# so multi-threaded BLAS only adds contention
+configure_finite_engine!(; blas_threads = 1, verbose = true)
+set_threaded_hamiltonian!(Threads.nthreads())
 
 # 6x6 square Hubbard with SU(2) spin x U(1) particle symmetry
 coords = snake_2D([[1.0, 0.0], [0.0, 1.0]], vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
 lattice = Lattice(coords...)
-sq = Custom(lattice)
 elt = Float64
 t, u, filling = 1.0, 8.0, (1, 1)
-H = hubbard(elt, SU2Irrep, U1Irrep, sq; t=t, U=u, filling=filling)
+H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t=t, U=u, filling=filling)
 
+tag = "hubbard_L=$(length(H))_t=$(t)_U=$(u)"
+ckpt = "/bbfs/fsa/username/jobname/$(tag).jld2"
+env_disk = "/bbfs/scratch/username/jobname"
+
+# random initial state in the target charge sector; md is the (small)
+# starting bond dimension — the schedule grows it
 ψ = randFiniteMPS(elt, SU2Irrep, U1Irrep, length(H); md=20, filling=filling)
 
+# Phase 1: two-site warmup ramp, one sweep per truncdims entry
+# (no tail sweeps here — they run in phase 2 at the final D)
 trunc2 = [64, 1024, 4096, 8192]
-trunc1 = [8192 for _ in 1:10]
+ψ, envs, E0 = dmrg2!(ψ, H, trunc2; max_tailsweeps=0,
+    filename=ckpt,      # rolling checkpoint (keys "ψ", "E", ...) + mid-sweep
+                        # update-level resume after a kill
+    disk=env_disk,      # disk-backed environments (point at node-local
+                        # scratch or a burst buffer, not NFS)
+    verbose=2)
 
-ψ, envs, E0 = dmrg_mix!(ψ, H, trunc2, trunc1;
-    alg_expand = D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1 * D))),
-    filename = "/bbfs/fsa/username/jobname/hubbard_L=$(length(H))_t=$(t)_U=$(u).jld2",
-    save = true,
-    disk = "/bbfs/scratch/username/jobname",
-    manual_gc = true,
-    verbose = 2)
+# Phase 2: one-site CBE sweeps at the final D until |ΔE| <= etol.
+# Reloading from the checkpoint means this phase can also run as a
+# separate job (e.g. after phase 1 finished or crashed):
+ψ = load(ckpt, "ψ")
+envs = HalfFiniteEnvironments(ψ, H; disk=env_disk)
+ψ, envs, E0 = dmrg1!(ψ, H, [8192]; etol=1e-8, envs,
+    max_tailsweeps=20, filename=ckpt, verbose=2)
 ```
 
-Submit the whole node to a single multi-threaded Julia process 
+Submit the whole node to a single multi-threaded Julia process with SLURM
+(`gs.slurm`):
 
 ```bash
-bsub -q queue_name -m node_name -n 36 \
-    -o "output/gs_%J" \
-    julia -t 36 gs.jl
+#!/bin/bash
+#SBATCH -J gs
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -c 36
+#SBATCH --mem=0
+#SBATCH -o output/gs_%j
+
+cd "$SLURM_SUBMIT_DIR"
+
+export MKL_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+export MKL_DYNAMIC=FALSE
+export JULIA_EXCLUSIVE=1
+
+julia -t 36 gs.jl
 ```
 
-### Dynamical correlation (`gf.jl`)
+```bash
+sbatch gs.slurm
+```
 
+### Dynamical correlation (`prep.jl` + `gf.jl`)
+
+Production runs use the time-split (meet-in-the-middle) correlator: both
+sides of the operator sandwich are evolved to `t/2`, halving the peak
+entanglement and the accumulated truncation error compared to evolving one
+ket through the full time grid. The run is split into two jobs by memory
+profile — a short, generously provisioned **preparation job** (charged
+states + the two-site TDVP window = the memory high-water mark), then a
+lean **follow-up job** that resumes every state from its checkpoint and
+runs the long one-site TDVP tail plus the overlaps. The greater block
+(source `c†`) and the lesser block (source `c`) are fully independent and
+run as separate array tasks.
+
+Shared setup (`common_setup.jl`) — model, ground state, operator/block
+choice, and the settings both jobs must agree on (`block`, `times`,
+`record_indices`, `n`, guarded by `meta/config.jld2` under `workdir`):
 
 ```julia
 using Pkg
-Pkg.activate("$(ENV["HOME"])/envs/userenv/")  
-using Distributed
+Pkg.activate("$(ENV["HOME"])/envs/userenv/")
+
 using TensorKit
 using MPSKit
 using DynamicalCorrelators
 using QuantumLattices
 using JLD2: save, load
 
-i = parse(Int, ARGS[1])          # job-array index: which batch this job runs
+i = parse(Int, ARGS[1])            # 1 = greater block (c†), 2 = lesser block (c)
 elt = Float64
 t, u, filling = 1.0, 8.0, (1, 1)
 L = 36
 
 # reload the converged ground state from the checkpoint written by gs.jl
-gs = load("/bbfs/fsa/username/jobname/hubbard_L=$(L)_t=$(t)_U=$(u).jld2", "sweep_14_ψ")
+gs = load("/bbfs/fsa/username/jobname/hubbard_L=$(L)_t=$(t)_U=$(u).jld2", "ψ")
 
 coords = snake_2D([[1.0, 0.0], [0.0, 1.0]], vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
 lattice = Lattice(coords...)
 H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t=t, U=u, filling=filling)
 
-cp = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
-cm = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+op, block = i == 1 ?
+    (e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling), :greater) :
+    (e_min(elt, SU2Irrep, U1Irrep;  side=:L, filling=filling), :lesser)
 
-addprocs(18; exeflags = `--threads=4`)
+times = 0:0.1:100
+workdir = "/bbfs/scratch/username/jobname/gf_split_$(block)/"
+approxalg = myDMRG2(; tol = 1e-6, maxiter = 50, trunc = truncrank(8192))
+tdvp2 = myTDVP2(; trunc = truncrank(8192))
+```
+
+Job 1, the preparation pass (`prep.jl`): computes the charged initial
+states and evolves them only through the first `n` two-site TDVP steps;
+no overlaps are computed. This is the memory high-water mark of the whole
+run but only covers the first `n` timesteps, so give it **fat nodes and a
+short walltime**. Idempotent — a rerun after a kill resumes each state
+from its last checkpoint.
+
+```julia
+include("common_setup.jl")
+
+using Distributed
+using ClusterManagers
+
+# preparation is short and memory-hungry: many single-threaded workers on
+# one fat node to compress/evolve as many states as possible concurrently.
+# For a multi-node preparation job, use addprocs(SlurmManager(np)) instead —
+# the driver discovers the worker -> host mapping itself
+addprocs(LocalAffinityManager(70; mode = COMPACT);
+         exeflags = `--project=$(ENV["HOME"])/envs/userenv/ -t1`)
 
 @everywhere begin
-    using Pkg
-    Pkg.activate("$(ENV["HOME"])/envs/userenv/")
     using TensorKit
     using MPSKit
     using DynamicalCorrelators
+    using QuantumLattices
     using JLD2: save, load
 end
 
-# batch i of this job: which source sites and which operator
-as = collect(Iterators.partition(1:72, 18))   # source-site batches (greater + lesser parts)
-op(i) = i <= 2 ? cp : cm
+prepare_dcorrelator(gs, H, op;
+    block, times, n = 3,
+    approxalg, tdvp2,
+    workdir,
+    disk = "/bbfs/scratch/username",   # disk-backed environments
+    charged_per_node = 4,              # node memory / per-compression peak:
+                                       # lift the cap only on a warm
+                                       # chargedmps_path cache
+)
+```
 
-gf = dcorrelator(gs, H, op(i), as[i];
-    approxalg = myDMRG2(; tol = 1e-6, maxiter = 100, trunc = truncrank(8192)),
-    tdvp2 = myTDVP2(; trunc = truncrank(8192)),
+Job 2, the lean follow-up (`gf.jl`): resumes every state from its
+slice-`r_stop` checkpoint, assembles the first overlap slices straight
+from disk, and continues with the cheap one-site TDVP for the remaining
+hundreds of timesteps. Its memory profile is set by `tdvp1` alone, so give
+it **modest resources and a long walltime** — a different worker count is
+fine, the driver discovers the worker → host mapping itself and resumes
+from the checkpointed states.
+
+```julia
+include("common_setup.jl")
+
+using Distributed
+using ClusterManagers
+
+# the follow-up is long and memory-light: fewer workers on a standard node
+addprocs(LocalAffinityManager(32; mode = COMPACT);
+         exeflags = `--project=$(ENV["HOME"])/envs/userenv/ -t1`)
+
+@everywhere begin
+    using TensorKit
+    using MPSKit
+    using DynamicalCorrelators
+    using QuantumLattices
+    using JLD2: save, load
+end
+
+gf = dcorrelator(gs, H, op;
+    block, times, n = 3,
+    approxalg, tdvp2,
     tdvp1 = myTDVP1(),
-    n = 3,
-    times = 0:0.1:100,
+    mode = :distributed,
+    workdir,                            # must match the preparation job
     gf_path = "/bbfs/fsa/username/jobname/gf_L=$(L)_U=$(u)_tmax=100/",
-    # disk-backed environments, per-worker subdirectories (never collide)
-    disk = "/bbfs/scratch/username",
 )
 
-save("/bbfs/fsa/username/jobname/gf_L=$(L)_U=$(u)_tmax=100/gf_xt_$(i).jld2", "gf", gf)
+save("/bbfs/fsa/username/jobname/gf_L=$(L)_U=$(u)_tmax=100/gf_xt_$(block).jld2", "gf", gf)
 ```
 
-Submit one job per batch (72 cores = 18 workers × 4 threads; the main
-process itself is nearly idle, so `julia` here needs no `-t` flag — the
-workers get theirs from `addprocs(...; exeflags = `--threads=4`)`):
+The two SLURM scripts request different resources — the preparation job
+gets fat nodes and a short limit, the follow-up a standard node and a long
+one. `prep.slurm`:
 
 ```bash
-for i in {1..4}; do
-    bsub -q queue_name -m node_name -n 72 \
-        -o "output/output_${i}_%J" \
-        julia gf.jl "$i"
-done
+#!/bin/bash
+#SBATCH -J gf_prep
+#SBATCH --array=1-2
+#SBATCH -N 1                   # fat preparation job: one big-memory node
+#SBATCH -n 1
+#SBATCH -c 72                  # (use a bigmem partition here)
+#SBATCH --mem=0
+#SBATCH -t 12:00:00            # short: only the charged states + n tdvp2 steps
+#SBATCH -o output/prep_%A_%a
+
+cd "$SLURM_SUBMIT_DIR"
+
+export MKL_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+export MKL_DYNAMIC=FALSE
+export JULIA_EXCLUSIVE=1
+
+julia -t 4 prep.jl "$SLURM_ARRAY_TASK_ID"
 ```
 
-Afterwards, transform the real-space/time data to spectra with `fourier_kw`
-or `fourier_rw`.
+`gf.slurm`:
 
+```bash
+#!/bin/bash
+#SBATCH -J gf
+#SBATCH --array=1-2
+#SBATCH -N 1                   # lean follow-up job: 1 standard node
+#SBATCH -n 1
+#SBATCH -c 36
+#SBATCH --mem=0
+#SBATCH -t 7-00:00:00          # long: the hundreds of tdvp1 steps
+#SBATCH -o output/gf_%A_%a
+
+cd "$SLURM_SUBMIT_DIR"
+
+export MKL_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+export MKL_DYNAMIC=FALSE
+export JULIA_EXCLUSIVE=1
+
+julia -t 4 gf.jl "$SLURM_ARRAY_TASK_ID"
+```
+
+Submit the preparation job first, then the follow-up with a dependency so
+it starts only after the preparation succeeds:
+
+```bash
+PREP=$(sbatch --parsable prep.slurm)
+sbatch --dependency=afterok:$PREP gf.slurm
+```
+
+For small or medium systems the direct (non-split) multi-source method
+`dcorrelator(gs, H, op, indices; ...)` is still available, with one
+checkpoint file per source channel. Afterwards, transform the
+real-space/time data to spectra with `fourier_kw` or `fourier_rw`.
 
 ## Installation
 
@@ -134,6 +278,204 @@ Please type `]` in the REPL to use the package mode, then type this command:
 ```julia
 add DynamicalCorrelators
 ```
+
+# DynamicalCorrelators.jl v0.15.0 Release Notes
+
+## Highlights
+
+v0.15.0 is a **workflow and analysis release** on top of the fast finite
+engine introduced in v0.14.0. The largest new capability is the time-split
+(meet-in-the-middle) zero-temperature dynamical correlator with a
+distributed two-job workflow that separates the memory-heavy preparation
+pass from the cheap long-time evolution. This release also adds penalized
+excited-state DMRG, momentum-window MPS states, momentum-space geometry and
+plotting helpers, linear prediction and Lehmann-representation
+post-processing, and a rebuilt, lazy high-level API for static correlators
+(**breaking**). Under the hood, the package moves to MPSKit 0.14 /
+TensorKit 0.17.x, gains mid-sweep (update-level) DMRG checkpointing, and
+the threaded effective-Hamiltonian paths were reworked around manual arena
+allocators for much lower allocation pressure.
+
+## Time-split dcorrelator and the distributed two-job workflow
+
+- New time-split scheme `dcorrelator(gs, H, op; times, block, ...)`: both
+  sides of the operator sandwich are evolved to `τ = t/2`, so every state
+  is only evolved up to `tmax/2`, halving the peak entanglement and the
+  accumulated truncation error compared to the direct method:
+
+```julia
+gf_greater = dcorrelator(gs, H, cp; times, block = :greater, ...)
+gf_lesser  = dcorrelator(gs, H, cm; times, block = :lesser,  ...)
+gfxt = gf_greater .+ gf_lesser
+```
+
+  The phase/conjugation conventions match the direct method exactly. The
+  full `length(H) × length(H)` matrix of site pairs is computed at every
+  time slice.
+- `dcorrelator(...; mode = :distributed, workdir = ...)` evaluates every
+  source state as an independent, checkpointed task on Distributed workers:
+  a killed job resumes each state from its last checkpoint, and
+  `charged_per_node` throttles how many memory-heavy charged-state
+  constructions run on one host.
+- `prepare_dcorrelator(gs, H, op; block, workdir, ...)` is the preparation
+  pass: it computes the charged initial states and evolves them only
+  through the two-site TDVP window — the memory high-water mark of the
+  whole run. Submit it as a short, generously provisioned job, then submit
+  a lean follow-up job calling `dcorrelator(...; mode = :distributed,
+  workdir = <same>)`, which resumes every state from its checkpoint and
+  continues with the cheap one-site TDVP. Both passes are idempotent and
+  guarded by a shared `meta/config.jld2`.
+
+## Excited-state DMRG
+
+- New `excited_dmrg1!`/`excited_dmrg2!` drivers and the `excited_states`
+  wrapper compute low-lying eigenstates in a fixed symmetry sector by the
+  penalty method, with the local updates running on the fast finite engine:
+  the Hamiltonian lives in a disk-backable `HalfFiniteEnvironments` and
+  each penalty term is the exact rank-one operator built from plain two-leg
+  overlap environments.
+- After the `truncdims` schedule is exhausted, tail sweeps continue until
+  `|ΔE| ≤ etol` on the *bare* energy, so an under-converged state is never
+  passed on to the next penalized run. The optional `polish` pass re-sweeps
+  every computed state against the final versions of all the others.
+
+## MomentumMPS
+
+- New `MomentumMPS` state type: momentum-window MPS (q-MPS) of Van Damme
+  and Vanderstraeten, a thin wrapper around a collection of MPSKit
+  `WindowMPS` objects, one per inequivalent site of the background unit
+  cell, all sharing one Bloch momentum.
+- Helpers: `qmps(gs::InfiniteMPS, O, q)` builds a momentum-window Bloch
+  source at momentum `q` from a uniform ground state and a one-site
+  operator; `translation_phase` and `check_momentum_mps` support and
+  validate the window construction.
+
+## Momentum-space geometry and plotting
+
+- New geometry layer for momentum-space workflows: `BravaisCell2D`,
+  `Supercell2D`, `TwistedTranslation`, and `MomentumGeometry`, with
+  momentum-path types `MomentumCut`, `MomentumSegment`, and
+  `MomentumPoint`.
+- Query functions `brillouin_zone`, `allowed_cuts`, `bz_segments`,
+  `allowed_points`, `is_allowed`, and `nearest_cut` give the allowed
+  momenta of (twisted) finite supercells.
+- `momentum_plot` visualizes geometries, Brillouin zones, and cuts through
+  the new `DynamicalCorrelatorsMakieExt` CairoMakie extension (weak
+  dependency, loaded on demand).
+- A new momentum-space tutorial covers the geometry and plotting workflow.
+
+## Lazy CorrelationPlan for static correlators (breaking)
+
+- The old high-level correlator API (`AbstractCorrelation`,
+  `PairCorrelation`, `TwoSiteCorrelation`, `OneSiteCorrelation`,
+  `site_indices`, `pair_amplitude_indices`) is removed. The replacement is
+  a lazy plan: channels register geometry only, and all tensor contractions
+  happen in one shared, threaded evaluation:
+
+```julia
+plan = CorrelationPlan(gs)
+add_one_site!(plan, :density; operator = n, lattice = lat, orbital = 1)
+add_two_site!(plan, :spin; operators = (sp, sm), lattice = lat,
+              orbital = 1, is = is, js = js)
+add_pairing!(plan, :d_plus_id; operators = (sd, sl), lattice = lat,
+             neighbors = Neighbors(1 => 1), orbitals = (1, 1),
+             amplitude = f, is = is, js = js)
+results = correlator(plan)   # NamedTuple keyed by channel name
+```
+
+- Raw expectation values are cached by operator object identity and MPS
+  site indices — amplitudes are *not* part of the key, so different form
+  factors (extended-s, d-wave, d+id, ...) over the same bonds share the
+  same raw pair–pair values, and repeated evaluation or newly added
+  channels never recompute cached work. `raw_call_counts(plan)` reports the
+  raw kernel calls for diagnostics.
+- Two-site and pairing channels return `is × js` matrices (the old
+  paired-list convention is gone); one-site channels return a vector over
+  the lattice sites. On-site pairing is a pairing channel with
+  `Neighbors(0 => 0)` and shares the two-site raw cache. The distributed
+  "np" mode was removed; evaluation is threaded on shared memory
+  (`parallel` keyword).
+- New `singlet`/`singlet_dagger` pair operators for fℤ₂ × U(1) × U(1)
+  (bond and on-site, `side`/`filling` keywords), so pair–pair correlators
+  no longer need charged-MPS overlaps for U(1) × U(1) problems.
+
+## CBEExpand
+
+- New `CBEExpand`: the direct CBE selection of this package as an MPSKit
+  `changebond!` algorithm, usable anywhere MPSKit accepts `alg_expand`.
+  `myDMRG1_CBE` and `myTDVP1_CBE` now configure `CBEExpand` (they used
+  MPSKit's `OptimalExpand` in v0.14.0), and the DMRG drivers default to
+  `D -> CBEExpand(; trunc = truncrank(ceil(Int, 0.1*D)))`.
+- Falls back to an explicit matvec for states with multiple physical legs.
+
+## Dependency upgrade
+
+- MPSKit `0.14` (from a tracked main branch), TensorKit `0.17.x`,
+  QuantumLattices `0.16`, MatrixAlgebraKit `0.6`, BlockTensorKit `0.3`,
+  JLD2 `0.6`. New dependency: VectorInterface. New weak dependency:
+  CairoMakie (for `momentum_plot`).
+
+## Fast engine and threading internals
+
+- `FastFiniteEnvironments` renamed to `HalfFiniteEnvironments`.
+- The threaded Jordan-MPO effective-Hamiltonian paths now run on manual
+  arena allocators (`BufferAllocator`) with staged-contraction caching and
+  cost-ordered task lists, cutting allocation pressure and GC time in
+  multithreaded DMRG/TDVP; Krylov vector operations are threaded as well.
+- CBE contractions were factorized and the graph execution unified, with
+  expand sub-timers read from the whole timer tree; TDVP gained per-stage
+  diagnostics.
+- `chargedMPS!` and `fast_approximate!` are exported for the fast
+  variational compression path; `threaded_hamiltonian_threads` reports the
+  configured Hamiltonian thread count.
+
+## DMRG checkpointing
+
+- DMRG drivers now write rolling atomic checkpoints by default, and support
+  update-level (mid-sweep) checkpoint and resume: a killed sweep restarts
+  from the last completed local update, with the update-level checkpoint
+  placed next to the (possibly disk-backed) environments.
+
+## Fourier and post-processing
+
+- New `"GN"` broadening type: window-normalized Gaussian
+  `exp(-η(t/tmax)²)`, whose frequency resolution keeps improving as the
+  time window grows (typical `η ≈ 2 ~ 4`).
+- `fourier_kw` and `fourier_rw` accept `symmetrize` (fold the two-sided
+  time integral using `G(-t) = ±conj(G(t))`) and `kernel` (`:exp` or
+  inversion-symmetric `:cos`) keywords.
+- Linear prediction for time series: `LinearPrediction`,
+  `LinearPredictionModel`, `fit_linear_prediction`, `extend_series`,
+  `extrapolate_series`, `validation_error`, and `pole_analysis`.
+- Lehmann-representation tools: `recommend_tmax`, `lehmann_eval`, and
+  `lehmann_report`.
+- `regroup_by_basis` partitions MPS sites by basis content (e.g.
+  sublattices) for grouped Fourier transforms.
+
+## API Changes
+
+- Package version bumped from `0.14.0` to `0.15.0`.
+- Removed exports: `AbstractCorrelation`, `PairCorrelation`,
+  `TwoSiteCorrelation`, `OneSiteCorrelation`, `site_indices`,
+  `pair_amplitude_indices`, `FastFiniteEnvironments`,
+  `set_prefused_hamiltonian!`.
+- New exports: `CorrelationPlan`, `add_one_site!`, `add_two_site!`,
+  `add_pairing!`, `raw_call_counts`, `HalfFiniteEnvironments` (rename),
+  `CBEExpand`, `excited_dmrg1!`/`excited_dmrg2!`, `excited_states`,
+  `MomentumMPS`, `check_momentum_mps`, `translation_phase`, `qmps`,
+  `BravaisCell2D`, `Supercell2D`, `TwistedTranslation`,
+  `MomentumGeometry`, `MomentumCut`, `MomentumSegment`, `MomentumPoint`,
+  `brillouin_zone`, `allowed_cuts`, `bz_segments`, `allowed_points`,
+  `is_allowed`, `nearest_cut`, `momentum_plot`, `prepare_dcorrelator`,
+  `chargedMPS!`, `fast_approximate!`, `threaded_hamiltonian_threads`,
+  `regroup_by_basis`, `LinearPrediction`, `LinearPredictionModel`,
+  `fit_linear_prediction`, `extend_series`, `extrapolate_series`,
+  `validation_error`, `pole_analysis`, `recommend_tmax`, `lehmann_eval`,
+  `lehmann_report`.
+- `myDMRG1_CBE`/`myTDVP1_CBE` now return MPSKit algorithms configured with
+  `CBEExpand` instead of `OptimalExpand`.
+
+---
 
 # DynamicalCorrelators.jl v0.14.0 Release Notes
 

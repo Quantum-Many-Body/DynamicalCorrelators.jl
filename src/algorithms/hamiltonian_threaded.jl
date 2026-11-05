@@ -19,6 +19,12 @@ end
 set_threaded_hamiltonian!(enable::Bool; tree::Union{Bool, Nothing} = nothing) =
     set_threaded_hamiltonian!(enable ? Threads.nthreads() : 0; tree)
 
+"""
+    threaded_hamiltonian_threads()
+
+Return the current worker cap for threaded-Hamiltonian matvecs. Defaults to
+`Threads.nthreads()` until changed with [`set_threaded_hamiltonian!`](@ref).
+"""
 threaded_hamiltonian_threads() =
     _THREADED_HAMILTONIAN_THREADS[] < 0 ? Threads.nthreads() :
         _THREADED_HAMILTONIAN_THREADS[]

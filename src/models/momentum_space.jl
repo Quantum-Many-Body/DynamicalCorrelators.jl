@@ -99,6 +99,16 @@ end
 
 _working_coeffs(geometry::MomentumGeometry, boundary::TwistedTranslation) = _working_coeffs(geometry.cell, boundary)
 
+"""
+    MomentumCut
+
+An allowed momentum line of a one-boundary cylinder, as returned by
+[`allowed_cuts`](@ref). `sector` labels the inequivalent line, `offset` its
+quantization offset (including the twisted-boundary flux), `normal` the integer
+normal of the wrapping direction, `fractional` / `parent_fractional` a point on
+the line in working and parent fractional coordinates, and `point` /
+`direction` the same line in Cartesian form.
+"""
 struct MomentumCut
     sector::Int
     offset::Float64
@@ -109,12 +119,28 @@ struct MomentumCut
     direction::Vector{Float64}
 end
 
+"""
+    MomentumSegment
+
+A segment of an allowed momentum line folded into a Brillouin zone, as returned
+by [`bz_segments`](@ref). `first` and `last` are the Cartesian endpoints and
+`sector` the label of the [`MomentumCut`](@ref) it was folded from.
+"""
 struct MomentumSegment
     sector::Int
     first::Vector{Float64}
     last::Vector{Float64}
 end
 
+"""
+    MomentumPoint
+
+An allowed momentum of a two-boundary periodic cluster, as returned by
+[`allowed_points`](@ref). `fractional` and `parent_fractional` give the
+momentum in working and parent fractional coordinates, `cartesian` the
+momentum folded into the first Brillouin zone, and `sectors` the sector labels
+along each compact direction.
+"""
 struct MomentumPoint
     fractional::Vector{Float64}
     parent_fractional::Vector{Float64}

@@ -29,6 +29,14 @@ dmrg_mix!
 dmrg_mix
 ```
 
+## Excited-State DMRG
+
+```@docs
+excited_dmrg1!
+excited_dmrg2!
+excited_states
+```
+
 ## Default Algorithm Configurations
 
 ```@docs
@@ -49,8 +57,12 @@ for the memory model and threading layout.
 ```@docs
 HalfFiniteEnvironments
 fast_timestep!
+fast_approximate!
 configure_finite_engine!
 set_threaded_hamiltonian!
+threaded_hamiltonian_threads
+free_left!
+free_right!
 env_memory_bytes
 ```
 
