@@ -87,6 +87,7 @@ include("algorithms/cpt.jl")
 include("utility/defaults.jl")
 
 include("observables/correlator.jl")
+include("observables/correlator_checkpoint.jl")
 include("observables/dcorrelator.jl")
 include("observables/conductivity.jl")
 include("observables/fourier.jl")
