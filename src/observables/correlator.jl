@@ -211,7 +211,7 @@ function add_pairing!(plan::CorrelationPlan, name::Symbol;
 end
 
 """
-    correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads(), verbose::Union{Bool, Integer}=true)
+    correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads(), verbose::Union{Bool, Integer}=true, checkpoint::Union{Nothing, AbstractString}=nothing, checkpoint_every::Integer=1024)
 
 Compute all registered channels and return a `NamedTuple` keyed by channel name. Raw
 expectation values are shared between channels through the plan caches: each raw value
@@ -221,8 +221,19 @@ is computed only once, and only the values that are still missing are evaluated,
 `verbose` follows the DMRG drivers: `0`/`false` is silent; `1`/`true` prints a plan
 summary, one line per raw-evaluation stage and a closing `TimerOutput` table; `2`
 additionally prints progress (done/total, elapsed, ETA) inside each stage.
+
+With `checkpoint` set to a path, the raw-value caches are written to that file
+(atomically, Serialization format) after every chunk of `checkpoint_every` raw
+evaluations, following the DMRG update-checkpoint philosophy. A rerun with the same
+path reuses the finished raw values: interrupted jobs resume mid-stage, and reruns
+with additional channels only compute the new raw work. The checkpoint is validated
+against the state (bond dimensions and norm) and the operator set; a mismatching or
+corrupt file is ignored, never a correctness risk. The file is kept after success.
 """
-function correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads(), verbose::Union{Bool, Integer}=true)
+function correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads(),
+        verbose::Union{Bool, Integer}=true,
+        checkpoint::Union{Nothing, AbstractString}=nothing,
+        checkpoint_every::Integer=1024)
     timer = TimerOutput()
     record_start = now()
     req1 = Set{Tuple{Int, Int}}()
@@ -232,6 +243,12 @@ function correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads(),
         _collect_requirements!(req1, req2, req4, plan, plan.channels[name])
     end
     v = Int(verbose)
+    # the checkpoint is loaded after the requirements are collected (so the
+    # operator table exists for validation) but before the header is printed
+    # (so the new-vs-cached counts reflect the resume)
+    ckpt = checkpoint === nothing ? nothing :
+        _CorrelCkpt(String(checkpoint), max(1, Int(checkpoint_every)))
+    ckpt === nothing || _correl_ckpt_load(ckpt, plan, v)
     if v > 0
         kinds = (count(ch -> ch isa OneSiteChannel, values(plan.channels)),
             count(ch -> ch isa TwoSiteChannel, values(plan.channels)),
@@ -250,9 +267,9 @@ function correlator(plan::CorrelationPlan; parallel::Integer=Threads.nthreads(),
         )
         flush(stdout)
     end
-    _fill_cache1!(plan, req1, parallel, timer, v)
-    _fill_cache2!(plan, req2, parallel, timer, v)
-    _fill_cache4!(plan, req4, parallel, timer, v)
+    _fill_cache1!(plan, req1, parallel, timer, v, ckpt)
+    _fill_cache2!(plan, req2, parallel, timer, v, ckpt)
+    _fill_cache4!(plan, req4, parallel, timer, v, ckpt)
     t0 = time()
     results = map(plan.names) do name
         @timeit timer "assemble $(name)" _channel_result(plan, plan.channels[name])
@@ -306,11 +323,16 @@ end
 # Parallel map over a work queue. With verbose > 1, whichever worker crosses
 # each ~5% completion threshold prints a progress line (done/total, elapsed,
 # ETA); the atomic_cas! on `next` makes sure each line is printed exactly once.
-function _parallel_eval(f, n::Integer, parallel::Integer; label::AbstractString="", verbose::Integer=0)
+# `done0`/`total` keep the progress display continuous when the work is
+# chunked by the checkpointing driver.
+function _parallel_eval(f, n::Integer, parallel::Integer; label::AbstractString="",
+        verbose::Integer=0, done0::Integer=0, total::Integer=n)
     out = Vector{ComplexF64}(undef, n)
-    step = max(1, n ÷ 20)
+    step = max(1, total ÷ 20)
     progress = verbose > 1 ?
-        (done=Threads.Atomic{Int}(0), next=Threads.Atomic{Int}(step), t0=time()) : nothing
+        (done=Threads.Atomic{Int}(done0),
+            next=Threads.Atomic{Int}(done0 - mod(done0, step) + step),
+            t0=time(), done0=done0) : nothing
     function work(t)
         r = f(t)
         if progress !== nothing
@@ -318,10 +340,10 @@ function _parallel_eval(f, n::Integer, parallel::Integer; label::AbstractString=
             nxt = progress.next[]
             if d >= nxt && Threads.atomic_cas!(progress.next, nxt, nxt + step) == nxt
                 elapsed = time() - progress.t0
-                eta = elapsed * (n - d) / d
+                eta = elapsed * (total - d) / max(d - progress.done0, 1)
                 @printf(
                     "  %s: %d/%d (%d%%) | elapsed %s | ETA %s | %s\n",
-                    label, d, n, round(Int, 100 * d / n),
+                    label, d, total, round(Int, 100 * d / total),
                     _dur_str(elapsed), _dur_str(eta), format(now(), "HH:MM:SS")
                 )
                 flush(stdout)
@@ -346,7 +368,8 @@ function _parallel_eval(f, n::Integer, parallel::Integer; label::AbstractString=
     return out
 end
 
-function _fill_cache1!(plan::CorrelationPlan, req, parallel::Integer, timer::TimerOutput, verbose::Integer)
+function _fill_cache1!(plan::CorrelationPlan, req, parallel::Integer, timer::TimerOutput,
+        verbose::Integer, ckpt)
     missing = sort!(collect(setdiff(req, keys(plan.cache1))))
     if isempty(missing)
         verbose > 0 && !isempty(req) &&
@@ -355,20 +378,28 @@ function _fill_cache1!(plan::CorrelationPlan, req, parallel::Integer, timer::Tim
     end
     ψ, ops = plan.gs, plan.operators
     t0 = time()
-    vals = @timeit timer "one-site raw" _parallel_eval(length(missing), parallel;
-        label="one-site raw", verbose) do t
-        key = missing[t]
-        ComplexF64(correlator(ψ, ops[key[1]], key[2]))
+    ntotal = length(missing)
+    chunks = ckpt === nothing ? (missing,) : Iterators.partition(missing, ckpt.every)
+    done0 = 0
+    for chunk in chunks
+        vals = @timeit timer "one-site raw" _parallel_eval(length(chunk), parallel;
+            label="one-site raw", verbose, done0, total=ntotal) do t
+            key = chunk[t]
+            ComplexF64(correlator(ψ, ops[key[1]], key[2]))
+        end
+        for t in eachindex(chunk)
+            plan.cache1[chunk[t]] = vals[t]
+        end
+        plan.counters.onesite[] += length(chunk)
+        done0 += length(chunk)
+        ckpt === nothing || _correl_ckpt_write(ckpt, plan)
     end
-    for t in eachindex(missing)
-        plan.cache1[missing[t]] = vals[t]
-    end
-    plan.counters.onesite[] += length(missing)
-    _log_stage("one-site raw", length(missing), time() - t0, verbose)
+    _log_stage("one-site raw", ntotal, time() - t0, verbose)
     return nothing
 end
 
-function _fill_cache2!(plan::CorrelationPlan, req, parallel::Integer, timer::TimerOutput, verbose::Integer)
+function _fill_cache2!(plan::CorrelationPlan, req, parallel::Integer, timer::TimerOutput,
+        verbose::Integer, ckpt)
     missing = sort!(collect(setdiff(req, keys(plan.cache2))))
     if isempty(missing)
         verbose > 0 && !isempty(req) &&
@@ -377,20 +408,28 @@ function _fill_cache2!(plan::CorrelationPlan, req, parallel::Integer, timer::Tim
     end
     ψ, ops = plan.gs, plan.operators
     t0 = time()
-    vals = @timeit timer "two-site raw" _parallel_eval(length(missing), parallel;
-        label="two-site raw", verbose) do t
-        key = missing[t]
-        ComplexF64(correlator(ψ, ops[key[1]], ops[key[2]], (key[3],), (key[4],)))
+    ntotal = length(missing)
+    chunks = ckpt === nothing ? (missing,) : Iterators.partition(missing, ckpt.every)
+    done0 = 0
+    for chunk in chunks
+        vals = @timeit timer "two-site raw" _parallel_eval(length(chunk), parallel;
+            label="two-site raw", verbose, done0, total=ntotal) do t
+            key = chunk[t]
+            ComplexF64(correlator(ψ, ops[key[1]], ops[key[2]], (key[3],), (key[4],)))
+        end
+        for t in eachindex(chunk)
+            plan.cache2[chunk[t]] = vals[t]
+        end
+        plan.counters.twosite[] += length(chunk)
+        done0 += length(chunk)
+        ckpt === nothing || _correl_ckpt_write(ckpt, plan)
     end
-    for t in eachindex(missing)
-        plan.cache2[missing[t]] = vals[t]
-    end
-    plan.counters.twosite[] += length(missing)
-    _log_stage("two-site raw", length(missing), time() - t0, verbose)
+    _log_stage("two-site raw", ntotal, time() - t0, verbose)
     return nothing
 end
 
-function _fill_cache4!(plan::CorrelationPlan, req, parallel::Integer, timer::TimerOutput, verbose::Integer)
+function _fill_cache4!(plan::CorrelationPlan, req, parallel::Integer, timer::TimerOutput,
+        verbose::Integer, ckpt)
     missing = sort!(collect(setdiff(req, keys(plan.cache4))))
     if isempty(missing)
         verbose > 0 && !isempty(req) &&
@@ -399,16 +438,23 @@ function _fill_cache4!(plan::CorrelationPlan, req, parallel::Integer, timer::Tim
     end
     ψ, ops = plan.gs, plan.operators
     t0 = time()
-    vals = @timeit timer "pair raw" _parallel_eval(length(missing), parallel;
-        label="pair raw", verbose) do t
-        key = missing[t]
-        ComplexF64(correlator(ψ, ops[key[1]], ops[key[2]], key[3], key[4]))
+    ntotal = length(missing)
+    chunks = ckpt === nothing ? (missing,) : Iterators.partition(missing, ckpt.every)
+    done0 = 0
+    for chunk in chunks
+        vals = @timeit timer "pair raw" _parallel_eval(length(chunk), parallel;
+            label="pair raw", verbose, done0, total=ntotal) do t
+            key = chunk[t]
+            ComplexF64(correlator(ψ, ops[key[1]], ops[key[2]], key[3], key[4]))
+        end
+        for t in eachindex(chunk)
+            plan.cache4[chunk[t]] = vals[t]
+        end
+        plan.counters.pair[] += length(chunk)
+        done0 += length(chunk)
+        ckpt === nothing || _correl_ckpt_write(ckpt, plan)
     end
-    for t in eachindex(missing)
-        plan.cache4[missing[t]] = vals[t]
-    end
-    plan.counters.pair[] += length(missing)
-    _log_stage("pair raw", length(missing), time() - t0, verbose)
+    _log_stage("pair raw", ntotal, time() - t0, verbose)
     return nothing
 end
 
