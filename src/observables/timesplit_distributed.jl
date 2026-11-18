@@ -18,12 +18,18 @@
 #      most `charged_per_node` computations run concurrently per host
 #      (cache hits skip the gate); every result is checkpointed as slice 0;
 #   2. evolutions — one state per worker, checkpointing after each slice.
+# With block = :gorkov there are 4L states: creation bras, annihilation bras,
+# creation kets, then annihilation kets. Four Gram matrices per slice produce
+# the full Nambu correlator without any additional time evolution.
+#
 # A worker whose process dies has its task re-queued on a spare or freed
 # worker of the same host and resumes from its last checkpoint; a genuine
 # task error aborts the run (checkpoints make resubmission cheap). The full
 # evolution phase is the exception: with one all-slices task per worker and
 # everyone pinned by the overlap watermark, no replacement can ever become
 # available, so a death there aborts fast instead of deadlocking silently.
+# With `async_overlaps = true`, producers never wait on the overlap watermark,
+# so worker deaths can be drained and re-queued as in preparation runs.
 #
 # All worker/master communication is through the shared filesystem: after
 # each recorded slice, every worker writes its state to
@@ -155,9 +161,9 @@ end
 # cache hits skip the queue entirely.
 function _ts_dist_charged_state(s, p)
     isfile(_ts_dist_state_file(p.workdir, 0, s)) && return (s = s, origin = :checkpoint)
-    i = s <= p.L ? s : s - p.L
+    spec = _ts_state_spec(s, p.L, p.block, p.op, p.anomalous)
     cache_file = p.chargedmps_path === nothing ? nothing :
-                 _charged_cache_file(p.chargedmps_path, p.cache_tag, p.cache_offset + i)
+                 _charged_cache_file(p.chargedmps_path, p.cache_tag, spec.cache_index)
     ψ = cache_file === nothing ? nothing : _charged_cache_load(cache_file)
     origin = :cache
     if ψ === nothing
@@ -168,8 +174,8 @@ function _ts_dist_charged_state(s, p)
             flush(stdout)
         end
         t0 = time_ns()
-        ψ = complex(chargedMPS(p.op, p.gs, i, p.approxalg; disk = p.disk))
-        cache_file === nothing || _charged_cache_save(cache_file, ψ, i, p.approxalg)
+        ψ = complex(chargedMPS(spec.source_op, p.gs, spec.site, p.approxalg; disk = p.disk))
+        cache_file === nothing || _charged_cache_save(cache_file, ψ, spec.site, p.approxalg)
         if p.verbose
             println("[state $s] chargedMPS done on worker ", myid(), " | ",
                     _ts_ns_str(time_ns() - t0), " | RSS ",
@@ -189,9 +195,10 @@ end
 # bounded by construction — at most n + 1 slices, no overlap pass)
 function _ts_dist_state_evolve(s, p)
     L = p.L
-    i = s <= L ? s : s - L
-    family = s <= L ? "bra" : "ket"
-    dtsign = s <= L ? -1 : +1
+    spec = _ts_state_spec(s, L, p.block, p.op, p.anomalous)
+    i = spec.site
+    family = (spec.bra ? "bra" : "ket") * " op$(spec.operator_index)"
+    dtsign = spec.bra ? -1 : +1
     nrec = length(p.record_indices)
     r_end = min(nrec, p.r_stop)
 
@@ -430,14 +437,14 @@ end
 # L × L Gram matrix of one slice, loaded in B × B tiles so at most 2B states
 # are resident on the master; the per-pair contraction is identical to the
 # threaded driver's `_ts_overlap!`
-function _ts_dist_overlap_slice(workdir, r, L, B)
+function _ts_dist_overlap_slice(workdir, r, L, B; bra_offset = 0, ket_offset = L)
     dest = zeros(ComplexF64, L, L)
     for ib in 1:B:L
         ir = ib:min(ib + B - 1, L)
-        bras = [_ts_dist_load_state(workdir, r, s) for s in ir]
+        bras = [_ts_dist_load_state(workdir, r, bra_offset + s) for s in ir]
         for jb in 1:B:L
             jr = jb:min(jb + B - 1, L)
-            kets = [_ts_dist_load_state(workdir, r, L + s) for s in jr]
+            kets = [_ts_dist_load_state(workdir, r, ket_offset + s) for s in jr]
             tile = view(dest, ir, jr)
             Threads.@threads :dynamic for idx in CartesianIndices(tile)
                 tile[idx] = dot(bras[idx[1]], kets[idx[2]])
@@ -445,6 +452,15 @@ function _ts_dist_overlap_slice(workdir, r, L, B)
         end
     end
     return dest
+end
+
+function _ts_dist_gorkov_overlap(workdir, r, L, B)
+    return (
+        _ts_dist_overlap_slice(workdir, r, L, B; bra_offset = 0, ket_offset = 2L),
+        _ts_dist_overlap_slice(workdir, r, L, B; bra_offset = L, ket_offset = 3L),
+        _ts_dist_overlap_slice(workdir, r, L, B; bra_offset = L, ket_offset = 2L),
+        _ts_dist_overlap_slice(workdir, r, L, B; bra_offset = 0, ket_offset = 3L),
+    )
 end
 
 # highest consecutive overlap slice present as an atomic meta file
@@ -590,10 +606,10 @@ function _ts_dist_wait_slice(workdir, r, nstates, tasks; poll_s = 30.0)
 end
 
 function _ts_dist_dcorrelator(gs, H, op;
-                              block, times, verbose, save, gf_path,
+                              block, anomalous, times, verbose, save, gf_path,
                               chargedmps_path, disk, record_indices, n,
                               approxalg, tdvp1, tdvp2, workdir, backlog,
-                              overlap_block, keep_final_states, charged_per_node,
+                              async_overlaps, overlap_block, keep_final_states, charged_per_node,
                               prepare_only::Bool = false)
     nprocs() == 1 && throw(ArgumentError(
         "mode = :distributed needs worker processes but nprocs() == 1 " *
@@ -611,6 +627,8 @@ function _ts_dist_dcorrelator(gs, H, op;
         throw(ArgumentError("charged_per_node must be >= 1"))
 
     L = length(H)
+    nsource = _ts_nsource(L, block)
+    nstates = 2nsource
     record_indices, record_first, record_last =
         _dcorrelator_record_window(times, record_indices)
     nrec = length(record_indices)
@@ -640,7 +658,7 @@ function _ts_dist_dcorrelator(gs, H, op;
     prefix = _ts_dist_gf_prefix(meta_dir, nrec)
     if !prepare_only && prefix == nrec
         verbose && println("[dist] all $nrec overlap slices already on disk; assembling")
-        gf = zeros(ComplexF64, L, L, nrec)
+        gf = zeros(ComplexF64, nsource, nsource, nrec)
         for r in 1:nrec
             gf[:, :, r] = _ts_dist_load_gf_slice(meta_dir, r)
         end
@@ -691,16 +709,18 @@ function _ts_dist_dcorrelator(gs, H, op;
     # ---- placement: discover hosts, split states proportionally ----
     ws = workers()
     host_workers = _ts_dist_host_map(ws)
-    assignment = _ts_dist_host_assignment(host_workers, 2L)
+    assignment = _ts_dist_host_assignment(host_workers, nstates)
     if verbose
         println("[dist] ", length(ws), " workers on ", length(host_workers),
-                " host(s) for ", 2L, " states | backlog ", backlog,
+                " host(s) for ", nstates, " states | ",
+                async_overlaps ? "async/unbounded backlog" : "backlog $backlog",
                 " slices | overlap tiles of ", overlap_block)
+        async_overlaps && println("[dist] asynchronous overlaps: evolution workers never wait for overlap_done")
         for h in sort!(collect(keys(host_workers)))
             println("[dist]   ", h, ": ", length(host_workers[h]), " workers, ",
                     count(==(h), assignment), " states")
         end
-        if length(ws) < 2L
+        if length(ws) < nstates
             println("[dist] WARNING: fewer workers than states — some workers ",
                     "will evolve multiple states back-to-back and the wall ",
                     "time scales accordingly")
@@ -710,18 +730,18 @@ function _ts_dist_dcorrelator(gs, H, op;
 
     # ---- phase 1/2: charged initial states (the memory peak of the whole
     # run — strictly before any evolution, throttled per host) ----
-    pending1 = [s for s in 1:(2L) if !isfile(_ts_dist_state_file(workdir, 0, s)) &&
+    pending1 = [s for s in 1:nstates if !isfile(_ts_dist_state_file(workdir, 0, s)) &&
                 _ts_dist_state_progress(workdir, nrec, s) == 0]
     if isempty(pending1)
         verbose && println("[dist] phase 1/2: all charged states already on disk")
     else
-        p1 = (op = op, gs = gs, L = L, approxalg = approxalg, disk = disk,
+        p1 = (op = op, anomalous = anomalous, block = block, gs = gs, L = L,
+              approxalg = approxalg, disk = disk,
               chargedmps_path = chargedmps_path,
               cache_tag = _charged_alg_tag(approxalg),
-              cache_offset = block === :greater ? 0 : L,
               workdir = workdir, verbose = verbose)
         if verbose
-            println("[dist] phase 1/2: ", length(pending1), "/", 2L,
+            println("[dist] phase 1/2: ", length(pending1), "/", nstates,
                     " charged states",
                     charged_per_node === nothing ? "" :
                     " | cap $charged_per_node computing per host")
@@ -750,35 +770,36 @@ function _ts_dist_dcorrelator(gs, H, op;
         return r_stop
     end
     if prepare_only &&
-       all(s -> _ts_dist_state_progress(workdir, nrec, s) >= r_stop, 1:(2L))
-        verbose && (println("[dist] prepare: all ", 2L,
+       all(s -> _ts_dist_state_progress(workdir, nrec, s) >= r_stop, 1:nstates)
+        verbose && (println("[dist] prepare: all ", nstates,
                             " states already checkpointed through slice ", r_stop,
                             " — nothing to do"); flush(stdout))
         return r_stop
     end
-    p2 = (H = H, L = L, times = collect(times), record_indices = record_indices,
+    p2 = (H = H, op = op, anomalous = anomalous, block = block, L = L,
+          times = collect(times), record_indices = record_indices,
           n = n, tdvp1 = tdvp1, tdvp2 = tdvp2, disk = disk, workdir = workdir,
           meta_dir = meta_dir, backlog = backlog, r_stop = r_stop,
-          throttle = !prepare_only, verbose = verbose)
+          throttle = !prepare_only && !async_overlaps, verbose = verbose)
     verbose && (println(prepare_only ?
                         "[dist] prepare: evolving the tdvp2 window (record " *
-                        "slices 1-$r_stop) for $(2L) states" :
-                        "[dist] phase 2/2: evolving $(2L) states");
+                        "slices 1-$r_stop) for $(nstates) states" :
+                        "[dist] phase 2/2: evolving $(nstates) states");
                 flush(stdout))
     tasks2 = _ts_dist_schedule("evolve",
                                s -> _ts_dist_guarded(_ts_dist_state_evolve, s, p2),
                                assignment, host_workers, nothing,
-                               collect(1:(2L)), verbose;
+                               collect(1:nstates), verbose;
                                # prepare runs have no watermark pinning anyone,
                                # so a freed survivor does take over a dead
                                # worker's re-queued state — drain, don't abort
-                               death_fatal = !prepare_only)
+                               death_fatal = !prepare_only && !async_overlaps)
     if prepare_only
         # the master only monitors slice completion (surfacing scheduler
         # failures); the lean follow-up job computes the early overlaps
         # from these checkpoints
         for r in 1:r_stop
-            _ts_dist_wait_slice(workdir, r, 2L, tasks2)
+            _ts_dist_wait_slice(workdir, r, nstates, tasks2)
             # slice 0 (the charged initial states) is dead weight once every
             # state has a slice-1 checkpoint
             r == 1 && rm(_ts_dist_slice_dir(workdir, 0); recursive = true, force = true)
@@ -786,30 +807,36 @@ function _ts_dist_dcorrelator(gs, H, op;
                                 "(t = $(times[record_indices[r]]))"); flush(stdout))
         end
         _ts_dist_collect(tasks2)
-        verbose && (println("[dist] prepare complete: all ", 2L,
+        verbose && (println("[dist] prepare complete: all ", nstates,
                             " states checkpointed through slice $r_stop in $workdir — ",
                             "submit the lean follow-up job (`dcorrelator`) on the " *
                             "same workdir"); flush(stdout))
         return r_stop
     end
-    gf = zeros(ComplexF64, L, L, nrec)
+    gf = zeros(ComplexF64, nsource, nsource, nrec)
     for r in 1:prefix
         gf[:, :, r] = _ts_dist_load_gf_slice(meta_dir, r)
     end
 
     wall_start = now()
     verbose && _progress_start(prefix + 1, nrec,
-                               "distributed time-split correlator: $block block, $L × $L")
+                               "distributed time-split correlator: $block block, $nsource × $nsource")
     for r in (prefix + 1):nrec
         slice_start = now()
-        _ts_dist_wait_slice(workdir, r, 2L, tasks2)
+        _ts_dist_wait_slice(workdir, r, nstates, tasks2)
         # slice 0 (the charged initial states) is dead weight once every
         # state has a slice-1 checkpoint — drop it to bound disk usage
         r == 1 && rm(_ts_dist_slice_dir(workdir, 0); recursive = true, force = true)
         gc0 = _gc_stamp()
-        dest = _ts_dist_overlap_slice(workdir, r, L, overlap_block)
+        dest = block === :gorkov ?
+               _ts_dist_gorkov_overlap(workdir, r, L, overlap_block) :
+               _ts_dist_overlap_slice(workdir, r, L, overlap_block)
         gc1 = _gc_stamp()
-        _ts_assemble!(gf, dest, r, block, gsenergy, times[record_indices[r]])
+        if block === :gorkov
+            _ts_gorkov_assemble!(gf, dest, r, gsenergy, times[record_indices[r]])
+        else
+            _ts_assemble!(gf, dest, r, block, gsenergy, times[record_indices[r]])
+        end
         _ts_dist_save_gf_slice!(meta_dir, filename, r, gf[:, :, r], save)
         _ts_dist_write_overlap_done!(meta_dir, r)
         # retire the slice whose overlap is saved and whose successor is
@@ -828,12 +855,12 @@ function _ts_dist_dcorrelator(gs, H, op;
     results = _ts_dist_collect(tasks2)   # all checkpoints written; rethrows errors
     if verbose
         n_resumed = count(r -> r.resumed_from > 0, values(results))
-        println("[dist] all $(2L) state tasks complete ",
-                "($n_resumed resumed from checkpoints, $(2L - n_resumed) from phase 1)")
+        println("[dist] all $(nstates) state tasks complete ",
+                "($n_resumed resumed from checkpoints, $(nstates - n_resumed) from phase 1)")
     end
 
     if keep_final_states
-        sz = sum(s -> filesize(_ts_dist_state_file(workdir, nrec, s)), 1:(2L))
+        sz = sum(s -> filesize(_ts_dist_state_file(workdir, nrec, s)), 1:nstates)
         verbose && println("[dist] final-slice states kept at ",
                            _ts_dist_slice_dir(workdir, nrec), " (", _format_gib(sz),
                            "); pass keep_final_states = false to delete them")
@@ -846,7 +873,7 @@ function _ts_dist_dcorrelator(gs, H, op;
 end
 
 """
-    prepare_dcorrelator(gs, H, op; block, times=0:0.05:5.0,
+    prepare_dcorrelator(gs, H, op; block, anomalous=nothing, times=0:0.05:5.0,
                         record_indices=1:length(times), n=3,
                         approxalg=myDMRG2(), tdvp2=myTDVP2(...), workdir,
                         chargedmps_path=nothing, disk=false,
@@ -869,7 +896,9 @@ resumes every state from its slice-`r_stop` checkpoint, assembles the
 first `r_stop` overlap slices straight from disk, and continues with
 `tdvp1`. The two jobs must agree on `block`/`times`/`record_indices`/`n`/`L`
 (guarded by `meta/config.jld2`) and, by directory convention, on the
-model / `gs` / `op` / `tdvp2` settings — exactly like the chargedMPS cache.
+model / `gs` / `op` / `anomalous` / `tdvp2` settings — exactly like the chargedMPS cache.
+For `block = :gorkov`, `anomalous` is required and the pass prepares both the
+creation and annihilation state families.
 
 Every slice past `r_stop` is pure one-site TDVP by construction, so the
 follow-up job's memory profile is set by `tdvp1` alone. If the two-site
@@ -883,6 +912,7 @@ re-queued state.
 """
 function prepare_dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap;
                              block::Symbol,
+                             anomalous::Union{Nothing,AbstractTensorMap} = nothing,
                              times::AbstractVector = 0:0.05:5.0,
                              record_indices::AbstractArray = 1:length(times),
                              n::Integer = 3,
@@ -893,16 +923,19 @@ function prepare_dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::Abstrac
                              disk::Union{Bool,AbstractString} = false,
                              charged_per_node::Union{Nothing,Integer} = nothing,
                              verbose::Bool = true)
-    block in (:greater, :lesser) ||
-        throw(ArgumentError("block must be :greater or :lesser, got :$block"))
+    block in (:greater, :lesser, :gorkov) ||
+        throw(ArgumentError("block must be :greater, :lesser or :gorkov, got :$block"))
+    (block === :gorkov) == !isnothing(anomalous) || throw(ArgumentError(
+        "block = :gorkov requires anomalous; :greater and :lesser do not accept it"))
     return _ts_dist_dcorrelator(gs, H, op;
-                                block, times, verbose,
+                                block, anomalous, times, verbose,
                                 save = false, gf_path = ".",
                                 chargedmps_path, disk, record_indices, n,
                                 approxalg,
                                 tdvp1 = tdvp2,        # unused: prepare stops at the tdvp2 window
                                 tdvp2, workdir,
                                 backlog = 1,          # unused: no watermark in prepare
+                                async_overlaps = false,
                                 overlap_block = 1,    # unused: no overlap pass in prepare
                                 keep_final_states = false,
                                 charged_per_node, prepare_only = true)

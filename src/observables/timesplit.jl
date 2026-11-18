@@ -14,7 +14,9 @@
 # Every state is only evolved up to τ = tmax/2, halving the peak entanglement
 # and the accumulated truncation error compared to the direct method. The price
 # is an all-pairs overlap matrix per time slice and 2L resident states per
-# block instead of L. Backward evolution (e^{+iHτ}) is simply a TDVP step with
+# normal block instead of L. A Gorkov call uses creation and annihilation
+# operators together, hence 4L states, and forms normal and anomalous overlaps
+# from the same checkpoints. Backward evolution (e^{+iHτ}) is simply a TDVP step with
 # negative dt; TDVP makes no assumption on the sign of dt (its center-bond
 # step already uses -dt/2 internally).
 
@@ -40,21 +42,29 @@ This three-positional-argument signature unambiguously selects the time-split
 method; the direct methods take a fourth positional `id::Integer` or
 `indices::AbstractArray`.
 
+With `block = :gorkov`, pass `op = e_plus(...)` and `anomalous = e_min(...)`.
+The return value is the full retarded `2L × 2L × length(record_indices)` Nambu
+array. Its four blocks use the same phase and sign conventions as the existing
+LNO direct-source assembly: normal blocks combine greater and lesser terms with
+`+`; anomalous blocks use the antisymmetric combination. Creation and
+annihilation states are evolved together, so no additional full-time source
+evolution is needed.
+
 # Differences from the direct method
 - The full `length(H) × length(H)` matrix of site pairs is computed at every
   slice; there is no `indices` argument — any missing row or column leaves the
   correlator incomplete, so the method always computes the whole matrix.
-- Each call computes one block. `block = :greater` takes the creation operator
+- Normal calls compute one block. `block = :greater` takes the creation operator
   (charged states in the N+1 sector), `block = :lesser` the annihilation
   operator (N-1 sector). The two blocks are fully independent and can run as
-  separate jobs.
-- `2 * length(H)` fat states are kept in memory (both time directions of one
-  block), versus `length(H)` kets plus cheap t = 0 bras in the direct method.
-  The TDVP environments dominate the footprint; `disk = true` (or a directory)
-  pages them to disk as usual, one random subdirectory per state.
+  separate jobs. `block = :gorkov` instead takes `op` and `anomalous` together.
+- A normal call keeps `2 * length(H)` fat states in memory; a Gorkov call keeps
+  twice as many. The TDVP environments dominate the footprint; `disk = true`
+  (or a directory) pages them to disk as usual, one random subdirectory per state.
 
 # Keywords
-- `block::Symbol` (required): `:greater` or `:lesser`.
+- `block::Symbol` (required): `:greater`, `:lesser`, or `:gorkov`.
+- `anomalous`: the annihilation operator, required exactly when `block = :gorkov`.
 - `times = 0:0.05:5.0`: the correlator time grid. Internally the states evolve
   on `times ./ 2`, so the TDVP step is half the grid spacing.
 - `record_indices`: continuous window into `times`; evolution stops at the
@@ -107,6 +117,11 @@ method; the direct methods take a fourth positional `id::Integer` or
   (walltime, node failure) resumes from the last complete slice. The
   threaded-only knobs (`parallel_charged`/`parallel_tdvp2`/
   `parallel_tdvp1`, `hamiltonian_threads`) are ignored in this mode.
+- `async_overlaps` (default `false`, distributed only): when true, evolution
+  workers never wait for the master's `overlap_done` watermark. They continue
+  producing checkpoint slices while the master independently waits for and
+  computes completed overlaps. This removes slow-state backpressure at the cost
+  of allowing a larger on-disk backlog; `backlog` is unused in this mode.
   For production-size runs, split the job by memory profile with
   `prepare_dcorrelator`: a short, generously provisioned preparation job
   (charged states + the two-site TDVP window, no overlaps), then this lean
@@ -148,7 +163,8 @@ wall. These tables are the first place to look when a slice is slower than
 expected.
 
 Returns `gf :: Array{ComplexF64,3}` of size
-`(length(H), length(H), length(record_indices))`. With `save = true`, each
+`(length(H), length(H), length(record_indices))` for a normal block, or
+`(2length(H), 2length(H), length(record_indices))` for `:gorkov`. With `save = true`, each
 recorded slice is appended to
 `gf_split_start=<t0>_end=<t1>_block=<block>.jld2` under `pro_<r>`, together
 with the grid metadata.
@@ -158,6 +174,7 @@ method yet; it will arrive as a separate `dcorrelator` method.
 """
 function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorMap;
                      block::Symbol,
+                     anomalous::Union{Nothing,AbstractTensorMap}=nothing,
                      times::AbstractVector=0:0.05:5.0,
                      verbose::Bool=true,
                      save::Bool=true,
@@ -172,6 +189,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                      mode::Symbol=:threaded,
                      workdir::Union{Nothing,AbstractString}=nothing,
                      backlog::Integer=2,
+                     async_overlaps::Bool=false,
                      overlap_block::Integer=8,
                      keep_final_states::Bool=true,
                      charged_per_node::Union{Nothing,Integer}=nothing,
@@ -179,26 +197,32 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                      approxalg=myDMRG2(),
                      tdvp1=myTDVP1(),
                      tdvp2=myTDVP2(; trunc=truncerror(; rtol=1e-3)))
-    block in (:greater, :lesser) ||
-        throw(ArgumentError("block must be :greater or :lesser, got :$block"))
+    block in (:greater, :lesser, :gorkov) ||
+        throw(ArgumentError("block must be :greater, :lesser or :gorkov, got :$block"))
+    (block === :gorkov) == !isnothing(anomalous) || throw(ArgumentError(
+        "block = :gorkov requires anomalous; :greater and :lesser do not accept it"))
     mode in (:threaded, :distributed) ||
         throw(ArgumentError("mode must be :threaded or :distributed, got :$mode"))
+    async_overlaps && mode !== :distributed && throw(ArgumentError(
+        "async_overlaps is supported only with mode = :distributed"))
     mode === :distributed && return _ts_dist_dcorrelator(
-        gs, H, op; block, times, verbose, save, gf_path, chargedmps_path,
+        gs, H, op; block, anomalous, times, verbose, save, gf_path, chargedmps_path,
         disk, record_indices, n, approxalg, tdvp1, tdvp2, workdir, backlog,
-        overlap_block, keep_final_states, charged_per_node)
+        async_overlaps, overlap_block, keep_final_states, charged_per_node)
     parallel_charged >= 1 && parallel_tdvp2 >= 1 && parallel_tdvp1 >= 1 ||
         throw(ArgumentError("parallel_charged, parallel_tdvp2 and parallel_tdvp1 must all be >= 1"))
     hamiltonian_threads === nothing || hamiltonian_threads >= 1 ||
         throw(ArgumentError("hamiltonian_threads must be >= 1 (or nothing for automatic)"))
     save && !isdir(gf_path) && mkpath(gf_path)
     L = length(H)
+    nsource = _ts_nsource(L, block)
+    operators = block === :gorkov ? (op, anomalous) : (op,)
     record_indices, record_first, record_last = _dcorrelator_record_window(times, record_indices)
     nrec = length(record_indices)
     gsenergy = expectation_value(gs, H)
 
     timer = TimerOutput()
-    gf = zeros(ComplexF64, L, L, nrec)
+    gf = zeros(ComplexF64, nsource, nsource, nrec)
     filename = joinpath(gf_path,
                         "gf_split_start=$(times[record_first])_end=$(times[record_last])" *
                         "_block=$(block).jld2")
@@ -209,39 +233,44 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     # collected with comprehensions, which converge to the concrete element
     # type at runtime — type-stable storage without computing any
     # compression twice
-    charged_sem = Base.Semaphore(min(parallel_charged, L))
+    charged_sem = Base.Semaphore(min(parallel_charged, nsource))
     cache_tag = _charged_alg_tag(approxalg)
-    cache_offset = block === :greater ? 0 : L
     chargedmps_path === nothing || mkpath(chargedmps_path)
     # phase-aware cap for the channel-split Hamiltonian (see the
     # `hamiltonian_threads` keyword): restore the global setting on exit
     hamcap_prev = threaded_hamiltonian_threads()
     try
-        set_threaded_hamiltonian!(_ts_hamiltonian_cap(min(parallel_charged, L),
+        set_threaded_hamiltonian!(_ts_hamiltonian_cap(min(parallel_charged, nsource),
                                                       hamiltonian_threads))
         verbose && println("[threaded Hamiltonian] matvec fan-out cap: $(threaded_hamiltonian_threads())",
-                           " (chargedMPS phase, $(min(parallel_charged, L)) concurrent compressions)")
+                           " (chargedMPS phase, $(min(parallel_charged, nsource)) concurrent compressions)")
         @timeit timer "setup / chargedMPS" begin
-            ctasks = map(1:L) do i
+            ctasks = map(1:nsource) do i
                 Threads.@spawn begin
                     t0 = time_ns()
+                    operator_index = (i - 1) ÷ L + 1
+                    site = mod1(i, L)
+                    source_op = operators[operator_index]
+                    cache_offset = block === :gorkov ? (operator_index - 1) * L :
+                                   block === :greater ? 0 : L
                     ψ = chargedmps_path === nothing ? nothing :
                         _charged_cache_load(_charged_cache_file(chargedmps_path, cache_tag,
-                                                                cache_offset + i))
+                                                                cache_offset + site))
                     from_cache = ψ !== nothing
                     if !from_cache
                         Base.acquire(charged_sem)
                         try
-                            ψ = complex(chargedMPS(op, gs, i, approxalg; disk))
+                            ψ = complex(chargedMPS(source_op, gs, site, approxalg; disk))
                         finally
                             Base.release(charged_sem)
                         end
                         chargedmps_path === nothing ||
                             _charged_cache_save(_charged_cache_file(chargedmps_path, cache_tag,
-                                                                    cache_offset + i), ψ, i, approxalg)
+                                                                    cache_offset + site), ψ, site, approxalg)
                     end
                     if verbose
-                        println("[chargedMPS] site $i/$L | ", from_cache ? "cache" : "computed",
+                        println("[chargedMPS] state $i/$nsource (site $site) | ",
+                                from_cache ? "cache" : "computed",
                                 " | maxD = ", _ts_max_bonddim((ψ,)), " | ",
                                 _short_duration(Nanosecond(time_ns() - t0)))
                         flush(stdout)
@@ -258,12 +287,12 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             ctasks = nothing
         end
         if verbose && chargedmps_path !== nothing
-            println("[chargedMPS cache] loaded $n_loaded/$L, recomputed $(L - n_loaded)",
+            println("[chargedMPS cache] loaded $n_loaded/$nsource, recomputed $(nsource - n_loaded)",
                     " | dir: ", chargedmps_path)
             flush(stdout)
         end
         @timeit timer "setup / environments" begin
-            etasks = map(1:L) do i
+            etasks = map(1:nsource) do i
                 Threads.@spawn (HalfFiniteEnvironments(bras[i], H; disk),
                                 HalfFiniteEnvironments(kets[i], H; disk))
             end
@@ -279,11 +308,12 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         # the bonds up to the tdvp2 cap and are workspace-heavy; the one-site
         # steps that dominate the wall time are memory-light. Both families
         # advance as one merged 2L-task pool per slice
-        tdvp2_sem = Base.Semaphore(min(parallel_tdvp2, 2L))
-        tdvp1_sem = Base.Semaphore(min(parallel_tdvp1, 2L))
-        step_durations = Vector{Float64}(undef, 2L)
-    
-        dest = zeros(ComplexF64, L, L)
+        tdvp2_sem = Base.Semaphore(min(parallel_tdvp2, 2nsource))
+        tdvp1_sem = Base.Semaphore(min(parallel_tdvp1, 2nsource))
+        step_durations = Vector{Float64}(undef, 2nsource)
+
+        dest = block === :gorkov ? ntuple(_ -> zeros(ComplexF64, L, L), 4) :
+                                   zeros(ComplexF64, L, L)
         if save
             jldopen(filename, "w") do f
                 f["times"] = times
@@ -295,15 +325,20 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
     
         wall_start = now()
         verbose && _progress_start(1, length(times),
-                                   "time-split correlator: $block block, $L × $L")
+                                   "time-split correlator: $block block, $nsource × $nsource")
         verbose && flush(stdout)
     
         # τ = 0 slice
         slice_start = now()
         slice_start_ns = time_ns()
         if record_first == 1
-            @timeit timer "slice 1 / overlaps" _ts_overlap!(dest, bras, kets)
-            _ts_assemble!(gf, dest, 1, block, gsenergy, times[1])
+            if block === :gorkov
+                @timeit timer "slice 1 / overlaps" _ts_gorkov_overlap!(dest, bras, kets, L)
+                _ts_gorkov_assemble!(gf, dest, 1, gsenergy, times[1])
+            else
+                @timeit timer "slice 1 / overlaps" _ts_overlap!(dest, bras, kets)
+                _ts_assemble!(gf, dest, 1, block, gsenergy, times[1])
+            end
             save && jldopen(filename, "a") do f
                 f["pro_1"] = gf[:, :, 1]
             end
@@ -317,7 +352,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             alg = k > n ? tdvp1 : tdvp2
             sem = k > n ? tdvp1_sem : tdvp2_sem
             set_threaded_hamiltonian!(_ts_hamiltonian_cap(
-                min(k > n ? parallel_tdvp1 : parallel_tdvp2, 2L), hamiltonian_threads))
+                min(k > n ? parallel_tdvp1 : parallel_tdvp2, 2nsource), hamiltonian_threads))
             dτ = (times[k] - times[k - 1]) / 2
             # per-phase GC snapshots: the report below decomposes each serial
             # phase's wall into compute / GC / safepoint wait
@@ -333,10 +368,17 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
             if k >= record_first
                 r = k - record_first + 1
                 overlap_start_ns = time_ns()
-                @timeit timer "overlaps" _ts_overlap!(dest, bras, kets)
-                overlap_ns = time_ns() - overlap_start_ns
-                gc_overlap_after = _gc_stamp()
-                _ts_assemble!(gf, dest, r, block, gsenergy, times[k])
+                if block === :gorkov
+                    @timeit timer "overlaps" _ts_gorkov_overlap!(dest, bras, kets, L)
+                    overlap_ns = time_ns() - overlap_start_ns
+                    gc_overlap_after = _gc_stamp()
+                    _ts_gorkov_assemble!(gf, dest, r, gsenergy, times[k])
+                else
+                    @timeit timer "overlaps" _ts_overlap!(dest, bras, kets)
+                    overlap_ns = time_ns() - overlap_start_ns
+                    gc_overlap_after = _gc_stamp()
+                    _ts_assemble!(gf, dest, r, block, gsenergy, times[k])
+                end
                 save && jldopen(filename, "a") do f
                     f["pro_$(r)"] = gf[:, :, r]
                 end
@@ -346,7 +388,7 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                                "t = $(times[k]) | maxD bra = $(_ts_max_bonddim(bras)), ket = $(_ts_max_bonddim(kets))",
                                now() - slice_start)
                 _ts_integration_report(stdout, Iterators.flatten(Iterators.flatten((infos_bra, infos_ket))))
-                _ts_step_report(stdout, step_durations, L, timers_bra, timers_ket,
+                _ts_step_report(stdout, step_durations, nsource, timers_bra, timers_ket,
                                 gc_evolve_before, gc_evolve_after, gc_overlap_after,
                                 time_ns() - slice_start_ns,
                                 evolve_ns, overlap_ns)
@@ -372,6 +414,43 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         set_threaded_hamiltonian!(hamcap_prev)
     end
 
+    return gf
+end
+
+_ts_nsource(L::Integer, block::Symbol) = block === :gorkov ? 2L : L
+
+function _ts_state_spec(s::Integer, L::Integer, block::Symbol, op, anomalous)
+    nsource = _ts_nsource(L, block)
+    bra = s <= nsource
+    family = mod1(s, nsource)
+    operator_index = (family - 1) ÷ L + 1
+    site = mod1(family, L)
+    source_op = operator_index == 1 ? op : anomalous
+    cache_offset = block === :gorkov ? (operator_index - 1) * L :
+                   block === :greater ? 0 : L
+    return (; bra, site, operator_index, source_op,
+            cache_index = cache_offset + site)
+end
+
+function _ts_gorkov_overlap!(dest, bras, kets, L)
+    _ts_overlap!(dest[1], view(bras, 1:L), view(kets, 1:L))
+    _ts_overlap!(dest[2], view(bras, (L + 1):(2L)), view(kets, (L + 1):(2L)))
+    _ts_overlap!(dest[3], view(bras, (L + 1):(2L)), view(kets, 1:L))
+    _ts_overlap!(dest[4], view(bras, 1:L), view(kets, (L + 1):(2L)))
+    return dest
+end
+
+function _ts_gorkov_assemble!(gf, dest, r::Integer, gsenergy, t)
+    L = size(dest[1], 1)
+    pf = exp(im * gsenergy * t)
+    pb = exp(-im * gsenergy * t)
+    for j in 1:L, i in 1:L
+        a, b, c, d = dest[1][i, j], dest[2][i, j], dest[3][i, j], dest[4][i, j]
+        gf[i, j, r] = -im * (pf * a + pb * conj(b))
+        gf[i, L + j, r] = -im * (pb * conj(c) - pf * d)
+        gf[L + i, j, r] = -im * (pb * conj(d) - pf * c)
+        gf[L + i, L + j, r] = -im * (pb * conj(a) + pf * b)
+    end
     return gf
 end
 
