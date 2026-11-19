@@ -253,7 +253,7 @@ end
             (Int(!isinteger(i)), i) => 1 for i in 0:1//2:1),], length(H) - 1)
         st = FiniteMPS(rand, ComplexF64, physicalspace(H), vs)
         gs, env, E0 = dmrg2!(st, H, [64, 64, 128, 128];
-            save=false, verbose=false, updatedir=tempdir(), alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
+            save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
         @test isapprox(E0, E_ed; atol=ED_TOL_ENERGY)
     end
 end
@@ -507,7 +507,7 @@ end
         F = L ÷ 2
         st = randFiniteMPS(elt, SU2Irrep, U1Irrep, L; filling=filling)
         H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t=-1-0.5im, U=8, filling=filling)
-        gs, env, E0 = dmrg2!(st, H, truncdims; save=false, verbose=false, updatedir=tempdir(), alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
+        gs, env, E0 = dmrg2!(st, H, truncdims; save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
 
         ed = ED(lattice, hilbert, (t, U), ℕ(F))
         eigensystem = eigen(ed; nev=1)
@@ -556,7 +556,7 @@ end
         H = hubbard(elt, SU2Irrep, Custom(lattice); t=-1.0-0.5im, U=8.0)
         vs = repeat([Vect[(FermionParity ⊠ SU2Irrep)]((Int(!isinteger(i)), i) => 1 for i in 0:1//2:1),], L - 1)
         st = FiniteMPS(rand, elt, physicalspace(H), vs; right=Vect[(FermionParity ⊠ SU2Irrep)]((1, 1/2) => 1))
-        gs, env, E0 = dmrg2!(st, H, truncdims; save=false, verbose=false, updatedir=tempdir(), alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
+        gs, env, E0 = dmrg2!(st, H, truncdims; save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
 
         ed = ED(lattice, hilbert, (t, U), 𝕊ᶻ(1//2))
         eigensystem = eigen(ed; nev=1)
@@ -598,7 +598,7 @@ end
         F = L
         st = randFiniteMPS(elt, U1Irrep, U1Irrep, L; filling=filling)
         H = hamiltonian((t, U), lattice, hilbert; filling=filling)
-        gs, env, E0 = dmrg2!(st, H, truncdims; save=false, verbose=false, updatedir=tempdir(), alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
+        gs, env, E0 = dmrg2!(st, H, truncdims; save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
 
         ed = ED(lattice, hilbert, (t, U), ℕ(F))
         eigensystem = eigen(ed; nev=1)
@@ -643,7 +643,7 @@ end
             t=-1-0.5im, U=8, filling=filling)
         st = randFiniteMPS(elt, SU2Irrep, U1Irrep, Ntri; filling=filling)
         gs, env, E0 = dmrg2!(st, H, truncdims;
-            save=false, verbose=false, updatedir=tempdir(), alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
+            save=false, verbose=false, alg_eigsolve=ED_EIGSOLVE, etol=1e-12)
 
         ed = ED(tri_lattice, tri_hilbert, (t, U), ℕ(Ntri))
         eigensystem = eigen(ed; nev=1)
@@ -772,7 +772,7 @@ end
         filling = (1, 2)
         st = randFiniteMPS(elt, SU2Irrep, U1Irrep, N; filling=filling)
         H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t=-1-0.5im, U=8, filling=filling)
-        gs, env, E0 = dmrg2!(st, H, [64, 64, 128]; save=false, verbose=false, updatedir=tempdir())
+        gs, env, E0 = dmrg2!(st, H, [64, 64, 128]; save=false, verbose=false)
 
         cm = e_min(elt, SU2Irrep, U1Irrep; filling=filling)
 
@@ -815,7 +815,7 @@ end
         st = randFiniteMPS(ComplexF64, SU2Irrep, U1Irrep, 4; filling=filling)
         truncdims = [64, 64, 64, 64]
         H = hubbard(ComplexF64, SU2Irrep, U1Irrep, Custom(lattice);t=-1-0.5im, U=8, filling=filling)
-        gs, env ,E0 = dmrg2!(st, H, truncdims; save=false, verbose=false, updatedir=tempdir());
+        gs, env ,E0 = dmrg2!(st, H, truncdims; save=false, verbose=false);
         cp = e_plus(ComplexF64, SU2Irrep, U1Irrep; filling=filling)
         gf_tdvp = dcorrelator(gs, H, cp, 1:4;
                             verbose=false,
@@ -841,7 +841,7 @@ end
             (Int(!isinteger(i)), i) => 1 for i in 0:(1//2):1),], Lg - 1)
         st = FiniteMPS(rand, ComplexF64, physicalspace(Hg), vs)
         gs, _, _ = dmrg2!(st, Hg, [8]; save=false, verbose=false,
-            updatedir=tempdir(), max_tailsweeps=1, etol=1e-9)
+            max_tailsweeps=1, etol=1e-9)
         cp = e_plus(Float64, SU2Irrep; side=:L)
         cm = e_min(Float64, SU2Irrep; side=:L)
         approxalg = myDMRG2(; tol=1e-8, maxiter=2, trunc=truncrank(64))
@@ -932,14 +932,10 @@ end
         return out
     end
 
-    @test_throws TypeError dmrg2!(copy(ψ0), H, [16];
-        updatedir = true, save = false, verbose = 0)
-
     mktempdir() do root
         # uninterrupted reference (in-RAM environments)
         ψref = copy(ψ0)
         _, _, Eref = dmrg2!(ψref, H, Ds; filename = joinpath(root, "ref.jld2"),
-            updatedir = joinpath(root, "ref_updates"),
             etol = 1e-12, max_tailsweeps = 2, verbose = 0)
 
         # (a) kill mid-L2R of sweep 1, then resume from a fresh copy of the
@@ -984,7 +980,6 @@ end
         ψref1 = copy(ψ0)
         _, _, Eref1 = dmrg1!(ψref1, H, Ds; alg_expand,
             filename = joinpath(root, "ref1.jld2"),
-            updatedir = joinpath(root, "ref1_updates"),
             etol = 1e-12, max_tailsweeps = 2, verbose = 0)
         dir3 = joinpath(root, "c")
         ckpt3 = joinpath(dir3, "run.jld2")
@@ -1004,42 +999,16 @@ end
         # starts fresh
         dir4 = joinpath(root, "d")
         ckpt4 = joinpath(dir4, "run.jld2")
-        updates4 = joinpath(dir4, "updates")
         mkpath(dir4)
         ψd = copy(ψ0)
         @test_throws InterruptException dmrg2!(ψd, H, Ds;
-            filename = ckpt4, updatedir = updates4,
-            etol = 1e-12, max_tailsweeps = 2, verbose = 0, _interrupt_after = 3)
+            filename = ckpt4, etol = 1e-12, max_tailsweeps = 2, verbose = 0,
+            _interrupt_after = 3)
         ψd2 = copy(ψ0)
         @test_logs (:info, r"update-level checkpoint discarded") match_mode = :any begin
-            dmrg2!(ψd2, H, [16, 64]; filename = ckpt4, updatedir = updates4,
+            dmrg2!(ψd2, H, [16, 64]; filename = ckpt4,
                 etol = 1e-12, max_tailsweeps = 2, verbose = 0)
         end
-        @test !isdir(joinpath(updates4, "run.jld2.updates.d"))
         @test !isdir(ckpt4 * ".updates.d")
-
-        # (e) switching to RAM environments keeps the update checkpoint on the
-        # original scratch path and resumes from the rolling checkpoint.
-        dir5 = joinpath(root, "e")
-        ckpt5 = joinpath(dir5, "run.jld2")
-        updates5 = joinpath(dir5, "envs")
-        mkpath(dir5)
-        ψe = copy(ψ0)
-        @test_throws InterruptException dmrg2!(ψe, H, Ds;
-            filename = ckpt5, disk = updates5,
-            etol = 1e-12, max_tailsweeps = 2, verbose = 0, _interrupt_after = 16)
-        @test isfile(ckpt5)
-        @test isdir(joinpath(updates5, "run.jld2.updates.d"))
-        @test !isdir(ckpt5 * ".updates.d")
-        ψe2 = copy(ψ0)
-        out = run_captured() do
-            dmrg2!(ψe2, H, Ds; filename = ckpt5, disk = false, updatedir = updates5,
-                etol = 1e-12, max_tailsweeps = 2, verbose = 1)
-        end
-        @test occursin("resuming sweep 2 from right position 3", out)
-        @test occursin("environments reused: 0 left, 0 right", out)
-        @test abs(dot(ψe2, ψref)) ≈ norm(ψe2) * norm(ψref) atol = 1e-8
-        @test !isdir(joinpath(updates5, "run.jld2.updates.d"))
-        @test !isdir(ckpt5 * ".updates.d")
     end
 end
