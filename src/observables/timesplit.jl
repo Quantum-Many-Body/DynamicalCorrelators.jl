@@ -98,52 +98,13 @@ evolution is needed.
   in flight) run their matvecs serially — outer × inner never exceeds the
   thread pool. An integer overrides all phases with a fixed cap. The global
   cap is restored to its previous value when the call ends.
-- `mode` (default `:threaded`): `:threaded` runs everything in this process
-  as described above. `:distributed` instead treats the `2L` states as
-  independent tasks over the existing `Distributed.workers()` — one state
-  per worker process — communicating only through checkpoint files under
-  `workdir` (required; fast shared storage). Workers are never launched by
-  the package: add them in the driver script with the project activated and
-  a single thread (`exeflags = "--project=<env> -t1"`), using whatever
-  manager matches the cluster — `LocalAffinityManager(np; mode = COMPACT)`
-  on one node, `SlurmManager(np)` / `LSFManager(np)` from ClusterManagers.jl
-  for multi-node; the driver discovers the worker → host mapping itself and
-  splits the states evenly across hosts, so any of them works unchanged.
-  Two strict phases run: first the charged initial states (the memory peak
-  of the whole run, throttled by `charged_per_node`), then all evolutions
-  with one state per worker. Process isolation removes the shared-heap
-  stop-the-world GC coupling that dominates the threaded driver at high
-  thread counts, and every recorded slice is checkpointed, so a killed job
-  (walltime, node failure) resumes from the last complete slice. The
-  threaded-only knobs (`parallel_charged`/`parallel_tdvp2`/
-  `parallel_tdvp1`, `hamiltonian_threads`) are ignored in this mode.
-- `async_overlaps` (default `false`, distributed only): when true, evolution
-  workers never wait for the master's `overlap_done` watermark. They continue
-  producing checkpoint slices while the master independently waits for and
-  computes completed overlaps. This removes slow-state backpressure at the cost
-  of allowing a larger on-disk backlog; `backlog` is unused in this mode.
-  For production-size runs, split the job by memory profile with
-  `prepare_dcorrelator`: a short, generously provisioned preparation job
-  (charged states + the two-site TDVP window, no overlaps), then this lean
-  call on the same `workdir` for the long one-site TDVP tail.
-- `charged_per_node` (default `nothing`, distributed mode only): how many
-  chargedMPS computations may run concurrently per node during phase 1.
-  Size it as node memory ÷ per-instance peak (e.g. ~8–12 for D = 5000 on a
-  384 GB node). `nothing` lifts the cap — fine when the chargedMPS cache
-  hits (loads take seconds), dangerous on a cold cache: dozens of
-  simultaneous compressions will exceed any node's memory. Ignored in
-  `:threaded` mode.
-- `backlog` (default 2, distributed mode): how many recorded slices workers
-  may run ahead of the master's overlap pass; at most `backlog + 1` slices
-  (each `2L` states) occupy `workdir` at any time.
-- `overlap_block` (default 8, distributed mode): tile size of the master's
-  thread-parallel overlap pass — at most `2 * overlap_block` states are
-  resident on the master.
-- `keep_final_states` (default `true`, distributed mode): keep the last
-  slice's checkpoints (the τ = tmax/2 states) for reuse; `false` deletes
-  them.
 - `save`, `gf_path`, `disk`, `n`, `approxalg`, `tdvp1`, `tdvp2`: same meaning
   as in the direct `dcorrelator`.
+
+For isolated production jobs, use [`dcorrelator_state`](@ref) to evolve one
+state per process and [`dcorrelator_overlap`](@ref) to consume the shared
+checkpoints independently. Those entry points do not use a master, worker
+placement, a synchronization barrier, or an overlap watermark.
 
 The charged-state setup, state evolutions, and all-pairs overlaps are
 parallelized with `Threads.@threads :dynamic` (dynamic scheduling:
@@ -186,13 +147,6 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
                      parallel_tdvp2::Integer=Threads.nthreads(),
                      parallel_tdvp1::Integer=Threads.nthreads(),
                      hamiltonian_threads::Union{Nothing,Integer}=nothing,
-                     mode::Symbol=:threaded,
-                     workdir::Union{Nothing,AbstractString}=nothing,
-                     backlog::Integer=2,
-                     async_overlaps::Bool=false,
-                     overlap_block::Integer=8,
-                     keep_final_states::Bool=true,
-                     charged_per_node::Union{Nothing,Integer}=nothing,
                      n::Integer=3,
                      approxalg=myDMRG2(),
                      tdvp1=myTDVP1(),
@@ -201,14 +155,6 @@ function dcorrelator(gs::FiniteNormalMPS, H::MPOHamiltonian, op::AbstractTensorM
         throw(ArgumentError("block must be :greater, :lesser or :gorkov, got :$block"))
     (block === :gorkov) == !isnothing(anomalous) || throw(ArgumentError(
         "block = :gorkov requires anomalous; :greater and :lesser do not accept it"))
-    mode in (:threaded, :distributed) ||
-        throw(ArgumentError("mode must be :threaded or :distributed, got :$mode"))
-    async_overlaps && mode !== :distributed && throw(ArgumentError(
-        "async_overlaps is supported only with mode = :distributed"))
-    mode === :distributed && return _ts_dist_dcorrelator(
-        gs, H, op; block, anomalous, times, verbose, save, gf_path, chargedmps_path,
-        disk, record_indices, n, approxalg, tdvp1, tdvp2, workdir, backlog,
-        async_overlaps, overlap_block, keep_final_states, charged_per_node)
     parallel_charged >= 1 && parallel_tdvp2 >= 1 && parallel_tdvp1 >= 1 ||
         throw(ArgumentError("parallel_charged, parallel_tdvp2 and parallel_tdvp1 must all be >= 1"))
     hamiltonian_threads === nothing || hamiltonian_threads >= 1 ||

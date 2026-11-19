@@ -21,7 +21,8 @@ correlator
 ```@docs
 evolve_mps
 dcorrelator
-prepare_dcorrelator
+dcorrelator_state
+dcorrelator_overlap
 sweep_dot
 ```
 

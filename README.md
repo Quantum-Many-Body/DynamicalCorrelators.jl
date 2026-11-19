@@ -84,187 +84,101 @@ julia -t 36 gs.jl
 sbatch gs.slurm
 ```
 
-### Dynamical correlation (`prep.jl` + `gf.jl`)
+### Dynamical correlation (`state.jl` + `overlap.jl`)
 
-Production runs use the time-split (meet-in-the-middle) correlator: both
-sides of the operator sandwich are evolved to `t/2`, halving the peak
-entanglement and the accumulated truncation error compared to evolving one
-ket through the full time grid. The run is split into two jobs by memory
-profile — a short, generously provisioned **preparation job** (charged
-states + the two-site TDVP window = the memory high-water mark), then a
-lean **follow-up job** that resumes every state from its checkpoint and
-runs the long one-site TDVP tail plus the overlaps. The greater block
-(source `c†`) and the lesser block (source `c`) are fully independent and
-run as separate array tasks.
+Production runs use the time-split scheme with **one independent job per
+state**. Each job computes its charged state when necessary, evolves through
+the full time grid, and checkpoints every recorded slice. Jobs can land on any
+suitable idle or mixed node; there is no master, preparation coordinator, or
+dependency between state jobs.
 
-Shared setup (`common_setup.jl`) — model, ground state, operator/block
-choice, and the settings both jobs must agree on (`block`, `times`,
-`record_indices`, `n`, guarded by `meta/config.jld2` under `workdir`):
+Shared setup (`common_setup.jl`) defines a pairing-compatible `gs` and `H`, the
+operators, and the common run parameters:
 
 ```julia
 using Pkg
 Pkg.activate("$(ENV["HOME"])/envs/userenv/")
+using TensorKit, MPSKit, DynamicalCorrelators, QuantumLattices
+using JLD2: load
 
-using TensorKit
-using MPSKit
+state = parse(Int, ARGS[1])
+gs_file = "/bbfs/fsa/username/jobname/gs.jld2"
+gs = load(gs_file, "ψ")
+# Construct the pairing-compatible H here, consistently with the ground state.
+# H = ...
+
+cp = e_plus(Float64, SU2Irrep; side=:L)
+cm = e_min(Float64, SU2Irrep; side=:L)
+times = 0:0.16:32
+workdir = "/bbfs/scratch/username/jobname/gorkov/"
+approxalg = myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(8192))
+tdvp1 = myTDVP1()
+tdvp2 = myTDVP2(; trunc=truncrank(8192))
+```
+
+Each `state.jl` call handles only the requested state. For system size `L`, the
+valid IDs are `1:4L`:
+
+```julia
+include("common_setup.jl")
+dcorrelator_state(gs, H, cp;
+    state, block=:gorkov, anomalous=cm, times, workdir,
+    n=3, approxalg, tdvp1, tdvp2,
+    disk="/bbfs/scratch/username/environments")
+```
+
+`overlap.jl` needs only the shared directory and ground-state energy:
+
+```julia
 using DynamicalCorrelators
-using QuantumLattices
-using JLD2: save, load
-
-i = parse(Int, ARGS[1])            # 1 = greater block (c†), 2 = lesser block (c)
-elt = Float64
-t, u, filling = 1.0, 8.0, (1, 1)
-L = 36
-
-# reload the converged ground state from the checkpoint written by gs.jl
-gs = load("/bbfs/fsa/username/jobname/hubbard_L=$(L)_t=$(t)_U=$(u).jld2", "ψ")
-
-coords = snake_2D([[1.0, 0.0], [0.0, 1.0]], vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
-lattice = Lattice(coords...)
-H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice); t=t, U=u, filling=filling)
-
-op, block = i == 1 ?
-    (e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling), :greater) :
-    (e_min(elt, SU2Irrep, U1Irrep;  side=:L, filling=filling), :lesser)
-
-times = 0:0.1:100
-workdir = "/bbfs/scratch/username/jobname/gf_split_$(block)/"
-approxalg = myDMRG2(; tol = 1e-6, maxiter = 50, trunc = truncrank(8192))
-tdvp2 = myTDVP2(; trunc = truncrank(8192))
+using JLD2: load
+workdir = "/bbfs/scratch/username/jobname/gorkov/"
+E0 = load("/bbfs/fsa/username/jobname/gs.jld2", "E")
+gf = dcorrelator_overlap(workdir;
+    gsenergy=E0, gf_path="/bbfs/fsa/username/jobname/results",
+    retention=2, poll_interval=30)
 ```
 
-Job 1, the preparation pass (`prep.jl`): computes the charged initial
-states and evolves them only through the first `n` two-site TDVP steps;
-no overlaps are computed. This is the memory high-water mark of the whole
-run but only covers the first `n` timesteps, so give it **fat nodes and a
-short walltime**. Idempotent — a rerun after a kill resumes each state
-from its last checkpoint.
-
-```julia
-include("common_setup.jl")
-
-using Distributed
-using ClusterManagers
-
-# preparation is short and memory-hungry: many single-threaded workers on
-# one fat node to compress/evolve as many states as possible concurrently.
-# For a multi-node preparation job, use addprocs(SlurmManager(np)) instead —
-# the driver discovers the worker -> host mapping itself
-addprocs(LocalAffinityManager(70; mode = COMPACT);
-         exeflags = `--project=$(ENV["HOME"])/envs/userenv/ -t1`)
-
-@everywhere begin
-    using TensorKit
-    using MPSKit
-    using DynamicalCorrelators
-    using QuantumLattices
-    using JLD2: save, load
-end
-
-prepare_dcorrelator(gs, H, op;
-    block, times, n = 3,
-    approxalg, tdvp2,
-    workdir,
-    disk = "/bbfs/scratch/username",   # disk-backed environments
-    charged_per_node = 4,              # node memory / per-compression peak:
-                                       # lift the cap only on a warm
-                                       # chargedmps_path cache
-)
-```
-
-Job 2, the lean follow-up (`gf.jl`): resumes every state from its
-slice-`r_stop` checkpoint, assembles the first overlap slices straight
-from disk, and continues with the cheap one-site TDVP for the remaining
-hundreds of timesteps. Its memory profile is set by `tdvp1` alone, so give
-it **modest resources and a long walltime** — a different worker count is
-fine, the driver discovers the worker → host mapping itself and resumes
-from the checkpointed states.
-
-```julia
-include("common_setup.jl")
-
-using Distributed
-using ClusterManagers
-
-# the follow-up is long and memory-light: fewer workers on a standard node
-addprocs(LocalAffinityManager(32; mode = COMPACT);
-         exeflags = `--project=$(ENV["HOME"])/envs/userenv/ -t1`)
-
-@everywhere begin
-    using TensorKit
-    using MPSKit
-    using DynamicalCorrelators
-    using QuantumLattices
-    using JLD2: save, load
-end
-
-gf = dcorrelator(gs, H, op;
-    block, times, n = 3,
-    approxalg, tdvp2,
-    tdvp1 = myTDVP1(),
-    mode = :distributed,
-    workdir,                            # must match the preparation job
-    gf_path = "/bbfs/fsa/username/jobname/gf_L=$(L)_U=$(u)_tmax=100/",
-)
-
-save("/bbfs/fsa/username/jobname/gf_L=$(L)_U=$(u)_tmax=100/gf_xt_$(block).jld2", "gf", gf)
-```
-
-The two SLURM scripts request different resources — the preparation job
-gets fat nodes and a short limit, the follow-up a standard node and a long
-one. `prep.slurm`:
+Example `state.slurm` for `L = 16` (64 independent array tasks, four cores each):
 
 ```bash
 #!/bin/bash
-#SBATCH -J gf_prep
-#SBATCH --array=1-2
-#SBATCH -N 1                   # fat preparation job: one big-memory node
+#SBATCH -J gorkov_state
+#SBATCH --array=1-64
+#SBATCH -N 1
 #SBATCH -n 1
-#SBATCH -c 72                  # (use a bigmem partition here)
-#SBATCH --mem=0
-#SBATCH -t 12:00:00            # short: only the charged states + n tdvp2 steps
-#SBATCH -o output/prep_%A_%a
+#SBATCH -c 4
+#SBATCH --mem=16G
+#SBATCH -t 7-00:00:00
+#SBATCH -o output/state_%A_%a.log
 
 cd "$SLURM_SUBMIT_DIR"
-
-export MKL_NUM_THREADS=1
 export OMP_NUM_THREADS=1
-export MKL_DYNAMIC=FALSE
 export JULIA_EXCLUSIVE=1
-
-julia -t 4 prep.jl "$SLURM_ARRAY_TASK_ID"
+julia -t 4 state.jl "$SLURM_ARRAY_TASK_ID"
 ```
 
-`gf.slurm`:
+`overlap.slurm` is an ordinary independent job:
 
 ```bash
 #!/bin/bash
-#SBATCH -J gf
-#SBATCH --array=1-2
-#SBATCH -N 1                   # lean follow-up job: 1 standard node
+#SBATCH -J gorkov_overlap
+#SBATCH -N 1
 #SBATCH -n 1
-#SBATCH -c 36
-#SBATCH --mem=0
-#SBATCH -t 7-00:00:00          # long: the hundreds of tdvp1 steps
-#SBATCH -o output/gf_%A_%a
+#SBATCH -c 4
+#SBATCH --mem=32G
+#SBATCH -t 7-00:00:00
+#SBATCH -o output/overlap_%j.log
 
 cd "$SLURM_SUBMIT_DIR"
-
-export MKL_NUM_THREADS=1
 export OMP_NUM_THREADS=1
-export MKL_DYNAMIC=FALSE
-export JULIA_EXCLUSIVE=1
-
-julia -t 4 gf.jl "$SLURM_ARRAY_TASK_ID"
+julia -t 4 overlap.jl
 ```
 
-Submit the preparation job first, then the follow-up with a dependency so
-it starts only after the preparation succeeds:
-
-```bash
-PREP=$(sbatch --parsable prep.slurm)
-sbatch --dependency=afterok:$PREP gf.slurm
-```
+Submit the state jobs and the single overlap job directly; no Slurm dependency
+is required. The overlap job waits for atomic checkpoint files, never for log
+messages. After saving each overlap it removes only older, already-consumed
+checkpoints and retains the latest two slices per state.
 
 For small or medium systems the direct (non-split) multi-source method
 `dcorrelator(gs, H, op, indices; ...)` is still available, with one
@@ -285,9 +199,8 @@ add DynamicalCorrelators
 
 v0.15.0 is a **workflow and analysis release** on top of the fast finite
 engine introduced in v0.14.0. The largest new capability is the time-split
-(meet-in-the-middle) zero-temperature dynamical correlator with a
-distributed two-job workflow that separates the memory-heavy preparation
-pass from the cheap long-time evolution. This release also adds penalized
+(meet-in-the-middle) zero-temperature dynamical correlator, with checkpointed
+state evolution and separate overlap assembly. This release also adds penalized
 excited-state DMRG, momentum-window MPS states, momentum-space geometry and
 plotting helpers, linear prediction and Lehmann-representation
 post-processing, and a rebuilt, lazy high-level API for static correlators
@@ -296,7 +209,7 @@ TensorKit 0.17.x, gains mid-sweep (update-level) DMRG checkpointing, and
 the threaded effective-Hamiltonian paths were reworked around manual arena
 allocators for much lower allocation pressure.
 
-## Time-split dcorrelator and the distributed two-job workflow
+## Time-split dcorrelator and independent production jobs
 
 - New time-split scheme `dcorrelator(gs, H, op; times, block, ...)`: both
   sides of the operator sandwich are evolved to `τ = t/2`, so every state
@@ -312,19 +225,13 @@ gfxt = gf_greater .+ gf_lesser
   The phase/conjugation conventions match the direct method exactly. The
   full `length(H) × length(H)` matrix of site pairs is computed at every
   time slice.
-- `dcorrelator(...; mode = :distributed, workdir = ...)` evaluates every
-  source state as an independent, checkpointed task on Distributed workers:
-  a killed job resumes each state from its last checkpoint, and
-  `charged_per_node` throttles how many memory-heavy charged-state
-  constructions run on one host.
-- `prepare_dcorrelator(gs, H, op; block, workdir, ...)` is the preparation
-  pass: it computes the charged initial states and evolves them only
-  through the two-site TDVP window — the memory high-water mark of the
-  whole run. Submit it as a short, generously provisioned job, then submit
-  a lean follow-up job calling `dcorrelator(...; mode = :distributed,
-  workdir = <same>)`, which resumes every state from its checkpoint and
-  continues with the cheap one-site TDVP. Both passes are idempotent and
-  guarded by a shared `meta/config.jld2`.
+- `dcorrelator_state(gs, H, op; state, block, workdir, ...)` evolves one
+  state per independent job and resumes from that state's latest checkpoint.
+  It uses no Distributed workers, master process, placement logic, or barrier.
+- `dcorrelator_overlap(workdir; gsenergy, ...)` independently polls complete
+  checkpoint slices, assembles normal or Gorkov overlaps, and retains the
+  latest two state checkpoints after cleaning consumed slices. The shared
+  `meta/config.jld2` guards time-grid and block compatibility.
 
 ## Excited-state DMRG
 
@@ -466,8 +373,8 @@ results = correlator(plan)   # NamedTuple keyed by channel name
   `BravaisCell2D`, `Supercell2D`, `TwistedTranslation`,
   `MomentumGeometry`, `MomentumCut`, `MomentumSegment`, `MomentumPoint`,
   `brillouin_zone`, `allowed_cuts`, `bz_segments`, `allowed_points`,
-  `is_allowed`, `nearest_cut`, `momentum_plot`, `prepare_dcorrelator`,
-  `chargedMPS!`, `fast_approximate!`, `threaded_hamiltonian_threads`,
+  `is_allowed`, `nearest_cut`, `momentum_plot`, `dcorrelator_state`,
+  `dcorrelator_overlap`, `chargedMPS!`, `fast_approximate!`, `threaded_hamiltonian_threads`,
   `regroup_by_basis`, `LinearPrediction`, `LinearPredictionModel`,
   `fit_linear_prediction`, `extend_series`, `extrapolate_series`,
   `validation_error`, `pole_analysis`, `recommend_tmax`, `lehmann_eval`,

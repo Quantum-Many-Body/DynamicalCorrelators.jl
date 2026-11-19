@@ -330,30 +330,52 @@ gfxt = gf_greater .+ gf_lesser
 ```
 
 The phase/conjugation conventions match the direct method exactly, so the
-retarded combination is assembled as before. Each call computes one block and
-the full `length(H) × length(H)` matrix of site pairs at every recorded
-slice; the two blocks are fully independent and can run as separate jobs.
+retarded combination is assembled as before. Each normal call computes one
+block and the full `length(H) × length(H)` matrix of site pairs at every
+recorded slice; the two blocks are fully independent and can run as separate jobs.
 
-Two execution modes:
+For a full Nambu Green's function, evolve the creation and annihilation
+families together:
 
-- `mode = :threaded` (default): everything runs in this process, with
-  per-phase thread caps `parallel_charged`/`parallel_tdvp2`/`parallel_tdvp1`
-  for the memory-hungry phases (charged-state compression and the first `n`
-  two-site TDVP steps) versus the cheap one-site tail.
-- `mode = :distributed`: the `2L` states become independent checkpointed
-  tasks over `Distributed.workers()` (one state per worker, communicating
-  through `workdir` on fast shared storage), which removes the shared-heap
-  GC coupling at high thread counts and resumes from the last complete slice
-  after a kill.
+```julia
+gf_gorkov = dcorrelator(gs, H, cp;
+    block = :gorkov, anomalous = cm, times, ...)
+```
 
-For production runs, split the work by memory profile with
-[`prepare_dcorrelator`](@ref): a short, generously provisioned preparation
-job computes the charged states and evolves them through the two-site TDVP
-window (the memory high-water mark), then a lean follow-up job calling
-`dcorrelator(...; mode = :distributed, workdir = <same>)` resumes every
-state and runs the long one-site TDVP tail. See the worked example with
-SLURM scripts in the
-[Basic Workflow on HPC](../index.md#Basic-Workflow-on-HPC) section.
+This returns a `2length(H) × 2length(H) × length(times)` array. Normal and
+anomalous overlaps reuse the same checkpoints, so no full-time anomalous source
+calculation is needed. The block phases and signs match the existing LNO
+direct-source assembly: `G11 = gc.G11 + ga.G11`,
+`G12 = gc.G12 - ga.G12`, `G21 = -gc.G21 + ga.G21`, and
+`G22 = gc.G22 + ga.G22`.
+
+The `dcorrelator` call above is the in-process threaded implementation. For
+production runs, use one independent process per state instead:
+
+```julia
+dcorrelator_state(gs, H, cp;
+    state = 1, block = :gorkov, anomalous = cm,
+    times, workdir = "/shared/scratch/gorkov",
+    n = 3, approxalg, tdvp1, tdvp2)
+```
+
+A normal block has `2L` states; a Gorkov calculation has `4L`. Gorkov state IDs
+are creation bras `1:L`, annihilation bras `L+1:2L`, creation kets `2L+1:3L`,
+and annihilation kets `3L+1:4L`. Each job resumes from its own latest
+checkpoint and never waits for another state or for the overlap job.
+
+Run one standalone overlap job on the same shared directory:
+
+```julia
+gf = dcorrelator_overlap("/shared/scratch/gorkov";
+    gsenergy = E0, gf_path = "results", retention = 2)
+```
+
+It polls the atomic checkpoint files, computes every newly complete slice, and
+saves the result under `meta/`. Only this job deletes old checkpoints; the
+latest two slices of every state remain available for resume. There is no
+master process, node-placement logic, or scheduling service. See the worked
+SLURM example in [Basic Workflow on HPC](../index.md#Basic-Workflow-on-HPC).
 
 ## Checkpointing
 
