@@ -84,97 +84,87 @@ julia -t 36 gs.jl
 sbatch gs.slurm
 ```
 
-### Dynamical correlation (`state.jl` + `overlap.jl`)
+### Dynamical correlation (the same 6×6 Hubbard model)
 
-Production runs use the time-split scheme with **one independent Slurm job per
-state**. Each job constructs its charged state when necessary, evolves through
-the full time grid, and checkpoints every recorded slice. A separate overlap
-job consumes completed slices. There is no preparation stage, master process,
-Distributed worker pool, or dependency between jobs.
+This section continues the ground-state example above with the **same 6×6
+Hubbard Hamiltonian and checkpoint**. Because this model conserves particle
+number, use the normal `:greater` and `:lesser` blocks, not the Gorkov block.
+Each block has `2L = 72` independent states for `L = 36`; the two blocks use
+separate workdirs and can be run independently.
 
-For a Gorkov calculation with system size `L`, there are `4L` state jobs:
-
-| State IDs | State family | TDVP step |
-|---|---|---|
-| `1:L` | creation bras | backward |
-| `L+1:2L` | annihilation bras | backward |
-| `2L+1:3L` | creation kets | forward |
-| `3L+1:4L` | annihilation kets | forward |
-
-Thus `L = 16` requires 64 state jobs plus one overlap job. Normal
-`:greater`/`:lesser` calculations have `2L` states instead.
-
-Shared setup (`common_setup.jl`) defines a pairing-compatible `gs` and `H`, the
-operators, and the common run parameters:
+Shared setup (`common_setup.jl`):
 
 ```julia
 using Pkg
 Pkg.activate("$(ENV["HOME"])/envs/userenv/")
 using LinearAlgebra
 using TensorKit, MPSKit, DynamicalCorrelators, QuantumLattices
-using JLD2: load
+using JLD2: load, save
 
-gs_file = "/bbfs/fsa/username/jobname/gs.jld2"
-gs = load(gs_file, "ψ")
-# Construct the pairing-compatible H here, consistently with the ground state.
-# H = ...
+elt = Float64
+t, u, filling = 1.0, 8.0, (1, 1)
+coords = snake_2D([[1.0, 0.0], [0.0, 1.0]],
+    vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
+lattice = Lattice(coords...)
+H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice);
+    t=t, U=u, filling=filling)
 
-cp = e_plus(Float64, SU2Irrep; side=:L)
-cm = e_min(Float64, SU2Irrep; side=:L)
-times = 0:0.16:32
-workdir = "/bbfs/scratch/username/jobname/gorkov/"
-D = 2000
+tag = "hubbard_L=$(length(H))_t=$(t)_U=$(u)"
+ckpt = "/bbfs/fsa/username/jobname/$(tag).jld2"
+gs = load(ckpt, "ψ")
+cp = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+cm = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+
+block = Symbol(get(ENV, "BLOCK", "greater"))
+block in (:greater, :lesser) || error("BLOCK must be greater or lesser")
+op = block === :greater ? cp : cm
+times = 0:0.1:100
+D = 8192
 approxalg = myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(D))
 tdvp1 = myTDVP1()
 tdvp2 = myTDVP2(; trunc=truncrank(D))
+workdir = "/bbfs/scratch/username/jobname/gf_split_$(block)"
+gf_path = "/bbfs/fsa/username/jobname/results_$(block)"
 ```
 
-Each `state.jl` call handles only the requested state:
+Each `state.jl` call handles one of the 72 states in the selected block:
 
 ```julia
 include("common_setup.jl")
 
 state = parse(Int, ARGS[1])
-println("START state $state | host ", Base.Libc.gethostname(),
-        " | Julia threads ", Threads.nthreads(), " | BLAS ", BLAS.get_config())
-dcorrelator_state(gs, H, cp;
-    state, block=:gorkov, anomalous=cm, times, workdir,
+dcorrelator_state(gs, H, op;
+    state, block, times, workdir,
     n=3, approxalg, tdvp1, tdvp2,
     disk="/bbfs/scratch/username/environments")
 println("DONE state $state")
 ```
 
-`overlap.jl` needs the shared directory and ground-state energy. It writes the
-final complete Gorkov array after all 201 slices are available:
+`overlap.jl` reads the same block configuration and writes one normal block:
 
 ```julia
-using DynamicalCorrelators
-using JLD2: load, save
+include("common_setup.jl")
 
-workdir = "/bbfs/scratch/username/jobname/gorkov/"
-gf_path = "/bbfs/fsa/username/jobname/results"
-E0 = load("/bbfs/fsa/username/jobname/gs.jld2", "E")
 gf = dcorrelator_overlap(workdir;
-    gsenergy=E0, gf_path, save=false, once=false,
+    gsenergy=expectation_value(gs, H), gf_path, save=false, once=false,
     retention=2, poll_interval=30, overlap_block=16)
 mkpath(gf_path)
-save(joinpath(gf_path, "gf_xt_gorkov.jld2"), "gf", gf, "times", 0:0.16:32)
+save(joinpath(gf_path, "gf_xt_$(block).jld2"), "gf", gf, "times", times)
 println("DONE")
 ```
 
-The default state allocation is four cores, four Julia threads, and 12 GB. When
-capacity is constrained, two cores, two Julia threads, and 9 GB can be used.
-Always keep the CPU and Julia-thread counts equal. `state.slurm` obtains both
-from Slurm so that command-line overrides cannot create a mismatch:
+For this large-`D` example, choose memory from measured per-state usage and the
+partition's memory-per-core policy rather than copying a fixed value. The example
+uses four cores/four Julia threads per state and eight cores/eight threads for
+overlap. Always keep the CPU and Julia-thread counts equal:
 
 ```bash
 #!/bin/bash
-#SBATCH -J gorkov_state
+#SBATCH -J timesplit_state
 #SBATCH --account=YOUR_ACCOUNT
 #SBATCH -N 1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=12G
 #SBATCH -t 7-00:00:00
 #SBATCH -o output/state_%j.out
 #SBATCH -e output/state_%j.err
@@ -195,17 +185,15 @@ srun -n 1 -c "$SLURM_CPUS_PER_TASK" --chdir="$JOB_DIR" \
     julia -t "$SLURM_CPUS_PER_TASK" "$JOB_DIR/state.jl" "$STATE"
 ```
 
-The overlap job uses eight cores, eight Julia threads, and 32 GB
-(`overlap.slurm`):
+The overlap job uses eight cores and eight Julia threads (`overlap.slurm`):
 
 ```bash
 #!/bin/bash
-#SBATCH -J gorkov_overlap
+#SBATCH -J timesplit_overlap
 #SBATCH --account=YOUR_ACCOUNT
 #SBATCH -N 1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
 #SBATCH -t 7-00:00:00
 #SBATCH -o output/overlap_%j.out
 #SBATCH -e output/overlap_%j.err
@@ -228,24 +216,28 @@ Submit each state once, selecting a currently suitable partition and node. Repla
 the uppercase placeholders with values appropriate for your allocation:
 
 ```bash
-d="$HOME/jobs/example_gorkov"
+d="$HOME/jobs/example_hubbard"
 s=1
+block=greater
 partition=CPU_PARTITION
 node=CPU_NODE
 memory=MEMORY_REQUEST
-sbatch --chdir="$d" -J "gorkov_state_${s}" -p "$partition" -w "$node" \
+sbatch --chdir="$d" -J "timesplit_state_${s}" -p "$partition" -w "$node" \
     -c 4 --mem="$memory" \
-    --export="ALL,STATE=${s},USE_MKL=1,OPENBLAS_NUM_THREADS=1" \
+    --export="ALL,STATE=${s},BLOCK=${block},USE_MKL=1,OPENBLAS_NUM_THREADS=1" \
     "$d/state.slurm" "$d"
 ```
 
-On AMD nodes, use `USE_MKL=0` instead. Submit the overlap independently:
+On AMD nodes, use `USE_MKL=0` instead. Submit the overlap independently with the
+same `BLOCK` and an appropriate overlap memory request:
 
 ```bash
 partition=GROUP_PARTITION
 node=GROUP_NODE
-sbatch --chdir="$d" -J gorkov_overlap -p "$partition" -w "$node" --qos=QOS_NAME \
-    --export="ALL,USE_MKL=1,OPENBLAS_NUM_THREADS=1" \
+overlap_memory=OVERLAP_MEMORY_REQUEST
+sbatch --chdir="$d" -J timesplit_overlap -p "$partition" -w "$node" \
+    --qos=QOS_NAME --mem="$overlap_memory" \
+    --export="ALL,BLOCK=${block},USE_MKL=1,OPENBLAS_NUM_THREADS=1" \
     "$d/overlap.slurm" "$d"
 ```
 
@@ -256,14 +248,14 @@ relative path from accidentally resolving under the home directory.
 
 #### Reading state logs
 
-Each state writes `output/state_<jobid>.out` and `.err`. A resumed two-thread
+Each state writes `output/state_<jobid>.out` and `.err`. A resumed four-thread
 job can look like this:
 
 ```text
-START state 1 | host cpu-node | Julia threads 2 | BLAS LBTConfig(...)
-[state 1/64] bra site 1 on cpu-node | pid 12345 | threads 2
+START state 1 | host cpu-node | Julia threads 4 | BLAS LBTConfig(...)
+[state 1/72] bra site 1 on cpu-node | pid 12345 | threads 4
 [state 1] resume from slice 22
-[state 1] slice 23/201 | t = 3.52 | maxD 2000 | wall 3m, 44s, 17ms | GC 18.6% | RSS 5.89 GiB
+[state 1] slice 23/1001 | t = 2.2 | maxD 8192 | wall 5m, 12s | GC 10.2% | RSS 24.6 GiB
 ...
 DONE state 1
 ```
@@ -281,15 +273,15 @@ The overlap job writes `output/overlap_<jobid>.out`. While a slice is incomplete
 a periodic message such as this is normal:
 
 ```text
-[overlap] waiting for slice 14: 61/64 checkpoints
+[overlap] waiting for slice 14: 71/72 checkpoints
 ```
 
-Once all 64 state checkpoints exist, the overlap is computed and saved:
+Once all 72 state checkpoints exist, the overlap is computed and saved:
 
 ```text
-[overlap] slice 14/201 | t = 2.08 | wall 18s
+[overlap] slice 14/1001 | t = 1.3 | wall 18s
 ...
-[overlap] complete: 201/201 slices
+[overlap] complete: 1001/1001 slices
 DONE
 ```
 
@@ -297,9 +289,10 @@ State jobs never wait for these messages or for the overlap job. Readiness is
 determined from atomic checkpoint files, not log text. After each overlap is
 saved, only old consumed checkpoints are removed; the latest two slices per
 state remain available for resume. Therefore a finished run does not retain
-every historical state file. It should have slice 201 as every state's latest
-checkpoint, all 201 `meta/pro_NNNN.jld2` records, and the final finite
-`gf_xt_gorkov.jld2` with shape `(32, 32, 201)` for this example.
+every historical state file. It should have slice 1001 as every state's latest
+checkpoint and all 1001 `meta/pro_NNNN.jld2` records. For this example,
+`gf_xt_greater.jld2` and `gf_xt_lesser.jld2` each have shape
+`(36, 36, 1001)`, and the retarded Green function is their sum.
 
 For small or medium systems the direct (non-split) multi-source method
 `dcorrelator(gs, H, op, indices; ...)` is still available, with one
