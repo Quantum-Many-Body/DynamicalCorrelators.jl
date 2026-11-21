@@ -224,23 +224,27 @@ export JULIA_EXCLUSIVE=1
 srun -n 1 -c 8 --chdir="$JOB_DIR" julia -t 8 "$JOB_DIR/overlap.jl"
 ```
 
-Submit each state once, selecting a currently suitable partition and node. For
-example, using four cores on `CPU_NODE`:
+Submit each state once, selecting a currently suitable partition and node. Replace
+the uppercase placeholders with values appropriate for your allocation:
 
 ```bash
 d="$HOME/jobs/example_gorkov"
 s=1
-sbatch --chdir="$d" -J "gorkov_s${s}" -p CPU_PARTITION -w CPU_NODE \
-    -c 4 --mem=12G \
+partition=CPU_PARTITION
+node=CPU_NODE
+memory=MEMORY_REQUEST
+sbatch --chdir="$d" -J "gorkov_state_${s}" -p "$partition" -w "$node" \
+    -c 4 --mem="$memory" \
     --export="ALL,STATE=${s},USE_MKL=1,OPENBLAS_NUM_THREADS=1" \
     "$d/state.slurm" "$d"
 ```
 
-On AMD CPU_PARTITION nodes, use `USE_MKL=0` instead. Submit the overlap independently;
-for example, on the group node GROUP_NODE:
+On AMD nodes, use `USE_MKL=0` instead. Submit the overlap independently:
 
 ```bash
-sbatch --chdir="$d" -J gorkov_overlap -p GROUP_PARTITION -w GROUP_NODE --qos=high \
+partition=GROUP_PARTITION
+node=GROUP_NODE
+sbatch --chdir="$d" -J gorkov_overlap -p "$partition" -w "$node" --qos=QOS_NAME \
     --export="ALL,USE_MKL=1,OPENBLAS_NUM_THREADS=1" \
     "$d/overlap.slurm" "$d"
 ```
