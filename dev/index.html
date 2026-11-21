@@ -60,51 +60,55 @@ export OMP_NUM_THREADS=1
 export MKL_DYNAMIC=FALSE
 export JULIA_EXCLUSIVE=1
 
-julia -t 36 gs.jl</code></pre><pre><code class="language-bash hljs">sbatch gs.slurm</code></pre><h3 id="Dynamical-correlation-(state.jl-overlap.jl)"><a class="docs-heading-anchor" href="#Dynamical-correlation-(state.jl-overlap.jl)">Dynamical correlation (<code>state.jl</code> + <code>overlap.jl</code>)</a><a id="Dynamical-correlation-(state.jl-overlap.jl)-1"></a><a class="docs-heading-anchor-permalink" href="#Dynamical-correlation-(state.jl-overlap.jl)" title="Permalink"></a></h3><p>Production runs use the time-split scheme with <strong>one independent Slurm job per state</strong>. Each job constructs its charged state when necessary, evolves through the full time grid, and checkpoints every recorded slice. A separate overlap job consumes completed slices. There is no preparation stage, master process, Distributed worker pool, or dependency between jobs.</p><p>For a Gorkov calculation with system size <code>L</code>, there are <code>4L</code> state jobs:</p><table><tr><th style="text-align: right">State IDs</th><th style="text-align: right">State family</th><th style="text-align: right">TDVP step</th></tr><tr><td style="text-align: right"><code>1:L</code></td><td style="text-align: right">creation bras</td><td style="text-align: right">backward</td></tr><tr><td style="text-align: right"><code>L+1:2L</code></td><td style="text-align: right">annihilation bras</td><td style="text-align: right">backward</td></tr><tr><td style="text-align: right"><code>2L+1:3L</code></td><td style="text-align: right">creation kets</td><td style="text-align: right">forward</td></tr><tr><td style="text-align: right"><code>3L+1:4L</code></td><td style="text-align: right">annihilation kets</td><td style="text-align: right">forward</td></tr></table><p>Thus <code>L = 16</code> requires 64 state jobs plus one overlap job. Normal <code>:greater</code>/<code>:lesser</code> calculations have <code>2L</code> states instead.</p><p>Shared setup (<code>common_setup.jl</code>) defines a pairing-compatible <code>gs</code> and <code>H</code>, the operators, and the common run parameters:</p><pre><code class="language-julia hljs">using Pkg
+julia -t 36 gs.jl</code></pre><pre><code class="language-bash hljs">sbatch gs.slurm</code></pre><h3 id="Dynamical-correlation-(the-same-66-Hubbard-model)"><a class="docs-heading-anchor" href="#Dynamical-correlation-(the-same-66-Hubbard-model)">Dynamical correlation (the same 6×6 Hubbard model)</a><a id="Dynamical-correlation-(the-same-66-Hubbard-model)-1"></a><a class="docs-heading-anchor-permalink" href="#Dynamical-correlation-(the-same-66-Hubbard-model)" title="Permalink"></a></h3><p>This section continues the ground-state example above with the <strong>same 6×6 Hubbard Hamiltonian and checkpoint</strong>. Because this model conserves particle number, use the normal <code>:greater</code> and <code>:lesser</code> blocks, not the Gorkov block. Each block has <code>2L = 72</code> independent states for <code>L = 36</code>; the two blocks use separate workdirs and can be run independently.</p><p>Shared setup (<code>common_setup.jl</code>):</p><pre><code class="language-julia hljs">using Pkg
 Pkg.activate(&quot;$(ENV[&quot;HOME&quot;])/envs/userenv/&quot;)
 using LinearAlgebra
 using TensorKit, MPSKit, DynamicalCorrelators, QuantumLattices
-using JLD2: load
-
-gs_file = &quot;/bbfs/fsa/username/jobname/gs.jld2&quot;
-gs = load(gs_file, &quot;ψ&quot;)
-# Construct the pairing-compatible H here, consistently with the ground state.
-# H = ...
-
-cp = e_plus(Float64, SU2Irrep; side=:L)
-cm = e_min(Float64, SU2Irrep; side=:L)
-times = 0:0.16:32
-workdir = &quot;/bbfs/scratch/username/jobname/gorkov/&quot;
-D = 2000
-approxalg = myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(D))
-tdvp1 = myTDVP1()
-tdvp2 = myTDVP2(; trunc=truncrank(D))</code></pre><p>Each <code>state.jl</code> call handles only the requested state:</p><pre><code class="language-julia hljs">include(&quot;common_setup.jl&quot;)
-
-state = parse(Int, ARGS[1])
-println(&quot;START state $state | host &quot;, Base.Libc.gethostname(),
-        &quot; | Julia threads &quot;, Threads.nthreads(), &quot; | BLAS &quot;, BLAS.get_config())
-dcorrelator_state(gs, H, cp;
-    state, block=:gorkov, anomalous=cm, times, workdir,
-    n=3, approxalg, tdvp1, tdvp2,
-    disk=&quot;/bbfs/scratch/username/environments&quot;)
-println(&quot;DONE state $state&quot;)</code></pre><p><code>overlap.jl</code> needs the shared directory and ground-state energy. It writes the final complete Gorkov array after all 201 slices are available:</p><pre><code class="language-julia hljs">using DynamicalCorrelators
 using JLD2: load, save
 
-workdir = &quot;/bbfs/scratch/username/jobname/gorkov/&quot;
-gf_path = &quot;/bbfs/fsa/username/jobname/results&quot;
-E0 = load(&quot;/bbfs/fsa/username/jobname/gs.jld2&quot;, &quot;E&quot;)
+elt = Float64
+t, u, filling = 1.0, 8.0, (1, 1)
+coords = snake_2D([[1.0, 0.0], [0.0, 1.0]],
+    vcat([[2,2,2,2,2,1,-2,-2,-2,-2,-2,1] for _ in 1:3]...)[1:end-1])
+lattice = Lattice(coords...)
+H = hubbard(elt, SU2Irrep, U1Irrep, Custom(lattice);
+    t=t, U=u, filling=filling)
+
+tag = &quot;hubbard_L=$(length(H))_t=$(t)_U=$(u)&quot;
+ckpt = &quot;/bbfs/fsa/username/jobname/$(tag).jld2&quot;
+gs = load(ckpt, &quot;ψ&quot;)
+cp = e_plus(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+cm = e_min(elt, SU2Irrep, U1Irrep; side=:L, filling=filling)
+
+block = Symbol(get(ENV, &quot;BLOCK&quot;, &quot;greater&quot;))
+block in (:greater, :lesser) || error(&quot;BLOCK must be greater or lesser&quot;)
+op = block === :greater ? cp : cm
+times = 0:0.1:100
+D = 8192
+approxalg = myDMRG2(; tol=1e-6, maxiter=50, trunc=truncrank(D))
+tdvp1 = myTDVP1()
+tdvp2 = myTDVP2(; trunc=truncrank(D))
+workdir = &quot;/bbfs/scratch/username/jobname/gf_split_$(block)&quot;
+gf_path = &quot;/bbfs/fsa/username/jobname/results_$(block)&quot;</code></pre><p>Each <code>state.jl</code> call handles one of the 72 states in the selected block:</p><pre><code class="language-julia hljs">include(&quot;common_setup.jl&quot;)
+
+state = parse(Int, ARGS[1])
+dcorrelator_state(gs, H, op;
+    state, block, times, workdir,
+    n=3, approxalg, tdvp1, tdvp2,
+    disk=&quot;/bbfs/scratch/username/environments&quot;)
+println(&quot;DONE state $state&quot;)</code></pre><p><code>overlap.jl</code> reads the same block configuration and writes one normal block:</p><pre><code class="language-julia hljs">include(&quot;common_setup.jl&quot;)
+
 gf = dcorrelator_overlap(workdir;
-    gsenergy=E0, gf_path, save=false, once=false,
+    gsenergy=expectation_value(gs, H), gf_path, save=false, once=false,
     retention=2, poll_interval=30, overlap_block=16)
 mkpath(gf_path)
-save(joinpath(gf_path, &quot;gf_xt_gorkov.jld2&quot;), &quot;gf&quot;, gf, &quot;times&quot;, 0:0.16:32)
-println(&quot;DONE&quot;)</code></pre><p>The default state allocation is four cores, four Julia threads, and 12 GB. When capacity is constrained, two cores, two Julia threads, and 9 GB can be used. Always keep the CPU and Julia-thread counts equal. <code>state.slurm</code> obtains both from Slurm so that command-line overrides cannot create a mismatch:</p><pre><code class="language-bash hljs">#!/bin/bash
-#SBATCH -J gorkov_state
+save(joinpath(gf_path, &quot;gf_xt_$(block).jld2&quot;), &quot;gf&quot;, gf, &quot;times&quot;, times)
+println(&quot;DONE&quot;)</code></pre><p>For this large-<code>D</code> example, choose memory from measured per-state usage and the partition&#39;s memory-per-core policy rather than copying a fixed value. The example uses four cores/four Julia threads per state and eight cores/eight threads for overlap. Always keep the CPU and Julia-thread counts equal:</p><pre><code class="language-bash hljs">#!/bin/bash
+#SBATCH -J timesplit_state
 #SBATCH --account=YOUR_ACCOUNT
 #SBATCH -N 1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=12G
 #SBATCH -t 7-00:00:00
 #SBATCH -o output/state_%j.out
 #SBATCH -e output/state_%j.err
@@ -122,13 +126,12 @@ export MKL_DYNAMIC=FALSE
 export KMP_BLOCKTIME=0
 export JULIA_EXCLUSIVE=1
 srun -n 1 -c &quot;$SLURM_CPUS_PER_TASK&quot; --chdir=&quot;$JOB_DIR&quot; \
-    julia -t &quot;$SLURM_CPUS_PER_TASK&quot; &quot;$JOB_DIR/state.jl&quot; &quot;$STATE&quot;</code></pre><p>The overlap job uses eight cores, eight Julia threads, and 32 GB (<code>overlap.slurm</code>):</p><pre><code class="language-bash hljs">#!/bin/bash
-#SBATCH -J gorkov_overlap
+    julia -t &quot;$SLURM_CPUS_PER_TASK&quot; &quot;$JOB_DIR/state.jl&quot; &quot;$STATE&quot;</code></pre><p>The overlap job uses eight cores and eight Julia threads (<code>overlap.slurm</code>):</p><pre><code class="language-bash hljs">#!/bin/bash
+#SBATCH -J timesplit_overlap
 #SBATCH --account=YOUR_ACCOUNT
 #SBATCH -N 1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
 #SBATCH -t 7-00:00:00
 #SBATCH -o output/overlap_%j.out
 #SBATCH -e output/overlap_%j.err
@@ -144,24 +147,27 @@ export OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
 export MKL_DYNAMIC=FALSE
 export KMP_BLOCKTIME=0
 export JULIA_EXCLUSIVE=1
-srun -n 1 -c 8 --chdir=&quot;$JOB_DIR&quot; julia -t 8 &quot;$JOB_DIR/overlap.jl&quot;</code></pre><p>Submit each state once, selecting a currently suitable partition and node. Replace the uppercase placeholders with values appropriate for your allocation:</p><pre><code class="language-bash hljs">d=&quot;$HOME/jobs/example_gorkov&quot;
+srun -n 1 -c 8 --chdir=&quot;$JOB_DIR&quot; julia -t 8 &quot;$JOB_DIR/overlap.jl&quot;</code></pre><p>Submit each state once, selecting a currently suitable partition and node. Replace the uppercase placeholders with values appropriate for your allocation:</p><pre><code class="language-bash hljs">d=&quot;$HOME/jobs/example_hubbard&quot;
 s=1
+block=greater
 partition=CPU_PARTITION
 node=CPU_NODE
 memory=MEMORY_REQUEST
-sbatch --chdir=&quot;$d&quot; -J &quot;gorkov_state_${s}&quot; -p &quot;$partition&quot; -w &quot;$node&quot; \
+sbatch --chdir=&quot;$d&quot; -J &quot;timesplit_state_${s}&quot; -p &quot;$partition&quot; -w &quot;$node&quot; \
     -c 4 --mem=&quot;$memory&quot; \
-    --export=&quot;ALL,STATE=${s},USE_MKL=1,OPENBLAS_NUM_THREADS=1&quot; \
-    &quot;$d/state.slurm&quot; &quot;$d&quot;</code></pre><p>On AMD nodes, use <code>USE_MKL=0</code> instead. Submit the overlap independently:</p><pre><code class="language-bash hljs">partition=GROUP_PARTITION
+    --export=&quot;ALL,STATE=${s},BLOCK=${block},USE_MKL=1,OPENBLAS_NUM_THREADS=1&quot; \
+    &quot;$d/state.slurm&quot; &quot;$d&quot;</code></pre><p>On AMD nodes, use <code>USE_MKL=0</code> instead. Submit the overlap independently with the same <code>BLOCK</code> and an appropriate overlap memory request:</p><pre><code class="language-bash hljs">partition=GROUP_PARTITION
 node=GROUP_NODE
-sbatch --chdir=&quot;$d&quot; -J gorkov_overlap -p &quot;$partition&quot; -w &quot;$node&quot; --qos=QOS_NAME \
-    --export=&quot;ALL,USE_MKL=1,OPENBLAS_NUM_THREADS=1&quot; \
-    &quot;$d/overlap.slurm&quot; &quot;$d&quot;</code></pre><p>Pass the directory as a quoted script argument as shown. Do <strong>not</strong> put a <code>JOB_DIR</code> containing a comma in <code>--export</code>, because Slurm interprets commas as separators. Absolute Julia driver paths and explicit <code>srun --chdir</code> prevent a relative path from accidentally resolving under the home directory.</p><h4 id="Reading-state-logs"><a class="docs-heading-anchor" href="#Reading-state-logs">Reading state logs</a><a id="Reading-state-logs-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-state-logs" title="Permalink"></a></h4><p>Each state writes <code>output/state_&lt;jobid&gt;.out</code> and <code>.err</code>. A resumed two-thread job can look like this:</p><pre><code class="language-text hljs">START state 1 | host cpu-node | Julia threads 2 | BLAS LBTConfig(...)
-[state 1/64] bra site 1 on cpu-node | pid 12345 | threads 2
+overlap_memory=OVERLAP_MEMORY_REQUEST
+sbatch --chdir=&quot;$d&quot; -J timesplit_overlap -p &quot;$partition&quot; -w &quot;$node&quot; \
+    --qos=QOS_NAME --mem=&quot;$overlap_memory&quot; \
+    --export=&quot;ALL,BLOCK=${block},USE_MKL=1,OPENBLAS_NUM_THREADS=1&quot; \
+    &quot;$d/overlap.slurm&quot; &quot;$d&quot;</code></pre><p>Pass the directory as a quoted script argument as shown. Do <strong>not</strong> put a <code>JOB_DIR</code> containing a comma in <code>--export</code>, because Slurm interprets commas as separators. Absolute Julia driver paths and explicit <code>srun --chdir</code> prevent a relative path from accidentally resolving under the home directory.</p><h4 id="Reading-state-logs"><a class="docs-heading-anchor" href="#Reading-state-logs">Reading state logs</a><a id="Reading-state-logs-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-state-logs" title="Permalink"></a></h4><p>Each state writes <code>output/state_&lt;jobid&gt;.out</code> and <code>.err</code>. A resumed four-thread job can look like this:</p><pre><code class="language-text hljs">START state 1 | host cpu-node | Julia threads 4 | BLAS LBTConfig(...)
+[state 1/72] bra site 1 on cpu-node | pid 12345 | threads 4
 [state 1] resume from slice 22
-[state 1] slice 23/201 | t = 3.52 | maxD 2000 | wall 3m, 44s, 17ms | GC 18.6% | RSS 5.89 GiB
+[state 1] slice 23/1001 | t = 2.2 | maxD 8192 | wall 5m, 12s | GC 10.2% | RSS 24.6 GiB
 ...
-DONE state 1</code></pre><p>Here <code>resume from slice 22</code> confirms that the job did not restart from the beginning. The next line reports the newly completed slice, physical time, largest bond dimension, wall time for that step, garbage-collection fraction, and memory use. During initial package precompilation or checkpoint loading, stdout may remain buffered until the first new slice; inspect the <code>.err</code> file, <code>sstat</code>, and checkpoint modification times before assuming the job is stalled.</p><h4 id="Reading-overlap-logs"><a class="docs-heading-anchor" href="#Reading-overlap-logs">Reading overlap logs</a><a id="Reading-overlap-logs-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-overlap-logs" title="Permalink"></a></h4><p>The overlap job writes <code>output/overlap_&lt;jobid&gt;.out</code>. While a slice is incomplete, a periodic message such as this is normal:</p><pre><code class="language-text hljs">[overlap] waiting for slice 14: 61/64 checkpoints</code></pre><p>Once all 64 state checkpoints exist, the overlap is computed and saved:</p><pre><code class="language-text hljs">[overlap] slice 14/201 | t = 2.08 | wall 18s
+DONE state 1</code></pre><p>Here <code>resume from slice 22</code> confirms that the job did not restart from the beginning. The next line reports the newly completed slice, physical time, largest bond dimension, wall time for that step, garbage-collection fraction, and memory use. During initial package precompilation or checkpoint loading, stdout may remain buffered until the first new slice; inspect the <code>.err</code> file, <code>sstat</code>, and checkpoint modification times before assuming the job is stalled.</p><h4 id="Reading-overlap-logs"><a class="docs-heading-anchor" href="#Reading-overlap-logs">Reading overlap logs</a><a id="Reading-overlap-logs-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-overlap-logs" title="Permalink"></a></h4><p>The overlap job writes <code>output/overlap_&lt;jobid&gt;.out</code>. While a slice is incomplete, a periodic message such as this is normal:</p><pre><code class="language-text hljs">[overlap] waiting for slice 14: 71/72 checkpoints</code></pre><p>Once all 72 state checkpoints exist, the overlap is computed and saved:</p><pre><code class="language-text hljs">[overlap] slice 14/1001 | t = 1.3 | wall 18s
 ...
-[overlap] complete: 201/201 slices
-DONE</code></pre><p>State jobs never wait for these messages or for the overlap job. Readiness is determined from atomic checkpoint files, not log text. After each overlap is saved, only old consumed checkpoints are removed; the latest two slices per state remain available for resume. Therefore a finished run does not retain every historical state file. It should have slice 201 as every state&#39;s latest checkpoint, all 201 <code>meta/pro_NNNN.jld2</code> records, and the final finite <code>gf_xt_gorkov.jld2</code> with shape <code>(32, 32, 201)</code> for this example.</p><p>For small or medium systems the direct (non-split) multi-source method <code>dcorrelator(gs, H, op, indices; ...)</code> is still available, with one checkpoint file per source channel. Afterwards, transform the real-space/time data to spectra with <code>fourier_kw</code> or <code>fourier_rw</code> (see <a href="tutorials/spectral_functions/">Spectral Functions</a>).</p><h2 id="Guide"><a class="docs-heading-anchor" href="#Guide">Guide</a><a id="Guide-1"></a><a class="docs-heading-anchor-permalink" href="#Guide" title="Permalink"></a></h2><ul><li><a href="tutorials/getting_started/">Getting Started</a>: the package layout and a compact end-to-end workflow.</li><li><a href="tutorials/dmrg/">Ground State with DMRG</a>: <code>dmrg1</code>/<code>dmrg2</code> with explicit <code>truncdims</code> schedules and the default algorithm constructors.</li><li><a href="tutorials/dynamical_correlations/">Dynamical Correlations</a>: zero-temperature real-time correlators and CBE-TDVP1.</li><li><a href="tutorials/spectral_functions/">Spectral Functions</a>: real-space/time to momentum-frequency transforms.</li><li><a href="tutorials/finite_temperature/">Finite Temperature</a>: purification, imaginary-time preparation, and finite-temperature correlators.</li><li><a href="tutorials/finite_engine/">The Finite Engine</a>: lazy/disk-backed environments and the threading layout behind the DMRG and TDVP drivers.</li><li><a href="tutorials/momentum_space/">Momentum-Space Geometry</a>: Brillouin zones, allowed momentum cuts of (twisted) supercells, and plotting.</li></ul><h2 id="API-Reference"><a class="docs-heading-anchor" href="#API-Reference">API Reference</a><a id="API-Reference-1"></a><a class="docs-heading-anchor-permalink" href="#API-Reference" title="Permalink"></a></h2><p>The API pages list exported models, operators, states, algorithms, observables, and utility functions. Start with:</p><ul><li><a href="api/algorithms/">Algorithms</a></li><li><a href="api/states/">States</a></li><li><a href="api/observables/">Observables</a></li><li><a href="api/operators/">Operators</a></li></ul><h2 id="Compatibility-Note"><a class="docs-heading-anchor" href="#Compatibility-Note">Compatibility Note</a><a id="Compatibility-Note-1"></a><a class="docs-heading-anchor-permalink" href="#Compatibility-Note" title="Permalink"></a></h2><p>Before v1.0, minor versions may change APIs when the internal workflow improves. Use the exported <code>my*</code> constructors (<code>myDMRG2</code>, <code>myDMRG1_CBE</code>, <code>myTDVP1</code>, <code>myTDVP1_CBE</code>, <code>myTDVP2</code>) for the package&#39;s default algorithm configurations.</p><h2 id="Acknowledgments"><a class="docs-heading-anchor" href="#Acknowledgments">Acknowledgments</a><a id="Acknowledgments-1"></a><a class="docs-heading-anchor-permalink" href="#Acknowledgments" title="Permalink"></a></h2><p>This package builds on MPSKit.jl, TensorKit.jl, MPSKitModels.jl, and QuantumLattices.jl. We thank the developers of those packages and the users who have helped test the CBE and dynamical-correlation workflows.</p></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="tutorials/getting_started/">Getting Started »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Saturday 21 November 2026 03:32">Saturday 21 November 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+[overlap] complete: 1001/1001 slices
+DONE</code></pre><p>State jobs never wait for these messages or for the overlap job. Readiness is determined from atomic checkpoint files, not log text. After each overlap is saved, only old consumed checkpoints are removed; the latest two slices per state remain available for resume. Therefore a finished run does not retain every historical state file. It should have slice 1001 as every state&#39;s latest checkpoint and all 1001 <code>meta/pro_NNNN.jld2</code> records. For this example, <code>gf_xt_greater.jld2</code> and <code>gf_xt_lesser.jld2</code> each have shape <code>(36, 36, 1001)</code>, and the retarded Green function is their sum.</p><p>For small or medium systems the direct (non-split) multi-source method <code>dcorrelator(gs, H, op, indices; ...)</code> is still available, with one checkpoint file per source channel. Afterwards, transform the real-space/time data to spectra with <code>fourier_kw</code> or <code>fourier_rw</code> (see <a href="tutorials/spectral_functions/">Spectral Functions</a>).</p><h2 id="Guide"><a class="docs-heading-anchor" href="#Guide">Guide</a><a id="Guide-1"></a><a class="docs-heading-anchor-permalink" href="#Guide" title="Permalink"></a></h2><ul><li><a href="tutorials/getting_started/">Getting Started</a>: the package layout and a compact end-to-end workflow.</li><li><a href="tutorials/dmrg/">Ground State with DMRG</a>: <code>dmrg1</code>/<code>dmrg2</code> with explicit <code>truncdims</code> schedules and the default algorithm constructors.</li><li><a href="tutorials/dynamical_correlations/">Dynamical Correlations</a>: zero-temperature real-time correlators and CBE-TDVP1.</li><li><a href="tutorials/spectral_functions/">Spectral Functions</a>: real-space/time to momentum-frequency transforms.</li><li><a href="tutorials/finite_temperature/">Finite Temperature</a>: purification, imaginary-time preparation, and finite-temperature correlators.</li><li><a href="tutorials/finite_engine/">The Finite Engine</a>: lazy/disk-backed environments and the threading layout behind the DMRG and TDVP drivers.</li><li><a href="tutorials/momentum_space/">Momentum-Space Geometry</a>: Brillouin zones, allowed momentum cuts of (twisted) supercells, and plotting.</li></ul><h2 id="API-Reference"><a class="docs-heading-anchor" href="#API-Reference">API Reference</a><a id="API-Reference-1"></a><a class="docs-heading-anchor-permalink" href="#API-Reference" title="Permalink"></a></h2><p>The API pages list exported models, operators, states, algorithms, observables, and utility functions. Start with:</p><ul><li><a href="api/algorithms/">Algorithms</a></li><li><a href="api/states/">States</a></li><li><a href="api/observables/">Observables</a></li><li><a href="api/operators/">Operators</a></li></ul><h2 id="Compatibility-Note"><a class="docs-heading-anchor" href="#Compatibility-Note">Compatibility Note</a><a id="Compatibility-Note-1"></a><a class="docs-heading-anchor-permalink" href="#Compatibility-Note" title="Permalink"></a></h2><p>Before v1.0, minor versions may change APIs when the internal workflow improves. Use the exported <code>my*</code> constructors (<code>myDMRG2</code>, <code>myDMRG1_CBE</code>, <code>myTDVP1</code>, <code>myTDVP1_CBE</code>, <code>myTDVP2</code>) for the package&#39;s default algorithm configurations.</p><h2 id="Acknowledgments"><a class="docs-heading-anchor" href="#Acknowledgments">Acknowledgments</a><a id="Acknowledgments-1"></a><a class="docs-heading-anchor-permalink" href="#Acknowledgments" title="Permalink"></a></h2><p>This package builds on MPSKit.jl, TensorKit.jl, MPSKitModels.jl, and QuantumLattices.jl. We thank the developers of those packages and the users who have helped test the CBE and dynamical-correlation workflows.</p></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="tutorials/getting_started/">Getting Started »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Saturday 21 November 2026 03:57">Saturday 21 November 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
