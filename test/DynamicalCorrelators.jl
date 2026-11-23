@@ -1010,5 +1010,25 @@ end
                 etol = 1e-12, max_tailsweeps = 2, verbose = 0)
         end
         @test !isdir(ckpt4 * ".updates.d")
+
+        # (e) an explicit updatedir remains independent of environment backing,
+        # including when the resumed run keeps environments in RAM
+        dir5 = joinpath(root, "e")
+        ckpt5 = joinpath(dir5, "run.jld2")
+        updates5 = joinpath(dir5, "updates")
+        mkpath(dir5)
+        ψe = copy(ψ0)
+        @test_throws InterruptException dmrg2!(ψe, H, Ds;
+            filename = ckpt5, disk = joinpath(dir5, "envs"), updatedir = updates5,
+            etol = 1e-12, max_tailsweeps = 2, verbose = 0, _interrupt_after = 5)
+        @test isdir(joinpath(updates5, "run.jld2.updates.d"))
+        ψe2 = copy(ψ0)
+        out = run_captured() do
+            dmrg2!(ψe2, H, Ds; filename = ckpt5, disk = false, updatedir = updates5,
+                etol = 1e-12, max_tailsweeps = 2, verbose = 1)
+        end
+        @test occursin("resuming sweep 1 from right position 5", out)
+        @test abs(dot(ψe2, ψref)) ≈ norm(ψe2) * norm(ψref) atol = 1e-8
+        @test !isdir(joinpath(updates5, "run.jld2.updates.d"))
     end
 end

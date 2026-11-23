@@ -12,11 +12,10 @@
 #     bookkeeping and WHICH environment entries are consistent with the saved
 #     tensors (computed from the in-memory dependency pointers, so it can
 #     never mark a stale entry as valid);
-#   * the updates directory follows the environments: next to their
-#     serialized storage when disk-backed (transient scratch — on bbfs this
-#     avoids the writeback traffic of the persistent side for files that are
-#     rewritten every sweep and deleted at sweep end), next to `filename`
-#     when environments live in RAM;
+#   * an explicit string `updatedir` fixes the updates directory independently
+#     of environment backing. When it is omitted or non-string, the directory
+#     follows the environments: next to their serialized storage when
+#     disk-backed, next to `filename` when environments live in RAM;
 #   * on entry, `_dmrg_run!` looks for that directory and, if the schedule
 #     matches, resumes: the state is the rolling checkpoint (sweep start)
 #     overlaid with the per-update files, and surviving environment files are
@@ -49,7 +48,10 @@ end
 # on bbfs this avoids the writeback traffic of the persistent side for files
 # that are rewritten every sweep and deleted at sweep end. With in-RAM
 # environments there is no scratch root and it stays next to `filename`.
-function _updates_dir(filename::AbstractString, envs)
+function _updates_dir(filename::AbstractString, envs, updatedir = nothing)
+    if updatedir isa AbstractString
+        return joinpath(updatedir, basename(filename) * ".updates.d")
+    end
     gls_path, _ = _env_paths(envs)
     parent = isempty(gls_path) ? "" : dirname(gls_path)
     return isempty(parent) ? filename * ".updates.d" :
@@ -279,7 +281,7 @@ function _move_env_entries!(arr, oldpath::String, valid, N, dep_index, tensor_at
 end
 
 """
-    _resume_update_checkpoint(filename, ψ, algs, envs, schedule_id, verbose) -> NamedTuple or nothing
+    _resume_update_checkpoint(filename, ψ, algs, envs, updatedir, schedule_id, verbose) -> NamedTuple or nothing
 
 Detect and consume a mid-sweep checkpoint. On success returns the resume
 state (`ψ` with the saved tensors overlaid, the loop bookkeeping, and the
@@ -287,10 +289,10 @@ resume point); on any mismatch or missing piece the directory is discarded
 and `nothing` is returned, i.e. a fresh start.
 """
 function _resume_update_checkpoint(
-        filename::String, ψ::AbstractFiniteMPS, algs, envs,
+        filename::String, ψ::AbstractFiniteMPS, algs, envs, updatedir,
         schedule_id::Unsigned, verbose
     )
-    dirpath = _updates_dir(filename, envs)
+    dirpath = _updates_dir(filename, envs, updatedir)
     meta = _load_update_meta(dirpath)
     meta === nothing && return nothing
     N = length(ψ)
@@ -356,11 +358,11 @@ function _discard_update_checkpoint(dirpath::AbstractString, reason::String)
 end
 
 function _update_ckpt_context(
-        filename::String, nscheduled::Int, envs, schedule_id::Unsigned
+        filename::String, nscheduled::Int, envs, updatedir, schedule_id::Unsigned
     )
     gls_path, grs_path = _env_paths(envs)
     return _UpdateCkptContext(
-        _updates_dir(filename, envs), schedule_id, nscheduled,
+        _updates_dir(filename, envs, updatedir), schedule_id, nscheduled,
         gls_path, grs_path, nothing
     )
 end
